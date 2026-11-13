@@ -168,6 +168,9 @@ export default function SellPage() {
         </div>
       )}
 
+      {/* Room so the last product card is never hidden behind the order bar */}
+      {count > 0 && <div aria-hidden className="h-24" />}
+
       {/* Sticky current-order bar */}
       {count > 0 && (
         <div className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+4.5rem)] z-30 animate-toast-in px-3 md:bottom-6 md:left-60 md:px-8">

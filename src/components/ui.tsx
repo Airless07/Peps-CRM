@@ -338,6 +338,26 @@ export function Toggle({ checked, onChange, label, hint }: { checked: boolean; o
 }
 
 // ---------------------------------------------------------------- Sheet / modal
+/**
+ * Shared stack of open sheets. The page scroll is locked while at least one sheet is open and
+ * released when the last one closes, whatever order they close in. (Each sheet saving and
+ * restoring body.overflow on its own could leave the page stuck on "hidden" when two closed together.)
+ */
+const sheetStack: object[] = [];
+function syncScrollLock() {
+  document.body.style.overflow = sheetStack.length > 0 ? "hidden" : "";
+}
+function pushSheet(t: object) {
+  sheetStack.push(t);
+  syncScrollLock();
+}
+function popSheet(t: object) {
+  const i = sheetStack.indexOf(t);
+  if (i >= 0) sheetStack.splice(i, 1);
+  syncScrollLock();
+}
+const isTopSheet = (t: object) => sheetStack[sheetStack.length - 1] === t;
+
 export function Sheet({
   open,
   onClose,
@@ -369,17 +389,24 @@ export function Sheet({
     }
   }, [open, mounted]);
 
+  // Keep the latest onClose without re-running the lock effect on every render.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
   useEffect(() => {
-    if (!mounted) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    if (!open) return;
+    const token = {};
+    pushSheet(token);
+    const onKey = (e: KeyboardEvent) => {
+      // Only the top-most open sheet reacts, so one Escape closes one sheet.
+      if (e.key === "Escape" && isTopSheet(token)) onCloseRef.current();
+    };
     window.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
     return () => {
       window.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
+      popSheet(token);
     };
-  }, [mounted, onClose]);
+  }, [open]);
 
   if (!mounted || typeof document === "undefined") return null;
   return createPortal(

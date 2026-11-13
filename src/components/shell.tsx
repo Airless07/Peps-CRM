@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Boxes, ReceiptText, Settings, ShoppingBag, Wallet, HandCoins } from "lucide-react";
 import { applyTheme, getThemePref } from "@/lib/theme";
 import { cx } from "./ui";
@@ -19,6 +19,14 @@ const TABS = [
 export function AppShell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
   const { error, data } = useStore();
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // New page starts at the top (the browser only does this for the window, not our scroll area).
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: 0 });
+    window.scrollTo({ top: 0 });
+  }, [path]);
+
   const active = (href: string) => (href === "/" ? path === "/" : path.startsWith(href));
 
   useEffect(() => {
@@ -33,9 +41,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <div className="min-h-dvh md:flex">
+    // Desktop: fixed-height row; the sidebar stays put and only the content column scrolls.
+    // Mobile: normal document scroll (keeps iOS niceties); tab bar is position:fixed.
+    <div className="min-h-dvh md:flex md:h-dvh md:min-h-0 md:overflow-hidden">
       {/* Desktop sidebar */}
-      <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col border-r border-line bg-surface px-3 py-5 md:flex">
+      <aside className="hidden h-dvh w-60 shrink-0 flex-col overflow-y-auto border-r border-line bg-surface px-3 py-5 md:flex">
         <div className="mb-6 flex items-center gap-2.5 px-3">
           <img src="/icon.svg" alt="" className="h-8 w-8 rounded-lg" />
           <span className="text-[17px] font-semibold tracking-tight">Peps CRM</span>
@@ -67,7 +77,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </Link>
       </aside>
 
-      <div className="min-w-0 flex-1">
+      <div ref={scrollRef} className="min-w-0 flex-1 md:h-dvh md:min-h-0 md:overflow-y-auto md:overscroll-contain">
         {/* Top bar with settings gear (all screens) */}
         <header className="sticky top-0 z-30 border-b border-line/60 bg-bg/85 pt-[env(safe-area-inset-top)] backdrop-blur-md md:border-none md:bg-transparent md:backdrop-blur-none">
           <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-4 md:px-8">
