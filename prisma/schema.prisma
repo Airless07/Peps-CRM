@@ -1,0 +1,150 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Single settings row (id = 1). Money is always integer cents.
+model Settings {
+  id                   Int      @id @default(1)
+  startingBalanceCents Int      @default(-130000)
+  startDate            DateTime @default(now())
+  businessCutPercent   Float    @default(10)
+  partnerAName         String   @default("Ahmad")
+  partnerBName         String   @default("Mo")
+  /// Partner A's share of splittable profit in percent (B gets 100 - this)
+  partnerARatio        Float    @default(50)
+  /// "profit" | "seller" | "business"
+  tipHandling          String   @default("profit")
+  /// "A" | "B"
+  defaultSoldBy        String   @default("A")
+  lowStockThreshold    Int      @default(3)
+  passwordHash         String?
+  updatedAt            DateTime @updatedAt
+}
+
+model Product {
+  id                String            @id
+  name              String
+  defaultPriceCents Int               @default(0)
+  /// Manual override for cost per unit. Null = weighted average of purchases.
+  costOverrideCents Int?
+  lowStockThreshold Int?
+  color             String            @default("slate")
+  sortOrder         Int               @default(0)
+  archived          Boolean           @default(false)
+  createdAt         DateTime          @default(now())
+  purchases         Purchase[]
+  adjustments       StockAdjustment[]
+  orderLines        OrderLine[]
+}
+
+model Purchase {
+  id             String   @id
+  date           DateTime
+  productId      String
+  product        Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  quantity       Int
+  totalCostCents Int
+  note           String   @default("")
+  /// If true: adds stock and sets cost but does NOT subtract from business money.
+  fromInvestment Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  @@index([productId])
+}
+
+model StockAdjustment {
+  id        String   @id
+  date      DateTime
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  /// Positive or negative
+  quantity  Int
+  /// "breakage" | "freebie" | "correction"
+  reason    String   @default("correction")
+  note      String   @default("")
+  createdAt DateTime @default(now())
+
+  @@index([productId])
+}
+
+model Order {
+  id            String      @id
+  date          DateTime
+  customer      String      @default("")
+  note          String      @default("")
+  /// "A" | "B"
+  soldBy        String      @default("A")
+  /// "$" | "%"
+  discountType  String      @default("$")
+  /// Cents when discountType is "$", percent when "%"
+  discountValue Float       @default(0)
+  tipCents      Int         @default(0)
+  createdAt     DateTime    @default(now())
+  lines         OrderLine[]
+  splitItems    SplitItem[]
+
+  @@index([date])
+}
+
+model OrderLine {
+  id             String   @id
+  orderId        String
+  order          Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId      String?
+  product        Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  /// Snapshot of the product name so history survives product deletion
+  productName    String   @default("")
+  quantity       Int
+  unitPriceCents Int
+  unitCostCents  Int
+  cutPercent     Float
+  sortOrder      Int      @default(0)
+
+  @@index([orderId])
+}
+
+model Split {
+  id             String      @id
+  date           DateTime
+  note           String      @default("")
+  partnerACents  Int
+  partnerBCents  Int
+  businessCents  Int
+  createdAt      DateTime    @default(now())
+  items          SplitItem[]
+  payouts        Payout[]
+}
+
+/// What a split covered for one order (lines + tip), as amounts at split time.
+/// orderId becomes null if the order is later deleted (the amount stays as history).
+model SplitItem {
+  id            String  @id
+  splitId       String
+  split         Split   @relation(fields: [splitId], references: [id], onDelete: Cascade)
+  orderId       String?
+  order         Order?  @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  partnerACents Int
+  partnerBCents Int
+  businessCents Int
+
+  @@index([splitId])
+  @@index([orderId])
+}
+
+model Payout {
+  id        String   @id
+  date      DateTime
+  /// "A" | "B"
+  person    String
+  amountCents Int
+  note      String   @default("")
+  /// Set when auto-created by a split. Those do not touch business money again.
+  splitId   String?
+  split     Split?   @relation(fields: [splitId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+}

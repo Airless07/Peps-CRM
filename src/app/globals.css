@@ -1,0 +1,63 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-sans: "Inter", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", Roboto, sans-serif;
+  --bg: 246 246 243;
+  --surface: 255 255 255;
+  --surface2: 239 239 235;
+  --line: 226 226 221;
+  --ink: 24 24 27;
+  --muted: 113 113 122;
+  --accent: 79 70 229;
+  --accent-ink: 255 255 255;
+  --pos: 22 163 74;
+  --neg: 220 38 38;
+  --warn: 217 119 6;
+  color-scheme: light;
+}
+
+.dark {
+  --bg: 12 12 14;
+  --surface: 24 24 27;
+  --surface2: 36 36 40;
+  --line: 46 46 52;
+  --ink: 244 244 245;
+  --muted: 161 161 170;
+  --accent: 129 140 248;
+  --accent-ink: 15 15 30;
+  --pos: 74 222 128;
+  --neg: 248 113 113;
+  --warn: 251 191 36;
+  color-scheme: dark;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  @apply bg-bg text-ink antialiased;
+  font-feature-settings: "cv11", "ss01";
+  overscroll-behavior-y: none;
+}
+
+input[type="date"],
+input[type="datetime-local"] {
+  min-height: 3rem;
+}
+
+::selection {
+  background: rgb(var(--accent) / 0.25);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
