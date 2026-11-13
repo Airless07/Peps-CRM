@@ -18,24 +18,32 @@ if errorlevel 1 (
 )
 for /f "delims=" %%v in ('node -v') do echo  [ok] Node.js %%v
 
-rem --- 2. .env present? ---
-if not exist ".env" (
-  if not exist ".env.example" (
-    echo  [X] .env.example is missing. Re-download the project.
-    goto :fail
-  )
-  copy /y ".env.example" ".env" >nul
-  echo  [!] Created a new .env file from .env.example.
-  echo.
-  echo      Open ".env" in this folder and fill in:
-  echo        DATABASE_URL    - your PostgreSQL connection string
-  echo        APP_PASSWORD    - the password you will log in with
-  echo        SESSION_SECRET  - a long random string, 32+ characters
-  echo.
-  echo      Then run launch.bat again.
+rem --- 2. .env present? (created automatically with working local defaults) ---
+if exist ".env" goto :envok
+if not exist ".env.example" (
+  echo  [X] .env.example is missing. Re-download the project.
   goto :fail
 )
+node scripts\init-env.mjs
+if errorlevel 1 (
+  echo  [X] Could not create .env. See the error above.
+  goto :fail
+)
+echo  [ok] Created .env. Login password is peps1234 - change it in Settings.
+goto :envdone
+:envok
 echo  [ok] .env found
+:envdone
+
+rem --- 2b. Data folder for the SQLite database ---
+if exist "data\" goto :dataok
+mkdir "data"
+if errorlevel 1 (
+  echo  [X] Could not create the data folder.
+  goto :fail
+)
+:dataok
+echo  [ok] Data folder: %CD%\data
 
 rem --- 3. Dependencies (only if missing) ---
 if not exist "node_modules\" (
@@ -59,7 +67,7 @@ if errorlevel 1 (
 )
 call npx prisma migrate deploy
 if errorlevel 1 (
-  echo  [X] Database migration failed. Check DATABASE_URL in .env and that the database is running.
+  echo  [X] Database migration failed. Check DATABASE_URL in .env.
   goto :fail
 )
 echo  [ok] Database ready

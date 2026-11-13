@@ -7,6 +7,9 @@ const enc = new TextEncoder();
 function secret(): string {
   const s = process.env.SESSION_SECRET;
   if (!s || s.length < 16) throw new Error("SESSION_SECRET is missing or too short (use 32+ random characters).");
+  if (process.env.NODE_ENV === "production" && s.startsWith("local-dev-only-secret")) {
+    throw new Error("SESSION_SECRET is still the local default. Set a real random secret in production.");
+  }
   return s;
 }
 

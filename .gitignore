@@ -12,3 +12,7 @@ npm-debug.log*
 .vercel
 coverage/
 .playwright-mcp/
+data/
+prisma/data/
+*.db
+*.db-journal
