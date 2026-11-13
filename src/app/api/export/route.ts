@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { HttpError, route } from "@/lib/api";
+import { BACKUP_VERSION } from "@/lib/backup";
 import { loadAll } from "@/lib/serialize";
 import type { AppData } from "@/lib/types";
 
@@ -16,7 +17,8 @@ function csv(rows: Record<string, unknown>[]): string {
 }
 
 const tables: Record<string, (d: AppData) => Record<string, unknown>[]> = {
-  settings: (d) => [{ ...d.settings }],
+  settings: (d) => [{ ...d.settings, paymentMethods: d.settings.paymentMethods.join(" | ") }],
+  customers: (d) => d.customers.map((c) => ({ ...c })),
   products: (d) => d.products.map((p) => ({ ...p })),
   purchases: (d) => d.purchases.map((p) => ({ ...p })),
   adjustments: (d) => d.adjustments.map((a) => ({ ...a })),
@@ -32,7 +34,7 @@ export const GET = route(async (req) => {
   const data = await loadAll();
   const stamp = new Date().toISOString().slice(0, 10);
   if (!table || table === "json") {
-    return new NextResponse(JSON.stringify({ app: "peps-crm", version: 1, exportedAt: new Date().toISOString(), data }, null, 2), {
+    return new NextResponse(JSON.stringify({ app: "peps-crm", version: BACKUP_VERSION, exportedAt: new Date().toISOString(), data }, null, 2), {
       headers: {
         "Content-Type": "application/json",
         "Content-Disposition": `attachment; filename="peps-crm-backup-${stamp}.json"`,

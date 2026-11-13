@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef } from "react";
-import { Boxes, ReceiptText, Settings, ShoppingBag, Wallet, HandCoins } from "lucide-react";
+import { Boxes, ReceiptText, Settings, ShoppingBag, Users, Wallet, HandCoins } from "lucide-react";
 import { applyTheme, getThemePref } from "@/lib/theme";
 import { cx } from "./ui";
 import { useStore } from "./store";
@@ -11,6 +11,8 @@ import { useStore } from "./store";
 const TABS = [
   { href: "/", label: "Sell", icon: ShoppingBag },
   { href: "/orders", label: "Orders", icon: ReceiptText },
+  // Desktop sidebar only. On mobile, Customers is a toggle at the top of the Orders screen.
+  { href: "/customers", label: "Customers", icon: Users, desktopOnly: true },
   { href: "/inventory", label: "Inventory", icon: Boxes },
   { href: "/money", label: "Money", icon: Wallet },
   { href: "/pay", label: "Pay", icon: HandCoins },
@@ -28,6 +30,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [path]);
 
   const active = (href: string) => (href === "/" ? path === "/" : path.startsWith(href));
+  // On the mobile tab bar, Orders also covers the Customers screen
+  const activeMobile = (href: string) => active(href) || (href === "/orders" && path.startsWith("/customers"));
 
   useEffect(() => {
     applyTheme(getThemePref());
@@ -112,16 +116,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* Mobile bottom tab bar */}
       <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md md:hidden">
         <div className="mx-auto flex max-w-md">
-          {TABS.map((t) => (
+          {TABS.filter((t) => !t.desktopOnly).map((t) => (
             <Link
               key={t.href}
               href={t.href}
               className={cx(
                 "flex h-16 flex-1 flex-col items-center justify-center gap-1 text-[11px] font-medium transition active:scale-95",
-                active(t.href) ? "text-accent" : "text-muted",
+                activeMobile(t.href) ? "text-accent" : "text-muted",
               )}
             >
-              <t.icon size={22} strokeWidth={active(t.href) ? 2.3 : 1.9} />
+              <t.icon size={22} strokeWidth={activeMobile(t.href) ? 2.3 : 1.9} />
               {t.label}
             </Link>
           ))}

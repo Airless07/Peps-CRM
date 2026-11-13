@@ -8,6 +8,7 @@ import { colorHex, fmtMoney, fromLocalInput, toLocalDateTimeInput, uid } from "@
 import type { DiscountType } from "@/lib/types";
 import { Field, Input, MoneyInput, NumberInput, Row, Segmented, Select, Stepper, cx } from "./ui";
 import { useLoaded } from "./store";
+import { CustomerPicker } from "./customer-picker";
 
 const chip =
   "h-10 rounded-xl border px-3.5 text-sm font-medium tabular-nums transition active:scale-95";
@@ -49,6 +50,10 @@ export function OrderForm({ draft, onChange, mode }: { draft: Draft; onChange: (
   const isDisc = (type: DiscountType, value: number) => draft.discountType === type && draft.discountValue === value;
   const tipPresets = [500, 1000, 2000];
   const tipIsPreset = tipPresets.includes(draft.tipCents);
+  // Offered methods, plus the order's own one if it is no longer offered (or "Unknown")
+  const methods = data.settings.paymentMethods.includes(draft.paymentMethod)
+    ? data.settings.paymentMethods
+    : [...data.settings.paymentMethods, draft.paymentMethod];
 
   return (
     <div className="space-y-6">
@@ -153,21 +158,44 @@ export function OrderForm({ draft, onChange, mode }: { draft: Draft; onChange: (
         </div>
       </div>
 
-      {/* Seller, customer, note */}
+      {/* Seller, payment, customer, note */}
       <div className="space-y-4">
-        <Field label="Sold by">
-          <Segmented
-            value={draft.soldBy}
-            onChange={(v) => onChange({ ...draft, soldBy: v })}
-            options={[
-              { value: "A", label: name("A") },
-              { value: "B", label: name("B") },
-            ]}
-          />
-        </Field>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+          <Field label="Sold by">
+            <Segmented
+              value={draft.soldBy}
+              onChange={(v) => onChange({ ...draft, soldBy: v })}
+              options={[
+                { value: "A", label: name("A") },
+                { value: "B", label: name("B") },
+              ]}
+            />
+          </Field>
+          <Field label="Payment">
+            <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Payment method">
+              {methods.map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  role="radio"
+                  aria-checked={draft.paymentMethod === m}
+                  className={cx(chip, "h-11", draft.paymentMethod === m ? chipOn : chipOff)}
+                  onClick={() => onChange({ ...draft, paymentMethod: m })}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+          </Field>
+        </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Customer (optional)">
-            <Input value={draft.customer} onChange={(e) => onChange({ ...draft, customer: e.target.value })} placeholder="Name" />
+            <CustomerPicker
+              name={draft.customer}
+              customerId={draft.customerId}
+              customers={data.customers}
+              onChange={(v) => onChange({ ...draft, ...v })}
+            />
           </Field>
           <Field label="Note (optional)">
             <Input value={draft.note} onChange={(e) => onChange({ ...draft, note: e.target.value })} placeholder="Anything to remember" />

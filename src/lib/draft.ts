@@ -1,4 +1,7 @@
-import type { DiscountType, OrderRec, Partner } from "./types";
+import { customerKey } from "./customers";
+import { uid } from "./format";
+import type { CustomerRec, DiscountType, OrderRec, Partner } from "./types";
+import { UNKNOWN_PAYMENT } from "./types";
 
 export interface DraftLine {
   id: string;
@@ -13,7 +16,11 @@ export interface DraftLine {
 export interface Draft {
   id: string;
   date: string;
+  /** Typed or picked customer name. */
   customer: string;
+  /** Linked customer. May be a new id not yet saved (created with the order). */
+  customerId: string | null;
+  paymentMethod: string;
   note: string;
   soldBy: Partner;
   discountType: DiscountType;
@@ -27,6 +34,8 @@ export function orderToDraft(o: OrderRec): Draft {
     id: o.id,
     date: o.date,
     customer: o.customer,
+    customerId: o.customerId,
+    paymentMethod: o.paymentMethod,
     note: o.note,
     soldBy: o.soldBy,
     discountType: o.discountType,
@@ -49,6 +58,7 @@ export function orderToDraft(o: OrderRec): Draft {
 export function draftToOrder(d: Draft, createdAt = new Date().toISOString()): OrderRec {
   return {
     ...d,
+    customer: d.customer.trim(),
     createdAt,
     lines: d.lines.map((l, i) => ({ ...l, orderId: d.id, sortOrder: i })),
   };
@@ -60,3 +70,29 @@ export function draftPayload(d: Draft) {
 }
 
 export const lineCount = (d: Pick<Draft, "lines">) => d.lines.reduce((s, l) => s + l.quantity, 0);
+
+/** Fill fields that carts saved by an older version of the app don't have. */
+export function upgradeDraft(d: Draft, fallbackPayment: string): Draft {
+  return {
+    ...d,
+    customer: d.customer ?? "",
+    customerId: d.customerId ?? null,
+    paymentMethod: d.paymentMethod || fallbackPayment || UNKNOWN_PAYMENT,
+  };
+}
+
+/**
+ * Link a typed customer name before saving: an existing customer with the same name
+ * (trimmed, any case) is reused, otherwise a new customer is made with the order.
+ * Returns the draft and the new customer (for the optimistic update), if any.
+ */
+export function resolveDraftCustomer(d: Draft, customers: CustomerRec[], now = new Date().toISOString()): { draft: Draft; created: CustomerRec | null } {
+  const name = d.customer.trim();
+  if (!name) return { draft: { ...d, customer: "", customerId: null }, created: null };
+  const linked = d.customerId ? customers.find((c) => c.id === d.customerId) : undefined;
+  if (linked) return { draft: { ...d, customer: linked.name }, created: null };
+  const match = customers.find((c) => customerKey(c.name) === customerKey(name));
+  if (match) return { draft: { ...d, customer: match.name, customerId: match.id }, created: null };
+  const created: CustomerRec = { id: d.customerId ?? uid(), name, phone: "", notes: "", createdAt: now };
+  return { draft: { ...d, customer: name, customerId: created.id }, created };
+}

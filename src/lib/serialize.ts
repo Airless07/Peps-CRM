@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 import type {
   AdjustmentRec,
   AppData,
+  CustomerRec,
   OrderRec,
   PayoutRec,
   ProductRec,
@@ -10,6 +11,7 @@ import type {
   SplitRec,
 } from "./types";
 import { prisma } from "./db";
+import { cleanPaymentMethods } from "./backup";
 
 const iso = (d: Date) => d.toISOString();
 
@@ -28,6 +30,7 @@ export function toSettings(s: Awaited<ReturnType<typeof getSettingsRow>>): Setti
     tipHandling: s.tipHandling as SettingsRec["tipHandling"],
     defaultSoldBy: s.defaultSoldBy as SettingsRec["defaultSoldBy"],
     lowStockThreshold: s.lowStockThreshold,
+    paymentMethods: cleanPaymentMethods(s.paymentMethods),
   };
 }
 
@@ -35,9 +38,10 @@ type OrderWithLines = Prisma.OrderGetPayload<{ include: { lines: true } }>;
 type SplitWithItems = Prisma.SplitGetPayload<{ include: { items: true } }>;
 
 export async function loadAll(): Promise<AppData> {
-  const [settings, products, purchases, adjustments, orders, splits, payouts] = await Promise.all([
+  const [settings, products, customers, purchases, adjustments, orders, splits, payouts] = await Promise.all([
     getSettingsRow(),
     prisma.product.findMany({ orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] }),
+    prisma.customer.findMany({ orderBy: { name: "asc" } }),
     prisma.purchase.findMany({ orderBy: { date: "desc" } }),
     prisma.stockAdjustment.findMany({ orderBy: { date: "desc" } }),
     prisma.order.findMany({ orderBy: { date: "desc" }, include: { lines: { orderBy: { sortOrder: "asc" } } } }),
@@ -49,6 +53,7 @@ export async function loadAll(): Promise<AppData> {
     products: products.map(
       (p): ProductRec => ({ ...p, createdAt: iso(p.createdAt) }),
     ),
+    customers: customers.map((c): CustomerRec => ({ ...c, createdAt: iso(c.createdAt) })),
     purchases: purchases.map((p): PurchaseRec => ({ ...p, date: iso(p.date), createdAt: iso(p.createdAt) })),
     adjustments: adjustments.map(
       (a): AdjustmentRec => ({

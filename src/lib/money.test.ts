@@ -31,6 +31,7 @@ function settings(over: Partial<SettingsRec> = {}): SettingsRec {
     tipHandling: "profit",
     defaultSoldBy: "A",
     lowStockThreshold: 3,
+    paymentMethods: ["Cash", "Zelle"],
     ...over,
   };
 }
@@ -51,6 +52,7 @@ function data(over: Partial<AppData> = {}): AppData {
         createdAt: day(1, 0),
       },
     ],
+    customers: [],
     purchases: [],
     adjustments: [],
     orders: [],
@@ -67,6 +69,8 @@ function order(date: string, lines: L[], over: Partial<OrderRec> = {}): OrderRec
     id: oid,
     date,
     customer: "",
+    customerId: null,
+    paymentMethod: "Cash",
     note: "",
     soldBy: "A",
     discountType: "$",

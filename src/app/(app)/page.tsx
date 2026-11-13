@@ -9,7 +9,7 @@ import { OrderForm } from "@/components/order-form";
 import { api, useLoaded } from "@/components/store";
 import { useToast } from "@/components/toast";
 import { Button, Empty, PageHeader, PageSkeleton, Sheet, cx, useConfirm } from "@/components/ui";
-import { draftPayload, draftToOrder, lineCount } from "@/lib/draft";
+import { draftPayload, draftToOrder, lineCount, resolveDraftCustomer } from "@/lib/draft";
 import { orderTotals } from "@/lib/money";
 import { colorHex, fmtMoney, plural } from "@/lib/format";
 import type { ProductRec } from "@/lib/types";
@@ -64,9 +64,11 @@ export default function SellPage() {
       });
       if (!ok) return;
     }
+    // Link the typed customer (existing one by name, or a new one created with the order)
+    const { draft: linked, created } = resolveDraftCustomer(draft, data.customers);
     // Snapshot cost and cut at the moment of sale
     const final = {
-      ...draft,
+      ...linked,
       date: new Date().toISOString(),
       lines: draft.lines.map((l) => ({
         ...l,
@@ -75,11 +77,16 @@ export default function SellPage() {
       })),
     };
     cart.rememberSeller(final.soldBy);
+    cart.rememberPayment(final.paymentMethod);
     setBusy(true);
     setCartOpen(false);
     cart.reset();
     const ok = await mutate(
-      (d) => ({ ...d, orders: [draftToOrder(final), ...d.orders] }),
+      (d) => ({
+        ...d,
+        customers: created ? [...d.customers, created] : d.customers,
+        orders: [draftToOrder(final), ...d.orders],
+      }),
       () => api("/api/orders", "POST", draftPayload(final)),
     );
     setBusy(false);

@@ -16,6 +16,8 @@ export interface SettingsRec {
   tipHandling: TipHandling;
   defaultSoldBy: Partner;
   lowStockThreshold: number;
+  /** Payment methods offered at checkout, in display order. */
+  paymentMethods: string[];
 }
 
 export interface ProductRec {
@@ -63,10 +65,22 @@ export interface OrderLineRec {
   sortOrder: number;
 }
 
+export interface CustomerRec {
+  id: string;
+  name: string;
+  phone: string;
+  notes: string;
+  createdAt: string;
+}
+
 export interface OrderRec {
   id: string;
   date: string;
+  /** Customer name snapshot (kept in sync with the linked customer). */
   customer: string;
+  customerId: string | null;
+  /** Payment method name as saved with the order. Old orders are "Unknown". */
+  paymentMethod: string;
   note: string;
   soldBy: Partner;
   discountType: DiscountType;
@@ -110,12 +124,16 @@ export interface PayoutRec {
 export interface AppData {
   settings: SettingsRec;
   products: ProductRec[];
+  customers: CustomerRec[];
   purchases: PurchaseRec[];
   adjustments: AdjustmentRec[];
   orders: OrderRec[];
   splits: SplitRec[];
   payouts: PayoutRec[];
 }
+
+export const DEFAULT_PAYMENT_METHODS = ["Cash", "Zelle", "Cash App", "Venmo", "Apple Pay", "Other"] as const;
+export const UNKNOWN_PAYMENT = "Unknown";
 
 export const DEFAULT_SETTINGS: SettingsRec = {
   startingBalanceCents: -130000,
@@ -127,4 +145,5 @@ export const DEFAULT_SETTINGS: SettingsRec = {
   tipHandling: "profit",
   defaultSoldBy: "A",
   lowStockThreshold: 3,
+  paymentMethods: [...DEFAULT_PAYMENT_METHODS],
 };

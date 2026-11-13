@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { AlertTriangle, Trash2 } from "lucide-react";
-import { draftPayload, draftToOrder, orderToDraft, type Draft } from "@/lib/draft";
+import { draftPayload, draftToOrder, orderToDraft, resolveDraftCustomer, type Draft } from "@/lib/draft";
 import { splitOrderIds } from "@/lib/money";
 import { api, useLoaded } from "./store";
 import { useToast } from "./toast";
@@ -31,10 +31,14 @@ export function OrderEditSheet({ orderId, onClose }: { orderId: string | null; o
       toast.show({ message: "An order needs at least one item. Delete it instead.", tone: "error" });
       return;
     }
-    const d = draft;
+    const { draft: d, created } = resolveDraftCustomer(draft, s!.data.customers);
     onClose();
     const ok = await s!.mutate(
-      (data) => ({ ...data, orders: data.orders.map((o) => (o.id === d.id ? draftToOrder(d, o.createdAt) : o)) }),
+      (data) => ({
+        ...data,
+        customers: created ? [...data.customers, created] : data.customers,
+        orders: data.orders.map((o) => (o.id === d.id ? draftToOrder(d, o.createdAt) : o)),
+      }),
       () => api(`/api/orders/${d.id}`, "PUT", draftPayload(d)),
     );
     if (ok) toast.show({ message: wasSplit ? "Order saved. The difference goes to the next split." : "Order saved" });

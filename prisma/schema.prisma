@@ -22,6 +22,8 @@ model Settings {
   /// "A" | "B"
   defaultSoldBy        String   @default("A")
   lowStockThreshold    Int      @default(3)
+  /// JSON array of payment method names offered at checkout, in display order
+  paymentMethods       String   @default("[\"Cash\",\"Zelle\",\"Cash App\",\"Venmo\",\"Apple Pay\",\"Other\"]")
   passwordHash         String?
   updatedAt            DateTime @updatedAt
 }
@@ -73,22 +75,37 @@ model StockAdjustment {
 }
 
 model Order {
-  id            String      @id
-  date          DateTime
-  customer      String      @default("")
-  note          String      @default("")
+  id             String      @id
+  date           DateTime
+  /// Snapshot of the customer name (kept in sync with the linked customer)
+  customer       String      @default("")
+  customerId     String?
+  linkedCustomer Customer?   @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  /// Name of the payment method at the time of sale ("Unknown" for old orders)
+  paymentMethod  String      @default("Unknown")
+  note           String      @default("")
   /// "A" | "B"
-  soldBy        String      @default("A")
+  soldBy         String      @default("A")
   /// "$" | "%"
-  discountType  String      @default("$")
+  discountType   String      @default("$")
   /// Cents when discountType is "$", percent when "%"
-  discountValue Float       @default(0)
-  tipCents      Int         @default(0)
-  createdAt     DateTime    @default(now())
-  lines         OrderLine[]
-  splitItems    SplitItem[]
+  discountValue  Float       @default(0)
+  tipCents       Int         @default(0)
+  createdAt      DateTime    @default(now())
+  lines          OrderLine[]
+  splitItems     SplitItem[]
 
   @@index([date])
+  @@index([customerId])
+}
+
+model Customer {
+  id        String   @id
+  name      String
+  phone     String   @default("")
+  notes     String   @default("")
+  createdAt DateTime @default(now())
+  orders    Order[]
 }
 
 model OrderLine {
@@ -109,15 +126,15 @@ model OrderLine {
 }
 
 model Split {
-  id             String      @id
-  date           DateTime
-  note           String      @default("")
-  partnerACents  Int
-  partnerBCents  Int
-  businessCents  Int
-  createdAt      DateTime    @default(now())
-  items          SplitItem[]
-  payouts        Payout[]
+  id            String      @id
+  date          DateTime
+  note          String      @default("")
+  partnerACents Int
+  partnerBCents Int
+  businessCents Int
+  createdAt     DateTime    @default(now())
+  items         SplitItem[]
+  payouts       Payout[]
 }
 
 /// What a split covered for one order (lines + tip), as amounts at split time.
@@ -137,14 +154,14 @@ model SplitItem {
 }
 
 model Payout {
-  id        String   @id
-  date      DateTime
+  id          String   @id
+  date        DateTime
   /// "A" | "B"
-  person    String
+  person      String
   amountCents Int
-  note      String   @default("")
+  note        String   @default("")
   /// Set when auto-created by a split. Those do not touch business money again.
-  splitId   String?
-  split     Split?   @relation(fields: [splitId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now())
+  splitId     String?
+  split       Split?   @relation(fields: [splitId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
 }

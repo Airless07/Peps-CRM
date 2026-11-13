@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Download, LogOut, Upload } from "lucide-react";
+import { ArrowDown, ArrowUp, Download, LogOut, Plus, Upload, X } from "lucide-react";
 import { api, useLoaded } from "@/components/store";
 import { useToast } from "@/components/toast";
 import { Button, Card, Field, Input, MoneyInput, NumberInput, PageHeader, PageSkeleton, SectionTitle, Segmented, useConfirm } from "@/components/ui";
@@ -9,7 +9,7 @@ import { fromLocalInput, toLocalDateInput } from "@/lib/format";
 import { getThemePref, setThemePref, type ThemePref } from "@/lib/theme";
 import type { SettingsRec, TipHandling } from "@/lib/types";
 
-const TABLES = ["products", "purchases", "adjustments", "orders", "order_lines", "splits", "split_items", "payouts", "settings"];
+const TABLES = ["customers", "products", "purchases", "adjustments", "orders", "order_lines", "splits", "split_items", "payouts", "settings"];
 
 export default function SettingsPage() {
   const s = useLoaded();
@@ -32,7 +32,7 @@ export default function SettingsPage() {
   const set = <K extends keyof SettingsRec>(k: K, v: SettingsRec[K]) => setForm({ ...form, [k]: v });
 
   async function save() {
-    const f = form!;
+    const f = { ...form!, paymentMethods: form!.paymentMethods.map((m) => m.trim()) };
     const ok = await mutate((d) => ({ ...d, settings: f }), () => api("/api/settings", "PATCH", f));
     if (ok) toast.show({ message: "Settings saved" });
   }
@@ -127,6 +127,11 @@ export default function SettingsPage() {
             ]}
           />
         </Field>
+      </Card>
+
+      <SectionTitle>Payment methods</SectionTitle>
+      <Card className="p-4">
+        <PaymentMethodsEditor value={form.paymentMethods} onChange={(v) => set("paymentMethods", v)} />
       </Card>
 
       <SectionTitle>Partners</SectionTitle>
@@ -266,11 +271,95 @@ export default function SettingsPage() {
             <Button variant="ghost" onClick={() => setForm(data.settings)}>
               Discard
             </Button>
-            <Button variant="primary" onClick={save} disabled={!form.partnerAName.trim() || !form.partnerBName.trim()}>
+            <Button variant="primary" onClick={save} disabled={!form.partnerAName.trim() || !form.partnerBName.trim() || !!methodsError(form.paymentMethods)}>
               Save
             </Button>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+function methodsError(list: string[]): string | null {
+  const clean = list.map((m) => m.trim());
+  if (clean.length === 0) return "Keep at least one payment method";
+  if (clean.some((m) => !m)) return "Payment method names can’t be empty";
+  if (new Set(clean.map((m) => m.toLowerCase())).size !== clean.length) return "Each payment method needs a different name";
+  return null;
+}
+
+/** Add, rename, reorder and remove the methods offered at checkout. Old orders keep the name they were saved with. */
+function PaymentMethodsEditor({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
+  const [adding, setAdding] = useState("");
+  const error = methodsError(value);
+  const move = (i: number, d: -1 | 1) => {
+    const next = [...value];
+    [next[i], next[i + d]] = [next[i + d], next[i]];
+    onChange(next);
+  };
+  const add = () => {
+    const m = adding.trim();
+    if (!m) return;
+    if (value.some((x) => x.trim().toLowerCase() === m.toLowerCase())) return;
+    onChange([...value, m]);
+    setAdding("");
+  };
+  const iconBtn =
+    "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-muted transition hover:bg-surface2 hover:text-ink disabled:opacity-30 disabled:hover:bg-transparent";
+
+  return (
+    <div className="space-y-3">
+      <div className="space-y-2">
+        {value.map((m, i) => (
+          <div key={i} className="flex items-center gap-1">
+            <Input
+              value={m}
+              maxLength={40}
+              onChange={(e) => onChange(value.map((x, j) => (j === i ? e.target.value : x)))}
+              aria-label={`Payment method ${i + 1}`}
+              className="flex-1"
+            />
+            <button type="button" className={iconBtn} disabled={i === 0} onClick={() => move(i, -1)} aria-label={`Move ${m} up`}>
+              <ArrowUp size={17} />
+            </button>
+            <button type="button" className={iconBtn} disabled={i === value.length - 1} onClick={() => move(i, 1)} aria-label={`Move ${m} down`}>
+              <ArrowDown size={17} />
+            </button>
+            <button
+              type="button"
+              className={iconBtn}
+              disabled={value.length <= 1}
+              onClick={() => onChange(value.filter((_, j) => j !== i))}
+              aria-label={`Remove ${m}`}
+            >
+              <X size={17} />
+            </button>
+          </div>
+        ))}
+      </div>
+      <div className="flex gap-2">
+        <Input
+          value={adding}
+          maxLength={40}
+          onChange={(e) => setAdding(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              add();
+            }
+          }}
+          placeholder="New payment method"
+          className="flex-1"
+        />
+        <Button onClick={add} disabled={!adding.trim()}>
+          <Plus size={17} /> Add
+        </Button>
+      </div>
+      {error ? (
+        <p className="text-xs text-neg">{error}</p>
+      ) : (
+        <p className="text-xs text-muted">Shown in this order at checkout. Renaming or removing one never changes past orders.</p>
       )}
     </div>
   );

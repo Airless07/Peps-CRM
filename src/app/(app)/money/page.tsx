@@ -8,6 +8,7 @@ import { api, useLoaded } from "@/components/store";
 import { useToast } from "@/components/toast";
 import { Badge, Button, Card, Empty, Field, Input, Money, PageHeader, PageSkeleton, Row, SectionTitle, Segmented, Sheet, cx } from "@/components/ui";
 import { addDays, dayKey, fmtDay, fmtMoney, fmtTime, startOfDay, uid } from "@/lib/format";
+import { paymentBreakdown } from "@/lib/insights";
 import { planSplit } from "@/lib/money";
 import type { SplitRec } from "@/lib/types";
 
@@ -118,6 +119,7 @@ export default function MoneyPage() {
       monthly: days > 62,
       products: [...byProduct.values()].sort((a, b) => b.revenue - a.revenue),
       sellers: bySeller,
+      payments: paymentBreakdown(inRange, data.settings.paymentMethods),
     };
   }, [s, range, period]);
 
@@ -274,6 +276,40 @@ export default function MoneyPage() {
           );
         })}
       </div>
+
+      <SectionTitle>By payment method</SectionTitle>
+      {stats.payments.length === 0 ? (
+        <Empty title="No sales in this period" />
+      ) : (
+        <Card className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-line text-left text-xs uppercase tracking-wider text-muted">
+                <th className="px-4 py-2.5 font-medium">Method</th>
+                <th className="px-2 py-2.5 text-right font-medium">Orders</th>
+                <th className="px-4 py-2.5 text-right font-medium">Collected</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-line">
+              {stats.payments.map((p) => (
+                <tr key={p.method}>
+                  <td className={cx("px-4 py-3 font-medium", p.method === "Unknown" && "text-muted")}>{p.method}</td>
+                  <td className="px-2 py-3 text-right tabular-nums">{p.orders}</td>
+                  <td className="px-4 py-3 text-right tabular-nums">{fmtMoney(p.total)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="border-t border-line font-semibold">
+                <td className="px-4 py-3">Total</td>
+                <td className="px-2 py-3 text-right tabular-nums">{stats.payments.reduce((x, p) => x + p.orders, 0)}</td>
+                <td className="px-4 py-3 text-right tabular-nums">{fmtMoney(stats.payments.reduce((x, p) => x + p.total, 0))}</td>
+              </tr>
+            </tfoot>
+          </table>
+          <p className="border-t border-line px-4 py-2.5 text-xs text-muted">Collected = order totals after discounts, including tips.</p>
+        </Card>
+      )}
 
       <SplitSheet open={splitOpen} onClose={() => setSplitOpen(false)} />
     </div>

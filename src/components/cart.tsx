@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useMemo } from "react";
 import { uid } from "@/lib/format";
-import type { Draft } from "@/lib/draft";
+import { upgradeDraft, type Draft } from "@/lib/draft";
 import type { Partner, ProductRec } from "@/lib/types";
 import { usePersistentState, useStore } from "./store";
 
@@ -14,14 +14,17 @@ interface Cart {
   reset: () => void;
   lastSeller: Partner | null;
   rememberSeller: (p: Partner) => void;
+  rememberPayment: (m: string) => void;
 }
 
 const Ctx = createContext<Cart | null>(null);
 
-const emptyDraft = (soldBy: Partner): Draft => ({
+const emptyDraft = (soldBy: Partner, paymentMethod: string): Draft => ({
   id: uid(),
   date: new Date().toISOString(),
   customer: "",
+  customerId: null,
+  paymentMethod,
   note: "",
   soldBy,
   discountType: "$",
@@ -33,16 +36,22 @@ const emptyDraft = (soldBy: Partner): Draft => ({
 export function CartProvider({ children }: { children: React.ReactNode }) {
   const { data, ledger } = useStore();
   const [lastSeller, setLastSeller] = usePersistentState<Partner | null>("peps-last-seller", null);
-  const [draft, setDraft, ready] = usePersistentState<Draft>("peps-cart", emptyDraft("A"));
+  const [lastPayment, setLastPayment] = usePersistentState<string | null>("peps-last-payment", null);
+  const [stored, setDraft, ready] = usePersistentState<Draft>("peps-cart", emptyDraft("A", ""));
 
   const seller = lastSeller ?? data?.settings.defaultSoldBy ?? "A";
+  const methods = data?.settings.paymentMethods ?? [];
+  // Last choice if it is still offered, else the first method in Settings
+  const payment = lastPayment && methods.includes(lastPayment) ? lastPayment : methods[0] ?? "Cash";
+  const draft = useMemo(() => upgradeDraft(stored, payment), [stored, payment]);
 
   const addProduct = useCallback(
     (p: ProductRec, priceCents: number) => {
       const cost = ledger?.stock.get(p.id)?.unitCost ?? 0;
       const cut = data?.settings.businessCutPercent ?? 10;
       setDraft((d) => {
-        const base = d.lines.length === 0 ? { ...d, soldBy: seller } : d;
+        const cur = upgradeDraft(d, payment);
+        const base = cur.lines.length === 0 ? { ...cur, soldBy: seller } : cur;
         const i = base.lines.findIndex((l) => l.productId === p.id && l.unitPriceCents === priceCents);
         if (i >= 0) {
           const lines = [...base.lines];
@@ -66,14 +75,14 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
         };
       });
     },
-    [data, ledger, seller, setDraft],
+    [data, ledger, seller, payment, setDraft],
   );
 
-  const reset = useCallback(() => setDraft(emptyDraft(seller)), [seller, setDraft]);
+  const reset = useCallback(() => setDraft(emptyDraft(seller, payment)), [seller, payment, setDraft]);
 
   const value = useMemo(
-    () => ({ draft, ready, setDraft, addProduct, reset, lastSeller, rememberSeller: setLastSeller }),
-    [draft, ready, setDraft, addProduct, reset, lastSeller, setLastSeller],
+    () => ({ draft, ready, setDraft, addProduct, reset, lastSeller, rememberSeller: setLastSeller, rememberPayment: setLastPayment }),
+    [draft, ready, setDraft, addProduct, reset, lastSeller, setLastSeller, setLastPayment],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

@@ -72,6 +72,9 @@ export const orderInput = z.object({
   id: idStr,
   date: dateStr,
   customer: text(120).default(""),
+  /** Existing customer id, or a new id to create the customer named in `customer`. */
+  customerId: idStr.nullable().default(null),
+  paymentMethod: text(40).min(1).default("Unknown"),
   note: text().default(""),
   soldBy: partner,
   discountType: z.enum(["$", "%"]).default("$"),
@@ -91,8 +94,28 @@ export const settingsUpdate = z
     tipHandling: z.enum(["profit", "seller", "business"]),
     defaultSoldBy: partner,
     lowStockThreshold: z.number().int().min(0).max(100000),
+    paymentMethods: z
+      .array(text(40).min(1, "Payment method names can't be empty"))
+      .min(1, "Keep at least one payment method")
+      .max(30)
+      .refine((l) => new Set(l.map((x) => x.toLowerCase())).size === l.length, "Payment methods must be unique")
+      .transform((l) => JSON.stringify(l)),
   })
   .partial();
+
+export const customerCreate = z.object({
+  id: idStr,
+  name: text(120).min(1, "Name is required"),
+  phone: text(40).default(""),
+  notes: text(2000).default(""),
+});
+export const customerUpdate = customerCreate.omit({ id: true }).partial();
+
+export const customerMerge = z.object({
+  /** The duplicate: its orders move to intoId, then it is deleted. */
+  fromId: idStr,
+  intoId: idStr,
+});
 
 export const passwordChange = z.object({
   current: z.string().min(1, "Enter your current password"),

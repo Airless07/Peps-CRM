@@ -4,11 +4,12 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { ReceiptText, Search, SlidersHorizontal } from "lucide-react";
 import { OrderEditSheet } from "@/components/order-edit";
+import { OrdersToggle } from "@/components/orders-toggle";
 import { useLoaded } from "@/components/store";
-import { Badge, Button, Empty, Field, Input, PageHeader, PageSkeleton, Segmented, cx } from "@/components/ui";
+import { Badge, Button, Empty, Field, Input, PageHeader, PageSkeleton, Segmented, Select, cx } from "@/components/ui";
 import { dayKey, fmtDay, fmtMoney, fmtTime, plural } from "@/lib/format";
 import { splitOrderIds } from "@/lib/money";
-import type { Partner } from "@/lib/types";
+import { UNKNOWN_PAYMENT, type Partner } from "@/lib/types";
 
 export default function OrdersPage() {
   const s = useLoaded();
@@ -16,6 +17,7 @@ export default function OrdersPage() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [seller, setSeller] = useState<"all" | Partner>("all");
+  const [payment, setPayment] = useState<string>("all");
   const [showFilters, setShowFilters] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
 
@@ -25,6 +27,7 @@ export default function OrdersPage() {
     const list = [...s.data.orders]
       .filter((o) => !needle || o.customer.toLowerCase().includes(needle) || o.note.toLowerCase().includes(needle))
       .filter((o) => seller === "all" || o.soldBy === seller)
+      .filter((o) => payment === "all" || o.paymentMethod === payment)
       .filter((o) => !from || dayKey(o.date) >= from)
       .filter((o) => !to || dayKey(o.date) <= to)
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -34,15 +37,22 @@ export default function OrdersPage() {
       map.set(k, [...(map.get(k) ?? []), o]);
     }
     return [...map.entries()];
-  }, [s, q, from, to, seller]);
+  }, [s, q, from, to, seller, payment]);
 
   if (!s) return <PageSkeleton />;
   const { data, ledger, name } = s;
   const split = splitOrderIds(data);
-  const filtersOn = !!from || !!to || seller !== "all";
+  const filtersOn = !!from || !!to || seller !== "all" || payment !== "all";
+  // Methods offered now, plus any older names still on orders (e.g. "Unknown" or a removed method)
+  const used = new Set(data.orders.map((o) => o.paymentMethod));
+  const paymentOptions = [
+    ...data.settings.paymentMethods,
+    ...[...used].filter((m) => !data.settings.paymentMethods.includes(m)).sort((a, b) => (a === UNKNOWN_PAYMENT ? 1 : b === UNKNOWN_PAYMENT ? -1 : a.localeCompare(b))),
+  ];
 
   return (
     <div>
+      <OrdersToggle value="orders" />
       <PageHeader title="Orders" sub={plural(data.orders.length, "order")} />
 
       <div className="mb-4 flex gap-2">
@@ -80,6 +90,16 @@ export default function OrdersPage() {
               ]}
             />
           </Field>
+          <Field label="Payment method">
+            <Select value={payment} onChange={(e) => setPayment(e.target.value)}>
+              <option value="all">All payment methods</option>
+              {paymentOptions.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </Select>
+          </Field>
           {filtersOn && (
             <button
               className="text-sm font-medium text-accent"
@@ -87,6 +107,7 @@ export default function OrdersPage() {
                 setFrom("");
                 setTo("");
                 setSeller("all");
+                setPayment("all");
               }}
             >
               Clear filters
@@ -139,7 +160,7 @@ export default function OrdersPage() {
                           </div>
                           <div className="mt-0.5 truncate text-sm text-muted">{items}</div>
                           <div className="mt-0.5 text-xs text-muted">
-                            {fmtTime(o.date)} · {name(o.soldBy)}
+                            {fmtTime(o.date)} · {name(o.soldBy)} · {o.paymentMethod}
                             {o.note ? ` · ${o.note}` : ""}
                           </div>
                         </div>
