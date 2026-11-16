@@ -15,6 +15,7 @@ export function OrderEditSheet({ orderId, onClose }: { orderId: string | null; o
   const toast = useToast();
   const [draft, setDraft] = useState<Draft | null>(null);
   const order = s?.data.orders.find((o) => o.id === orderId) ?? null;
+  const online = order?.source === "online";
 
   useEffect(() => {
     if (orderId && order) setDraft(orderToDraft(order));
@@ -37,7 +38,7 @@ export function OrderEditSheet({ orderId, onClose }: { orderId: string | null; o
       (data) => ({
         ...data,
         customers: created ? [...data.customers, created] : data.customers,
-        orders: data.orders.map((o) => (o.id === d.id ? draftToOrder(d, o.createdAt) : o)),
+        orders: data.orders.map((o) => (o.id === d.id ? draftToOrder(d, o.createdAt, o) : o)),
       }),
       () => api(`/api/orders/${d.id}`, "PUT", draftPayload(d)),
     );
@@ -69,9 +70,11 @@ export function OrderEditSheet({ orderId, onClose }: { orderId: string | null; o
       title="Edit order"
       footer={
         <div className="flex gap-2">
-          <Button variant="ghost" className="text-neg" onClick={remove} aria-label="Delete order">
-            <Trash2 size={18} />
-          </Button>
+          {!online && (
+            <Button variant="ghost" className="text-neg" onClick={remove} aria-label="Delete order">
+              <Trash2 size={18} />
+            </Button>
+          )}
           <Button block onClick={onClose}>
             Cancel
           </Button>

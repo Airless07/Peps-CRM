@@ -1,89 +1,84 @@
-# Peps CRM
+# Buckshot Peps (store) + Peps CRM (admin)
 
-Private sales and inventory tracker for a two-person business that sells products in vials.
-Mobile-first, installable as a PWA, works on phone and laptop.
+One app, two sides:
 
-**Stack:** Next.js 15 (App Router) · TypeScript · Tailwind · SQLite via Prisma · Vitest
+- **Store** at `/`: the public online store. Closed by default ("Coming soon") until you open it in Settings.
+- **Admin** at `/admin`: the Peps CRM. Orders (online and in person), ship queue, Sell screen, inventory, customers, money and partner splits, promotions, reviews, content and settings. Old CRM addresses (`/orders`, `/inventory`, ...) redirect to `/admin/...`.
 
-The whole database is one file (`data/peps.db` locally, `/data/peps.db` on Railway). No database server to set up.
+**Stack:** Next.js 15 (App Router) · TypeScript · Tailwind · SQLite via Prisma · Vitest · sharp · Resend · Shippo
+
+The whole database is one file (`data/peps.db` locally, `/data/peps.db` on Railway). Uploads and backups live next to it.
 
 ---
 
-## How the money works
+## How it fits together
 
-Nothing stores a running balance. Every number (business money, stock, pending split, what each
-partner earned and was paid) is recomputed from the raw records, in date order, by one pure function:
-`computeLedger()` in [`src/lib/money.ts`](src/lib/money.ts). If you edit or delete an old record,
-everything after it is recalculated automatically.
+- **One product list.** A product (shown on the website) has one or more sizes. Each size is what the CRM has always sold: its own stock, cost, price, low stock warning and sales history. Inventory → Edit has two tabs: "Stock and pricing" and "Website".
+- **One order list.** In-person sales and website orders share one table and one number sequence starting at 1001.
+- **One money engine.** Every number is recomputed from the raw records by `computeLedger()` in [`src/lib/money.ts`](src/lib/money.ts). Nothing stores a running balance.
 
-- **Payback mode:** while business money is below $0, all revenue and tips go to the business.
-  If one line crosses $0, only the part above $0 follows the normal rule (proportionally).
-- **Normal mode:** business keeps the item cost plus the line's cut % of profit. The rest is split
-  by the partner ratio. Zero or negative profit goes entirely to the business.
-- **Tips:** "treat as profit" (cut applies, using the first line's cut), "goes to the seller", or "all to business".
-- **Restocks** subtract their cost from business money unless marked *paid from starting investment*.
-- **Discounts** are spread across lines in proportion to each line's subtotal (leftover cent on the largest line).
+### Money rules
+
+- **Payback mode:** while business money is below $0, all revenue and tips go to the business. If one line crosses $0, only the part above $0 follows the normal rule.
+- **Normal mode:** business keeps the item cost plus the line's cut % of profit. The rest is split by the partner ratio.
+- **Discounts** are spread across lines in proportion to each line's subtotal. Website discount codes and automatic deals use the same order discount.
+- **Buy more, save more** is stored as a lower unit price on the order line, so it needs no special money rule and codes stack on top.
+- **Website orders** do not touch stock or money while they are "Awaiting payment". **Mark paid** turns the order into a normal sale dated at that moment: sold by "Website", unit cost and cut snapshotted, customer linked. Canceling a paid order takes it back out.
+- **Shipping charged** goes 100% to business money and is never split. **Each label bought** is subtracted from business money on the day it was bought. Free shipping means the business pays the label.
 - **Rounding:** money is integer cents. Rounding cents always go to the business.
-- **Splits:** confirming a split moves the pending amounts out of business money and auto-creates
-  matching payout entries. Editing an order that was already split shows a warning and the
-  difference (positive or negative) shows up as an adjustment in the next split.
-- **Manual payouts** (not from a split) come out of business money. Use a negative amount for money
-  given back to the business.
 
-Run the tests: `npm test`
+### Website order flow
+
+Awaiting payment → Paid → Label purchased → Shipped → Delivered (or Canceled).
+Unpaid orders are canceled automatically after the time set in Settings (default 24 hours, checked every 3 minutes).
+Customers need an account to check out (created inside checkout). Emails: order received with payment instructions, payment confirmed, shipped with tracking, delivered with a review link, canceled.
 
 ---
 
 ## Environment variables
 
-| Variable         | Local default (`.env`)   | Railway | What it is |
-| ---------------- | ------------------------ | ------- | ---------- |
-| `DATABASE_URL`   | `file:../data/peps.db`   | `file:/data/peps.db` | SQLite file. **Relative paths are resolved from the `prisma/` folder**, so `../data/peps.db` means `<project>/data/peps.db`. |
-| `APP_PASSWORD`   | `peps1234`               | your password | Login password until a new one is set in Settings. After that the hashed password in the database is used and this is ignored. |
-| `SESSION_SECRET` | random, generated by `launch.bat` | long random string | Signs the session cookie (32+ chars). Changing it logs everyone out. The app refuses to run in production with the `.env.example` placeholder. |
-| `PORT`           | 3000                     | set by Railway | HTTP port. |
+| Variable | Local default | Railway | What it is |
+| --- | --- | --- | --- |
+| `DATABASE_URL` | `file:../data/peps.db` | `file:/data/peps.db` | SQLite file. Relative paths are resolved from the `prisma/` folder. |
+| `APP_PASSWORD` | `peps1234` | your password | Admin password until a new one is set in Settings. |
+| `SESSION_SECRET` | generated by `launch.bat` | long random string | Signs the admin and customer cookies (32+ chars). Changing it signs everyone out. |
+| `RESEND_API_KEY` | empty | your key | Order emails. Without it emails are skipped (noted on each order) and Settings shows a warning. |
+| `SHIPPO_API_KEY` | empty | your token | Live rates and labels. Without it flat-rate shipping still works and you can mark orders shipped with your own postage. A `shippo_test_` token buys free sample labels. |
+| `PUBLIC_URL` | empty | optional | Site address for links in emails when "Website address" in Settings is empty. On Railway the public domain is picked up automatically. |
+| `SHIPPO_WEBHOOK_SECRET` | empty | optional | Secret in the tracking webhook address. Left empty, one is derived from `SESSION_SECRET`. |
+| `DATA_DIR` | empty | optional | Folder for uploads and backups. Default: the folder of the database file. |
+| `PORT` | 3000 | set by Railway | HTTP port. |
 
 Generate a secret: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
-
-Sessions last 30 days (httpOnly, signed cookie). Every page and API route requires login.
 
 ---
 
 ## Deploy on Railway (single service + Volume)
 
-SQLite lives on a Railway **Volume**, so data survives redeploys. Run exactly **one** instance
-(no horizontal scaling: a SQLite file can't be shared between replicas).
+SQLite, uploads and backups live on a Railway **Volume**, so they survive redeploys. Run exactly **one** instance.
 
-1. Push this repo to GitHub.
-2. In Railway: **New Project → Deploy from GitHub repo** → pick `peps-crm`. No database service is needed.
-3. On the service: **Settings → Volumes → New Volume**, mount path **`/data`**.
-4. **Variables**:
-   - `DATABASE_URL` = `file:/data/peps.db`
-   - `APP_PASSWORD` = your login password
-   - `SESSION_SECRET` = a long random string
-5. Railway detects Node and runs:
-   - build: `npm run build` (runs `prisma generate` then `next build`)
-   - start: `npm start` (runs `prisma migrate deploy`, which creates/updates `/data/peps.db`, then `next start` on `$PORT`)
-6. **Settings → Networking → Generate Domain** to get your URL.
-7. Open the URL on your phone, log in, then "Add to Home Screen" to install it like an app.
+1. Push this repo to GitHub. Railway redeploys on every push to `main`.
+2. Service → **Settings → Volumes**: a Volume mounted at **`/data`** (already there if you ran the CRM before).
+3. **Variables**: `DATABASE_URL=file:/data/peps.db`, `APP_PASSWORD`, `SESSION_SECRET`, and when you are ready `RESEND_API_KEY` and `SHIPPO_API_KEY`.
+4. Railway runs `npm run build` and then `npm start`, which runs `prisma migrate deploy` first. Migrations only add tables and columns: existing data stays as it is.
+5. Files created on the volume: `/data/uploads/public` (photos, COAs, logo), `/data/uploads/private` (payment screenshots, admin only), `/data/backups` (daily database copies, last 14 kept).
 
-Migrations run on every start, so new versions update the database automatically.
-The seed script never runs in production.
+### After the first deploy with the store
 
-**Backups:** Settings → Data → "Full JSON backup" downloads everything. Do it now and then;
-the Volume is the only copy of your data.
+1. Open `/admin` and sign in. The store is **closed**: visitors see "Coming soon", you can preview it.
+2. Settings → **Launch** shows a checklist that ticks itself off: products on the website, photos, COAs, payment info, ship-from address, email, Shippo, policies reviewed.
+3. Settings → **Email**: set the from address (a domain verified in Resend), add alert emails, press "Send test email".
+4. Settings → **Shipping**: ship-from address, prices per tier, "Test Shippo connection". For automatic Shipped / Delivered, copy the webhook address shown there into Shippo (API → Webhooks → "Track updated").
+5. Content → **Policies**: the five policy pages are draft templates. Have them reviewed, then tick "I had this reviewed".
+6. Settings → Launch → **Open the store**.
 
 ---
 
 ## Run locally (Windows)
 
 1. Install [Node.js](https://nodejs.org) (LTS).
-2. Double-click **`launch.bat`**. It:
-   - creates `.env` from `.env.example` if missing (with a random session secret), so no editing is needed
-   - creates the `data` folder
-   - runs `npm install` (first run only), `prisma generate` and `prisma migrate deploy`
-   - starts the app and opens http://localhost:3000
-3. Log in with **`peps1234`**, then change the password in Settings.
+2. Double-click **`launch.bat`**. It creates `.env` if missing, installs dependencies, applies migrations, starts the app and opens it.
+3. Store: http://localhost:3000 · Admin: http://localhost:3000/admin (password `peps1234`, change it in Settings).
 
 Manual equivalent:
 
@@ -93,23 +88,28 @@ npx prisma migrate deploy
 npm run dev
 ```
 
-Your data is the file `data/peps.db` (ignored by git). Copy it to back it up, or use the JSON backup in Settings.
-
-Optional sample data for local testing (3 products with stock): `npm run seed`.
-It is never run automatically.
-
 ## Scripts
 
-| Script           | Does |
-| ---------------- | ---- |
-| `npm run dev`    | Dev server on http://localhost:3000 |
-| `npm run build`  | Prisma client + production build |
-| `npm start`      | Apply migrations, start production server |
-| `npm test`       | Money engine unit tests |
-| `npm run lint`   | Type check |
-| `npm run seed`   | Add 3 sample products (local only) |
+| Script | Does |
+| --- | --- |
+| `npm run dev` | Dev server on http://localhost:3000 |
+| `npm run build` | Prisma client + production build |
+| `npm start` | Apply migrations, start the production server |
+| `npm test` | All tests: money engine, customers, store pricing and promotions, public catalog privacy, and database tests (mark paid, auto-cancel, order numbers, combine / split) |
+| `npm run lint` | Type check |
+| `npm run prove-migration` | Copies `data/peps.db`, migrates the copy, and proves counts and every money number are identical before and after |
+| `npm run seed` | Add 3 sample products (local only) |
+
+`scripts/qa-seed.ts` fills a **copy** of the database with demo store data for looking at pages locally. It refuses to run on `data/peps.db`.
 
 ## Backups
 
-Settings → Data: download a full JSON backup or CSV per table, and import a JSON backup
-(replaces all data, keeps your password). The danger zone resets everything (type `RESET`).
+- **Automatic:** a full copy of the database every day in `/data/backups`, last 14 kept. Settings → Backups lists them with download buttons and "Back up now".
+- **JSON:** Settings → Business and account → download a JSON backup (everything, including store data) or CSV per table, and import a JSON backup. Backups from older versions still import.
+- Uploaded files (photos, COAs, screenshots) are on the volume and are not inside the database or JSON backups.
+
+## Security notes
+
+- Admin pages and admin APIs need the admin session. Only `/api/store/*`, the login route and the Shippo webhook are public.
+- The public catalog is built by `buildCatalog()` ([`src/lib/store/catalog.ts`](src/lib/store/catalog.ts)), which copies only public fields. A test proves no cost, profit or stock counts appear in it.
+- Login lockout after repeated wrong passwords, same-origin check on every state-changing API call (CSRF), security headers, rate limits on checkout, uploads, contact, reviews, sign up and order lookup, secret tokens for order status and review links.

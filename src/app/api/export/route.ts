@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { HttpError, route } from "@/lib/api";
 import { BACKUP_VERSION } from "@/lib/backup";
-import { loadAll } from "@/lib/serialize";
+import { loadAll, loadBackup } from "@/lib/serialize";
 import type { AppData } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -18,12 +18,21 @@ function csv(rows: Record<string, unknown>[]): string {
 
 const tables: Record<string, (d: AppData) => Record<string, unknown>[]> = {
   settings: (d) => [{ ...d.settings, paymentMethods: d.settings.paymentMethods.join(" | ") }],
-  customers: (d) => d.customers.map((c) => ({ ...c })),
-  products: (d) => d.products.map((p) => ({ ...p })),
+  customers: (d) => d.customers.map(({ addresses, ...c }) => ({ ...c, savedAddresses: addresses.length })),
+  products: (d) => d.products.map((p) => ({ ...p, product: d.listings.find((l) => l.id === p.listingId)?.name ?? "" })),
   purchases: (d) => d.purchases.map((p) => ({ ...p })),
   adjustments: (d) => d.adjustments.map((a) => ({ ...a })),
-  orders: (d) => d.orders.map(({ lines, ...o }) => ({ ...o, lineCount: lines.length })),
-  order_lines: (d) => d.orders.flatMap((o) => o.lines.map((l) => ({ ...l }))),
+  orders: (d) =>
+    [...d.orders, ...d.pendingOrders].map(({ lines, web, ...o }) => ({
+      ...o,
+      lineCount: lines.length,
+      email: web?.email ?? "",
+      shipTo: web?.shipTo ? [web.shipTo.name, web.shipTo.street1, web.shipTo.street2, web.shipTo.city, web.shipTo.state, web.shipTo.zip].filter(Boolean).join(", ") : "",
+      trackingNumber: web?.trackingNumber ?? "",
+      cancelReason: web?.cancelReason ?? "",
+    })),
+  order_lines: (d) => [...d.orders, ...d.pendingOrders].flatMap((o) => o.lines.map((l) => ({ ...l }))),
+  labels: (d) => d.labels.map((l) => ({ ...l })),
   splits: (d) => d.splits.map(({ items, ...s }) => ({ ...s, itemCount: items.length })),
   split_items: (d) => d.splits.flatMap((s) => s.items.map((i) => ({ ...i }))),
   payouts: (d) => d.payouts.map((p) => ({ ...p })),
@@ -31,8 +40,8 @@ const tables: Record<string, (d: AppData) => Record<string, unknown>[]> = {
 
 export const GET = route(async (req) => {
   const table = req.nextUrl.searchParams.get("table");
-  const data = await loadAll();
   const stamp = new Date().toISOString().slice(0, 10);
+  const data = !table || table === "json" ? await loadBackup() : await loadAll();
   if (!table || table === "json") {
     return new NextResponse(JSON.stringify({ app: "peps-crm", version: BACKUP_VERSION, exportedAt: new Date().toISOString(), data }, null, 2), {
       headers: {

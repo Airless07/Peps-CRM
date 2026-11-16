@@ -20,6 +20,10 @@ export const productCreate = z.object({
   color: text(20).default("slate"),
   sortOrder: z.number().int().default(0),
   archived: z.boolean().default(false),
+  variantLabel: text(40).default(""),
+  variantSort: z.number().int().default(0),
+  weightOz: z.number().min(0).max(2000).nullable().default(null),
+  testingStatus: z.enum(["coa_available", "supplier_tested", "pending", "coming_soon"]).default("coming_soon"),
 });
 export const productUpdate = productCreate.omit({ id: true }).partial();
 
@@ -76,7 +80,7 @@ export const orderInput = z.object({
   customerId: idStr.nullable().default(null),
   paymentMethod: text(40).min(1).default("Unknown"),
   note: text().default(""),
-  soldBy: partner,
+  soldBy: z.enum(["A", "B", "W"]),
   discountType: z.enum(["$", "%"]).default("$"),
   discountValue: z.number().min(0).max(1_000_000_000).default(0),
   tipCents: posCents.default(0),
@@ -94,6 +98,9 @@ export const settingsUpdate = z
     tipHandling: z.enum(["profit", "seller", "business"]),
     defaultSoldBy: partner,
     lowStockThreshold: z.number().int().min(0).max(100000),
+    /** Store settings and site content: whole objects, merged over the defaults when read. */
+    store: z.record(z.string(), z.unknown()).transform((v) => JSON.stringify(v)),
+    content: z.record(z.string(), z.unknown()).transform((v) => JSON.stringify(v)),
     paymentMethods: z
       .array(text(40).min(1, "Payment method names can't be empty"))
       .min(1, "Keep at least one payment method")
@@ -107,6 +114,7 @@ export const customerCreate = z.object({
   id: idStr,
   name: text(120).min(1, "Name is required"),
   phone: text(40).default(""),
+  email: text(200).default(""),
   notes: text(2000).default(""),
 });
 export const customerUpdate = customerCreate.omit({ id: true }).partial();

@@ -25,9 +25,55 @@ model Settings {
   /// JSON array of payment method names offered at checkout, in display order
   paymentMethods       String   @default("[\"Cash\",\"Zelle\",\"Cash App\",\"Venmo\",\"Apple Pay\",\"Other\"]")
   passwordHash         String?
+  /// JSON: store settings (open/closed, payments, shipping, emails...). See src/lib/store/config.ts
+  storeJson            String   @default("{}")
+  /// JSON: everything editable on the storefront (hero, sections, FAQ, policies, SEO)
+  contentJson          String   @default("{}")
   updatedAt            DateTime @updatedAt
 }
 
+/// Parent product shown on the website. Its variants are Product rows (one per size).
+model Listing {
+  id              String    @id
+  name            String
+  /// Unique in practice (enforced by the app when saving)
+  slug            String    @default("")
+  summary         String    @default("")
+  description     String    @default("")
+  casNumber       String    @default("")
+  formula         String    @default("")
+  molecularWeight String    @default("")
+  purity          String    @default("")
+  form            String    @default("")
+  storage         String    @default("")
+  showOnWebsite   Boolean   @default(false)
+  /// JSON array of { id, file, alt }
+  photosJson      String    @default("[]")
+  hoverGif        String    @default("")
+  /// JSON array of ProductGroup ids
+  groupsJson      String    @default("[]")
+  /// JSON array of badge texts
+  badgesJson      String    @default("[]")
+  /// Manual best seller pick (used when best sellers are set to manual)
+  bestSeller      Boolean   @default(false)
+  /// JSON array of { minQty, percentOff }: "buy more, save more" tiers. Empty string = use the store default.
+  qtyDealsJson    String    @default("")
+  sortOrder       Int       @default(0)
+  seoTitle        String    @default("")
+  seoDescription  String    @default("")
+  createdAt       DateTime  @default(now())
+  variants        Product[]
+}
+
+model ProductGroup {
+  id        String   @id
+  name      String
+  slug      String   @default("")
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+}
+
+/// A variant: the thing that has stock, cost, price and sales history.
 model Product {
   id                String            @id
   name              String
@@ -39,9 +85,39 @@ model Product {
   sortOrder         Int               @default(0)
   archived          Boolean           @default(false)
   createdAt         DateTime          @default(now())
+  /// Parent product. The app creates one when missing.
+  listingId         String?
+  listing           Listing?          @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  /// Size label shown on the website, e.g. "10mg"
+  variantLabel      String            @default("")
+  variantSort       Int               @default(0)
+  /// Shipping weight in ounces. Null = default parcel weight from Settings.
+  weightOz          Float?
+  /// "coa_available" | "supplier_tested" | "pending" | "coming_soon"
+  testingStatus     String            @default("coming_soon")
+  coas              Coa[]
   purchases         Purchase[]
   adjustments       StockAdjustment[]
   orderLines        OrderLine[]
+
+  @@index([listingId])
+}
+
+/// Certificate of analysis for one variant (batch).
+model Coa {
+  id        String    @id
+  productId String
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  file      String
+  fileName  String    @default("")
+  mime      String    @default("")
+  lot       String    @default("")
+  testDate  DateTime?
+  purity    String    @default("")
+  isCurrent Boolean   @default(false)
+  createdAt DateTime  @default(now())
+
+  @@index([productId])
 }
 
 model Purchase {
@@ -75,36 +151,89 @@ model StockAdjustment {
 }
 
 model Order {
-  id             String      @id
-  date           DateTime
+  id               String          @id
+  date             DateTime
   /// Snapshot of the customer name (kept in sync with the linked customer)
-  customer       String      @default("")
-  customerId     String?
-  linkedCustomer Customer?   @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  customer         String          @default("")
+  customerId       String?
+  linkedCustomer   Customer?       @relation(fields: [customerId], references: [id], onDelete: SetNull)
   /// Name of the payment method at the time of sale ("Unknown" for old orders)
-  paymentMethod  String      @default("Unknown")
-  note           String      @default("")
-  /// "A" | "B"
-  soldBy         String      @default("A")
+  paymentMethod    String          @default("Unknown")
+  note             String          @default("")
+  /// "A" | "B" | "W" (website)
+  soldBy           String          @default("A")
   /// "$" | "%"
-  discountType   String      @default("$")
+  discountType     String          @default("$")
   /// Cents when discountType is "$", percent when "%"
-  discountValue  Float       @default(0)
-  tipCents       Int         @default(0)
-  createdAt      DateTime    @default(now())
-  lines          OrderLine[]
-  splitItems     SplitItem[]
+  discountValue    Float           @default(0)
+  tipCents         Int             @default(0)
+  createdAt        DateTime        @default(now())
+  /// Sequential order number starting at 1001
+  number           Int?
+  /// "inperson" | "online"
+  source           String          @default("inperson")
+  /// In-person: "completed". Online: "awaiting_payment" | "paid" | "label_purchased" | "shipped" | "delivered" | "canceled"
+  status           String          @default("completed")
+  archived         Boolean         @default(false)
+  email            String          @default("")
+  phone            String          @default("")
+  /// JSON { name, street1, street2, city, state, zip, country }
+  shipToJson       String          @default("")
+  /// Shipping charged to the customer. Goes 100% to business money.
+  shippingCents    Int             @default(0)
+  /// What the customer picked, e.g. "USPS Ground Advantage" or "Flat rate"
+  shippingMethod   String          @default("")
+  /// JSON { carrier, service, cents } of the live rate picked at checkout
+  shippingRateJson String          @default("")
+  /// JSON { code, promotionIds, labels, freeShipping }
+  promoJson        String          @default("")
+  /// Payment method id the customer picked at checkout ("zelle", "cashapp", "venmo", ...)
+  payChoice        String          @default("")
+  /// Shipping tier id picked at checkout ("standard" | "priority" | "express")
+  shippingTier     String          @default("")
+  /// Secret link tokens
+  token            String?
+  reviewToken      String?
+  /// Private upload (payment screenshot)
+  screenshotFile   String          @default("")
+  cancelReason     String          @default("")
+  placedAt         DateTime?
+  expiresAt        DateTime?
+  paidAt           DateTime?
+  shippedAt        DateTime?
+  deliveredAt      DateTime?
+  canceledAt       DateTime?
+  trackingNumber   String          @default("")
+  trackingCarrier  String          @default("")
+  trackingStatus   String          @default("")
+  labelUrl         String          @default("")
+  lines            OrderLine[]
+  splitItems       SplitItem[]
+  labels           LabelPurchase[]
+  events           OrderEvent[]
+  review           Review?
 
+  @@unique([number])
+  @@unique([token])
+  @@unique([reviewToken])
   @@index([date])
   @@index([customerId])
+  @@index([status])
 }
 
 model Customer {
   id        String   @id
   name      String
   phone     String   @default("")
+  email     String   @default("")
   notes     String   @default("")
   createdAt DateTime @default(now())
+  /// Set when the customer has a website account
+  passwordHash   String?
+  /// JSON array of saved shipping addresses
+  addressesJson  String    @default("[]")
+  resetTokenHash String?
+  resetExpiresAt DateTime?
   orders    Order[]
 }
 
@@ -123,6 +252,99 @@ model OrderLine {
   sortOrder      Int      @default(0)
 
   @@index([orderId])
+}
+
+/// A shipping label bought for an order. Its cost comes out of business money.
+model LabelPurchase {
+  id                  String   @id
+  orderId             String?
+  order               Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  date                DateTime
+  costCents           Int
+  carrier             String   @default("")
+  service             String   @default("")
+  trackingNumber      String   @default("")
+  labelUrl            String   @default("")
+  shippoTransactionId String   @default("")
+  voided              Boolean  @default(false)
+  createdAt           DateTime @default(now())
+
+  @@index([orderId])
+}
+
+/// Timeline of an order: status changes, emails sent, notes.
+model OrderEvent {
+  id      String   @id
+  orderId String
+  order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  at      DateTime @default(now())
+  /// "status" | "email" | "note"
+  kind    String   @default("status")
+  message String
+  detail  String   @default("")
+
+  @@index([orderId])
+}
+
+model Promotion {
+  id               String         @id
+  /// "code" | "auto" | "free_shipping"
+  kind             String
+  name             String         @default("")
+  /// Uppercase, only for kind "code"
+  code             String         @default("")
+  /// "$" | "%"
+  discountType     String         @default("$")
+  /// Cents when "$", percent when "%"
+  discountValue    Float          @default(0)
+  minSubtotalCents Int            @default(0)
+  startsAt         DateTime?
+  endsAt           DateTime?
+  maxUses          Int?
+  oncePerEmail     Boolean        @default(false)
+  /// JSON arrays. Empty = applies to everything.
+  listingIdsJson   String         @default("[]")
+  groupIdsJson     String         @default("[]")
+  active           Boolean        @default(true)
+  createdAt        DateTime       @default(now())
+  uses             PromotionUse[]
+}
+
+/// One use of a promotion by an order. Removed when the order is canceled.
+model PromotionUse {
+  id          String    @id
+  promotionId String
+  promotion   Promotion @relation(fields: [promotionId], references: [id], onDelete: Cascade)
+  orderId     String?
+  email       String    @default("")
+  createdAt   DateTime  @default(now())
+
+  @@index([promotionId])
+  @@index([orderId])
+}
+
+/// Store experience review left through the secret link in the delivered email.
+model Review {
+  id          String   @id
+  orderId     String?  @unique
+  order       Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  rating      Int
+  text        String   @default("")
+  displayName String   @default("")
+  /// "pending" | "approved" | "hidden"
+  status      String   @default("pending")
+  edited      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+}
+
+model ContactMessage {
+  id          String   @id
+  name        String
+  email       String
+  orderNumber String   @default("")
+  message     String
+  handled     Boolean  @default(false)
+  createdAt   DateTime @default(now())
 }
 
 model Split {

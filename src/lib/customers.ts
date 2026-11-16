@@ -38,7 +38,7 @@ export function groupCustomersFromOrders(
   const links = new Map<string, string>();
   for (const g of groups.values()) {
     const id = makeId();
-    customers.push({ id, name: g.latest.customer.trim(), phone: "", notes: "", createdAt: new Date(g.first).toISOString() });
+    customers.push({ id, name: g.latest.customer.trim(), phone: "", email: "", hasAccount: false, addresses: [], notes: "", createdAt: new Date(g.first).toISOString() });
     for (const oid of g.orderIds) links.set(oid, id);
   }
   return { customers, links };
@@ -91,6 +91,6 @@ export function searchCustomers(customers: CustomerRec[], query: string): Custom
   if (!q) return customers;
   const digits = q.replace(/\D/g, "");
   return customers.filter(
-    (c) => c.name.toLowerCase().includes(q) || (digits.length >= 3 && c.phone.replace(/\D/g, "").includes(digits)),
+    (c) => c.name.toLowerCase().includes(q) || (!!c.email && c.email.toLowerCase().includes(q)) || (digits.length >= 3 && c.phone.replace(/\D/g, "").includes(digits)),
   );
 }

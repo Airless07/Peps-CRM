@@ -168,6 +168,7 @@ export function OrderForm({ draft, onChange, mode }: { draft: Draft; onChange: (
               options={[
                 { value: "A", label: name("A") },
                 { value: "B", label: name("B") },
+                ...(draft.soldBy === "W" ? [{ value: "W" as const, label: name("W") }] : []),
               ]}
             />
           </Field>

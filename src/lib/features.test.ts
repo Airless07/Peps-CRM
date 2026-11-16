@@ -9,6 +9,7 @@ import { resolveDraftCustomer, type Draft } from "./draft";
 import { customerStats, daysAgo, paymentBreakdown } from "./insights";
 import { computeLedger, planSplit } from "./money";
 import type { AppData, CustomerRec, OrderLineRec, OrderRec, SettingsRec } from "./types";
+import { ORDER_DEFAULTS, PRODUCT_DEFAULTS, emptyStoreData } from "./types";
 
 // ---------------------------------------------------------------- builders
 const day = (n: number, h = 12) => new Date(Date.UTC(2026, 0, n, h)).toISOString();
@@ -45,6 +46,7 @@ function order(date: string, lines: L[], over: Partial<OrderRec> = {}): OrderRec
     discountValue: 0,
     tipCents: 0,
     createdAt: date,
+    ...ORDER_DEFAULTS,
     ...over,
     lines: lines.map(
       (l, i): OrderLineRec => ({
@@ -66,8 +68,8 @@ function data(over: Partial<AppData> = {}): AppData {
   return {
     settings: settings(),
     products: [
-      { id: "p1", name: "Vial A", defaultPriceCents: 5000, costOverrideCents: null, lowStockThreshold: null, color: "blue", sortOrder: 0, archived: false, createdAt: day(1, 0) },
-      { id: "p2", name: "Vial B", defaultPriceCents: 3000, costOverrideCents: null, lowStockThreshold: null, color: "red", sortOrder: 1, archived: false, createdAt: day(1, 0) },
+      { id: "p1", name: "Vial A", defaultPriceCents: 5000, costOverrideCents: null, lowStockThreshold: null, color: "blue", sortOrder: 0, archived: false, createdAt: day(1, 0), ...PRODUCT_DEFAULTS },
+      { id: "p2", name: "Vial B", defaultPriceCents: 3000, costOverrideCents: null, lowStockThreshold: null, color: "red", sortOrder: 1, archived: false, createdAt: day(1, 0), ...PRODUCT_DEFAULTS },
     ],
     customers: [],
     purchases: [
@@ -78,6 +80,7 @@ function data(over: Partial<AppData> = {}): AppData {
     orders: [],
     splits: [],
     payouts: [],
+    ...emptyStoreData(),
     ...over,
   };
 }
@@ -211,9 +214,9 @@ describe("payment method breakdown", () => {
 // ---------------------------------------------------------------- merge / delete
 describe("merge and delete customers", () => {
   const customers: CustomerRec[] = [
-    { id: "c1", name: "Mike", phone: "", notes: "likes blue", createdAt: day(1) },
-    { id: "c2", name: "Mikey", phone: "555-1234", notes: "pays Zelle", createdAt: day(2) },
-    { id: "c3", name: "Sara", phone: "", notes: "", createdAt: day(3) },
+    { id: "c1", name: "Mike", phone: "", email: "", hasAccount: false, addresses: [], notes: "likes blue", createdAt: day(1) },
+    { id: "c2", name: "Mikey", phone: "555-1234", email: "", hasAccount: false, addresses: [], notes: "pays Zelle", createdAt: day(2) },
+    { id: "c3", name: "Sara", phone: "", email: "", hasAccount: false, addresses: [], notes: "", createdAt: day(3) },
   ];
   const orders = [
     order(day(2), [{ price: 5000, cost: 1000 }], { id: "m1", customerId: "c1", customer: "Mike" }),
@@ -264,7 +267,7 @@ describe("merge and delete customers", () => {
 // ---------------------------------------------------------------- customer stats
 describe("customer stats", () => {
   it("favorite product, last order and days ago", () => {
-    const customers: CustomerRec[] = [{ id: "c1", name: "Mike", phone: "", notes: "", createdAt: day(1) }];
+    const customers: CustomerRec[] = [{ id: "c1", name: "Mike", phone: "", email: "", hasAccount: false, addresses: [], notes: "", createdAt: day(1) }];
     const orders = [
       order(day(2), [{ price: 100, cost: 0, qty: 1 }, { price: 100, cost: 0, qty: 3, productId: "p2", name: "Vial B" }], { customerId: "c1" }),
       order(day(9), [{ price: 100, cost: 0, qty: 1 }], { customerId: "c1", discountValue: 50 }),
@@ -287,7 +290,7 @@ describe("cart customer linking", () => {
     id: "d1", date: day(2), customer: "", customerId: null, paymentMethod: "Cash", note: "", soldBy: "A",
     discountType: "$", discountValue: 0, tipCents: 0, lines: [], ...over,
   });
-  const customers: CustomerRec[] = [{ id: "c1", name: "Mike", phone: "", notes: "", createdAt: day(1) }];
+  const customers: CustomerRec[] = [{ id: "c1", name: "Mike", phone: "", email: "", hasAccount: false, addresses: [], notes: "", createdAt: day(1) }];
 
   it("reuses an existing customer typed in any case", () => {
     const r = resolveDraftCustomer(draft({ customer: " mike " }), customers);
@@ -340,7 +343,7 @@ describe("old backup import", () => {
 
   it("new backups round-trip and drop links to missing customers", () => {
     const d = data({
-      customers: [{ id: "c1", name: "Mike", phone: "1", notes: "", createdAt: day(1) }],
+      customers: [{ id: "c1", name: "Mike", phone: "1", email: "", hasAccount: false, addresses: [], notes: "", createdAt: day(1) }],
       orders: [
         order(day(2), [{ price: 100, cost: 0 }], { id: "x1", customerId: "c1", customer: "Mike", paymentMethod: "Zelle" }),
         order(day(3), [{ price: 100, cost: 0 }], { id: "x2", customerId: "ghost", customer: "Ghost" }),

@@ -1,7 +1,7 @@
 import { customerKey } from "./customers";
 import { uid } from "./format";
-import type { CustomerRec, DiscountType, OrderRec, Partner } from "./types";
-import { UNKNOWN_PAYMENT } from "./types";
+import type { CustomerRec, DiscountType, OrderRec, Seller } from "./types";
+import { ORDER_DEFAULTS, UNKNOWN_PAYMENT } from "./types";
 
 export interface DraftLine {
   id: string;
@@ -22,7 +22,7 @@ export interface Draft {
   customerId: string | null;
   paymentMethod: string;
   note: string;
-  soldBy: Partner;
+  soldBy: Seller;
   discountType: DiscountType;
   discountValue: number;
   tipCents: number;
@@ -55,8 +55,13 @@ export function orderToDraft(o: OrderRec): Draft {
   };
 }
 
-export function draftToOrder(d: Draft, createdAt = new Date().toISOString()): OrderRec {
+/** `base` is the order being edited: its number, source, status and shipping are kept. */
+export function draftToOrder(d: Draft, createdAt = new Date().toISOString(), base?: OrderRec): OrderRec {
+  const keep = base
+    ? { number: base.number, source: base.source, status: base.status, archived: base.archived, shippingCents: base.shippingCents, web: base.web }
+    : ORDER_DEFAULTS;
   return {
+    ...keep,
     ...d,
     customer: d.customer.trim(),
     createdAt,
@@ -93,6 +98,6 @@ export function resolveDraftCustomer(d: Draft, customers: CustomerRec[], now = n
   if (linked) return { draft: { ...d, customer: linked.name }, created: null };
   const match = customers.find((c) => customerKey(c.name) === customerKey(name));
   if (match) return { draft: { ...d, customer: match.name, customerId: match.id }, created: null };
-  const created: CustomerRec = { id: d.customerId ?? uid(), name, phone: "", notes: "", createdAt: now };
+  const created: CustomerRec = { id: d.customerId ?? uid(), name, phone: "", email: "", hasAccount: false, addresses: [], notes: "", createdAt: now };
   return { draft: { ...d, customer: name, customerId: created.id }, created };
 }

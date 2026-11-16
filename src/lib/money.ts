@@ -8,7 +8,7 @@ import type {
   DiscountType,
   OrderLineRec,
   OrderRec,
-  Partner,
+  Seller,
   SettingsRec,
 } from "./types";
 
@@ -51,12 +51,16 @@ export interface OrderTotals {
   subtotal: number;
   discount: number;
   tip: number;
+  /** Shipping charged to the customer (website orders). 0 for in-person sales. */
+  shipping: number;
+  /** What the customer pays: subtotal - discount + tip + shipping. */
   total: number;
   /** Revenue after discount for each line, in the order of `lines` passed in. */
   lineRevenue: number[];
 }
 
 type TotalsInput = Pick<OrderRec, "discountType" | "discountValue" | "tipCents"> & {
+  shippingCents?: number;
   lines: Pick<OrderLineRec, "quantity" | "unitPriceCents">[];
 };
 
@@ -66,11 +70,13 @@ export function orderTotals(order: TotalsInput): OrderTotals {
   const discount = discountAmount(order.discountType, order.discountValue, subtotal);
   const alloc = allocateDiscount(gross, discount);
   const tip = Math.max(0, order.tipCents || 0);
+  const shipping = Math.max(0, order.shippingCents || 0);
   return {
     subtotal,
     discount,
     tip,
-    total: subtotal - discount + tip,
+    shipping,
+    total: subtotal - discount + tip + shipping,
     lineRevenue: gross.map((g, i) => g - alloc[i]),
   };
 }
@@ -113,10 +119,12 @@ export interface LineResult {
 export interface OrderResult {
   orderId: string;
   date: string;
-  soldBy: Partner;
+  soldBy: Seller;
   subtotal: number;
   discount: number;
   tip: number;
+  /** Shipping charged. All of it is business money, none is split. */
+  shipping: number;
   total: number;
   /** Revenue after discount (excludes tip). */
   revenue: number;
@@ -128,7 +136,7 @@ export interface OrderResult {
   tipA: number;
   tipB: number;
   tipBusiness: number;
-  /** Totals for the whole order (lines + tip). */
+  /** Totals for the whole order (lines + tip + shipping). */
   a: number;
   b: number;
   business: number;
@@ -155,6 +163,10 @@ export interface Ledger {
   earnedB: number;
   paidA: number;
   paidB: number;
+  /** Shipping charged to customers on counted orders (already inside businessCents). */
+  shippingCollected: number;
+  /** What was spent on shipping labels (already subtracted from businessCents). */
+  labelCosts: number;
   inPayback: boolean;
   /** Cents left to reach $0 (0 when not in payback). */
   leftToBreakEven: number;
@@ -275,6 +287,24 @@ export function computeLedger(data: AppData): Ledger {
     });
   }
 
+  // Shipping labels: a plain business expense on the day the label was bought.
+  let labelCosts = 0;
+  for (const l of data.labels ?? []) {
+    if (l.voided || l.costCents <= 0) continue;
+    events.push({
+      kind: 3,
+      date: l.date,
+      tie: l.createdAt + l.id,
+      apply: () => {
+        bal -= l.costCents;
+        labelCosts += l.costCents;
+        track(l.date);
+      },
+    });
+  }
+
+  let shippingCollected = 0;
+
   function processOrder(o: OrderRec): OrderResult {
     const lines = [...o.lines].sort((x, y) => x.sortOrder - y.sortOrder);
     const totals = orderTotals({ ...o, lines });
@@ -326,12 +356,20 @@ export function computeLedger(data: AppData): Ledger {
           tipB = sh.b;
         } else if (s.tipHandling === "seller") {
           if (o.soldBy === "A") tipA = normalPart;
-          else tipB = normalPart;
+          else if (o.soldBy === "B") tipB = normalPart;
+          // "W" (website) has no seller: the tip stays with the business.
         }
       }
     }
     a += tipA;
     b += tipB;
+    // Shipping charged: 100% business money, after the lines and tip, never split.
+    // (It still lifts the balance, so it counts toward paying the business back.)
+    const shipping = totals.shipping;
+    if (shipping > 0) {
+      bal += shipping;
+      shippingCollected += shipping;
+    }
     const revenue = totals.subtotal - totals.discount;
     const cost = results.reduce((x, r) => x + r.cost, 0);
     return {
@@ -341,6 +379,7 @@ export function computeLedger(data: AppData): Ledger {
       subtotal: totals.subtotal,
       discount: totals.discount,
       tip,
+      shipping,
       total: totals.total,
       revenue,
       cost,
@@ -352,7 +391,7 @@ export function computeLedger(data: AppData): Ledger {
       tipBusiness: tip - tipA - tipB,
       a,
       b,
-      business: revenue + tip - a - b,
+      business: revenue + tip + shipping - a - b,
     };
   }
 
@@ -389,6 +428,8 @@ export function computeLedger(data: AppData): Ledger {
     earnedB,
     paidA,
     paidB,
+    shippingCollected,
+    labelCosts,
     inPayback: bal < 0,
     leftToBreakEven: bal < 0 ? -bal : 0,
     paybackLow: bal < 0 ? Math.min(low, bal) : 0,

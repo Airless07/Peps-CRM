@@ -1,11 +1,11 @@
 @echo off
 setlocal
-title Peps CRM
+title Buckshot Peps
 cd /d "%~dp0"
 
 echo.
 echo  ==========================================
-echo    Peps CRM - local launcher
+echo    Buckshot Peps - local launcher
 echo  ==========================================
 echo.
 
@@ -74,9 +74,9 @@ echo  [ok] Database ready
 
 rem --- 5. Open the browser once the app answers, then start the dev server ---
 echo.
-echo  Starting Peps CRM at http://localhost:3000  (close this window to stop it)
+echo  Starting. Admin: http://localhost:3000/admin   Store: http://localhost:3000  (close this window to stop it)
 echo.
-start "" /b powershell -NoProfile -ExecutionPolicy Bypass -Command "for($i=0;$i -lt 180;$i++){ try { Invoke-WebRequest -Uri 'http://localhost:3000/login' -UseBasicParsing -TimeoutSec 2 | Out-Null; Start-Process 'http://localhost:3000'; break } catch { Start-Sleep -Seconds 1 } }"
+start "" /b powershell -NoProfile -ExecutionPolicy Bypass -Command "for($i=0;$i -lt 180;$i++){ try { Invoke-WebRequest -Uri 'http://localhost:3000/admin/login' -UseBasicParsing -TimeoutSec 2 | Out-Null; Start-Process 'http://localhost:3000/admin'; break } catch { Start-Sleep -Seconds 1 } }"
 
 call npm run dev
 if errorlevel 1 (

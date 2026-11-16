@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { computeLedger, type Ledger } from "@/lib/money";
-import type { AppData, Partner } from "@/lib/types";
+import type { AppData, Seller } from "@/lib/types";
 import { useToast } from "./toast";
 
 export async function api<T = unknown>(url: string, method = "GET", body?: unknown): Promise<T> {
@@ -13,7 +13,7 @@ export async function api<T = unknown>(url: string, method = "GET", body?: unkno
     cache: "no-store",
   });
   if (res.status === 401) {
-    window.location.href = "/login";
+    window.location.href = "/admin/login";
     throw new Error("Not logged in");
   }
   const json = await res.json().catch(() => ({}));
@@ -31,7 +31,7 @@ interface Store {
    * then re-sync with the server. On failure the server state is restored and an error shown.
    */
   mutate: (update: ((d: AppData) => AppData) | null, request: () => Promise<unknown>) => Promise<boolean>;
-  name: (p: Partner) => string;
+  name: (p: Seller) => string;
 }
 
 const Ctx = createContext<Store | null>(null);
@@ -82,7 +82,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   const ledger = useMemo(() => (data ? computeLedger(data) : null), [data]);
   const name = useCallback(
-    (p: Partner) => (p === "A" ? data?.settings.partnerAName ?? "Partner A" : data?.settings.partnerBName ?? "Partner B"),
+    (p: Seller) => (p === "W" ? "Website" : p === "A" ? data?.settings.partnerAName ?? "Partner A" : data?.settings.partnerBName ?? "Partner B"),
     [data],
   );
 

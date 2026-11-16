@@ -3,14 +3,14 @@
 @tailwind utilities;
 
 :root {
-  --font-sans: "Inter", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", Roboto, sans-serif;
+  --font-sans: var(--font-geist-sans), "Inter", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", Roboto, sans-serif;
   --bg: 246 246 243;
   --surface: 255 255 255;
   --surface2: 239 239 235;
   --line: 226 226 221;
   --ink: 24 24 27;
   --muted: 113 113 122;
-  --accent: 79 70 229;
+  --accent: 159 29 34;
   --accent-ink: 255 255 255;
   --pos: 22 163 74;
   --neg: 220 38 38;
@@ -25,8 +25,8 @@
   --line: 46 46 52;
   --ink: 244 244 245;
   --muted: 161 161 170;
-  --accent: 129 140 248;
-  --accent-ink: 15 15 30;
+  --accent: 240 110 114;
+  --accent-ink: 30 8 9;
   --pos: 74 222 128;
   --neg: 248 113 113;
   --warn: 251 191 36;

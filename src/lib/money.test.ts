@@ -14,6 +14,7 @@ import type {
   SettingsRec,
   SplitRec,
 } from "./types";
+import { ORDER_DEFAULTS, PRODUCT_DEFAULTS, emptyStoreData } from "./types";
 
 // ---------------------------------------------------------------- builders
 let seq = 0;
@@ -50,6 +51,7 @@ function data(over: Partial<AppData> = {}): AppData {
         sortOrder: 0,
         archived: false,
         createdAt: day(1, 0),
+        ...PRODUCT_DEFAULTS,
       },
     ],
     customers: [],
@@ -58,6 +60,7 @@ function data(over: Partial<AppData> = {}): AppData {
     orders: [],
     splits: [],
     payouts: [],
+    ...emptyStoreData(),
     ...over,
   };
 }
@@ -77,6 +80,7 @@ function order(date: string, lines: L[], over: Partial<OrderRec> = {}): OrderRec
     discountValue: 0,
     tipCents: 0,
     createdAt: date,
+    ...ORDER_DEFAULTS,
     ...over,
     lines: lines.map(
       (l, i): OrderLineRec => ({
