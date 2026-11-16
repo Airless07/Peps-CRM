@@ -126,6 +126,8 @@ export interface SiteContent {
     subtext: string;
     buttonText: string;
     buttonLink: string;
+    /** Upload ids of transparent vial images for the hero pyramid. Empty = bundled default. */
+    vials: { left: string; center: string; right: string };
   };
   /** Home page sections in display order. */
   sections: { id: SectionId; title: string; show: boolean }[];
@@ -164,6 +166,7 @@ export const DEFAULT_CONTENT: SiteContent = {
     subtext: "Every lot is third-party tested, and the certificate of analysis is published on the product page.",
     buttonText: "Shop all products",
     buttonLink: "/shop",
+    vials: { left: "", center: "", right: "" },
   },
   sections: [
     { id: "bestsellers", title: "Best sellers", show: true },

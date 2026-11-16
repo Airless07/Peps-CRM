@@ -24,7 +24,7 @@ export const RECOMMENDED = {
 
 const MB = 1024 * 1024;
 const IMAGE_FORMATS = new Set(["jpeg", "png", "webp", "gif", "avif", "tiff", "heif"]);
-export type ImageKind = "product" | "hero" | "logo" | "share" | "favicon";
+export type ImageKind = "product" | "hero" | "vial" | "logo" | "share" | "favicon";
 
 const newId = () => randomBytes(8).toString("hex");
 export const FILE_RE = /^[a-f0-9]{16}(-\d{2,4})?\.(webp|png|pdf)$/;
@@ -60,8 +60,8 @@ export async function saveImage(buf: Buffer, kind: ImageKind): Promise<{ id: str
     let img = sharp(buf).rotate();
     if (kind === "product") img = img.resize(w, Math.round(w / PRODUCT_ASPECT), { fit: "cover", position: "attention" });
     else if (kind === "share") img = img.resize(w, Math.round((w * 630) / 1200), { fit: "cover", position: "attention" });
-    else img = img.resize({ width: w, withoutEnlargement: kind === "logo" });
-    await img.webp({ quality: kind === "logo" ? 90 : 80, effort: 5 }).toFile(path.join(dir, `${id}-${w}.webp`));
+    else img = img.resize({ width: w, withoutEnlargement: kind === "logo" || kind === "vial" });
+    await img.webp({ quality: kind === "logo" ? 90 : kind === "vial" ? 86 : 80, effort: 5, alphaQuality: 100 }).toFile(path.join(dir, `${id}-${w}.webp`));
   }
   return { id, width: meta.width!, height: meta.height! };
 }

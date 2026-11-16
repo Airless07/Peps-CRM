@@ -131,6 +131,162 @@
   }
 }
 
+/* Hero vial pyramid (src/components/storefront/hero-vials.tsx). Each vial is a stack of layers so
+   each motion owns one transform: slot (position) > in (load spread) > hover > par (mouse) > float. */
+.hv {
+  --mx: 0;
+  --my: 0;
+  --hv-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  position: relative;
+  aspect-ratio: 1 / 0.9;
+  isolation: isolate;
+  user-select: none;
+}
+.hv-glow {
+  background: radial-gradient(60% 55% at 74% 56%, oklch(1 0 0) 0%, oklch(1 0 0 / 0.7) 38%, transparent 72%);
+}
+.hv-floor {
+  position: absolute;
+  left: 13%;
+  right: 13%;
+  bottom: 3.5%;
+  height: 9%;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, oklch(0.25 0.03 25 / 0.2), oklch(0.25 0.03 25 / 0.07) 62%, transparent);
+  filter: blur(5px);
+  animation: hv-floor-in 0.9s var(--hv-ease) both;
+  transition:
+    transform 0.48s var(--hv-ease),
+    opacity 0.48s var(--hv-ease);
+}
+.hv-slot {
+  position: absolute;
+  aspect-ratio: 753 / 1610;
+}
+/* Center: 25% taller than the sides, in front, base a little lower. Sides overlap it by ~18%. */
+.hv-center {
+  width: 34%;
+  left: 33%;
+  bottom: 7%;
+  z-index: 3;
+  --fx: 0%;
+  --delay: 0ms;
+  --float-time: 3.4s;
+  --float-lift: -7px;
+  --float-delay: -0.9s;
+  --depth: 9px;
+}
+.hv-left {
+  width: 27.2%;
+  left: 10.8%;
+  bottom: 11.5%;
+  z-index: 2;
+  --fx: 94%;
+  --delay: 120ms;
+  --float-time: 4.3s;
+  --float-lift: -5px;
+  --float-delay: -2.6s;
+  --depth: 5px;
+}
+.hv-right {
+  width: 27.2%;
+  left: 62%;
+  bottom: 11.5%;
+  z-index: 1;
+  --fx: -94%;
+  --delay: 190ms;
+  --float-time: 3.8s;
+  --float-lift: -6px;
+  --float-delay: -1.5s;
+  --depth: 5px;
+}
+.hv-in,
+.hv-hover,
+.hv-par,
+.hv-float {
+  height: 100%;
+}
+.hv-in {
+  animation: hv-in 0.9s var(--hv-ease) var(--delay) both;
+}
+.hv-hover {
+  transform-origin: 50% 92%;
+  transition: transform 0.48s var(--hv-ease);
+}
+.hv-par {
+  transform: translate3d(calc(var(--mx) * var(--depth)), calc(var(--my) * var(--depth) * 0.5), 0);
+  transition: transform 0.7s var(--hv-ease);
+}
+.hv-float {
+  position: relative;
+  animation: hv-float var(--float-time) ease-in-out var(--float-delay) infinite alternate;
+  will-change: transform;
+}
+.hv-img {
+  object-fit: contain;
+  object-position: 50% 100%;
+  filter: drop-shadow(0 22px 20px oklch(0.25 0.03 25 / 0.16)) drop-shadow(0 5px 6px oklch(0.25 0.03 25 / 0.12));
+  -webkit-user-drag: none;
+}
+@media (hover: hover) and (pointer: fine) {
+  .hv:hover .hv-center .hv-hover {
+    transform: translateY(-12px);
+  }
+  .hv:hover .hv-left .hv-hover {
+    transform: translate(-16px, -8px) rotate(-2.5deg);
+  }
+  .hv:hover .hv-right .hv-hover {
+    transform: translate(16px, -8px) rotate(2.5deg);
+  }
+  .hv:hover .hv-floor {
+    transform: scaleX(1.07);
+    opacity: 0.8;
+  }
+}
+@keyframes hv-in {
+  from {
+    opacity: 0;
+    transform: translate3d(var(--fx), 5%, 0) scale(0.9);
+  }
+  35% {
+    opacity: 1;
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes hv-float {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(0, var(--float-lift), 0);
+  }
+}
+@keyframes hv-floor-in {
+  from {
+    opacity: 0;
+    transform: scaleX(0.55);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hv-in,
+  .hv-float,
+  .hv-floor {
+    animation: none !important;
+  }
+  .hv .hv-hover,
+  .hv .hv-par,
+  .hv:hover .hv-floor {
+    transform: none !important;
+  }
+}
+
 .marquee:hover .marquee-track,
 .marquee:focus-within .marquee-track {
   animation-play-state: paused;

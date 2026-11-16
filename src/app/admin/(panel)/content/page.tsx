@@ -106,7 +106,27 @@ export default function ContentPage() {
               </Field>
               <div>
                 <div className="mb-1.5 text-sm font-medium text-muted">Hero photo</div>
-                <SingleImage value={hero.image} onChange={(id) => setHero("image", id)} kind="hero" hint={`${RECOMMENDED_SIZES.hero} Until you add one, the hero uses a plain dark background.`} />
+                <SingleImage value={hero.image} onChange={(id) => setHero("image", id)} kind="hero" hint={`${RECOMMENDED_SIZES.hero} Optional. Without a photo, the hero shows the three vials below on a light background.`} />
+              </div>
+              <div>
+                <div className="mb-1.5 text-sm font-medium text-muted">Hero vials</div>
+                <p className="mb-3 rounded-lg bg-surface2 px-3 py-2 text-sm text-muted">
+                  Upload transparent PNGs (no background, vial only, standing upright). The center vial is shown larger and in front. Leave a slot empty to keep the built-in vial.
+                </p>
+                <div className="space-y-3">
+                  {(
+                    [
+                      ["left", "Hero vial left"],
+                      ["center", "Hero vial center"],
+                      ["right", "Hero vial right"],
+                    ] as const
+                  ).map(([slot, label]) => (
+                    <div key={slot}>
+                      <div className="mb-1 text-sm font-medium">{label}</div>
+                      <SingleImage value={hero.vials[slot]} onChange={(id) => setHero("vials", { ...hero.vials, [slot]: id })} kind="vial" shape="square" hint={RECOMMENDED_SIZES.vial} />
+                    </div>
+                  ))}
+                </div>
               </div>
               {hero.layout === "full" && (
                 <Field label={`Overlay strength: ${hero.overlay}%`} hint="How dark the photo is behind the text. Raise it if the text is hard to read.">

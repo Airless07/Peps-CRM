@@ -1,13 +1,18 @@
 import Link from "next/link";
 import { ArrowRight, ArrowUpRight } from "lucide-react";
 import { FaqList, ProductGrid, TestingBadge, leadVariant } from "@/components/storefront/product-card";
-import { Vial } from "@/components/storefront/vial";
-import type { PublicCatalog } from "@/lib/store/catalog";
+import { HeroVials } from "@/components/storefront/hero-vials";
 import type { SiteContent } from "@/lib/store/config";
 import { storeSnapshot } from "@/lib/store/server";
 import type { ReviewRec } from "@/lib/types";
 
-function Hero({ hero, catalog }: { hero: SiteContent["hero"]; catalog: PublicCatalog }) {
+const DEFAULT_HERO_VIALS = {
+  left: "/hero/klow-80mg.png",
+  center: "/hero/retatrutide-10mg.png",
+  right: "/hero/cjc-1295-ipamorelin-5mg-5mg.png",
+};
+
+function Hero({ hero }: { hero: SiteContent["hero"] }) {
   const img = hero.image;
   const src = img ? `/media/${img}-1600.webp` : "";
   const srcSet = img ? `/media/${img}-480.webp 480w, /media/${img}-960.webp 960w, /media/${img}-1600.webp 1600w` : undefined;
@@ -35,17 +40,22 @@ function Hero({ hero, catalog }: { hero: SiteContent["hero"]; catalog: PublicCat
     </div>
   );
 
-  // Until a hero photo is uploaded: three placeholder vials stand in for it.
-  const vials = catalog.products.slice(0, 3);
-  const stand = (
-    <div className="flex h-full items-end justify-center px-[4%]" aria-hidden>
-      {[1, 0, 2].map((k, i) => (
-        <div key={i} className={`shrink-0 ${i === 1 ? "z-10 -mx-[9%] w-[50%]" : "w-[38%]"}`}>
-          <Vial name={vials[k]?.name ?? ""} size={vials[k]?.variants[0]?.label ?? ""} className="block h-auto w-full" />
+  // Without a hero photo: text on the left, the animated vial pyramid on the right, light background.
+  if (!img) {
+    const vial = (slot: keyof typeof DEFAULT_HERO_VIALS) => {
+      const id = hero.vials?.[slot];
+      return id ? { src: `/media/${id}-960.webp`, uploaded: true } : { src: DEFAULT_HERO_VIALS[slot], uploaded: false };
+    };
+    return (
+      <section className="relative overflow-hidden border-b border-rule bg-soft">
+        <div aria-hidden className="hv-glow pointer-events-none absolute inset-0" />
+        <div className="s-wrap relative grid items-center gap-4 pb-8 pt-12 sm:pt-16 lg:min-h-[min(44rem,calc(100svh-7rem))] lg:grid-cols-[1.05fr_1fr] lg:gap-8 lg:py-16">
+          {text(false)}
+          <HeroVials vials={{ left: vial("left"), center: vial("center"), right: vial("right") }} className="mx-auto w-full max-w-[25rem] sm:max-w-[32rem] lg:max-w-[40rem]" />
         </div>
-      ))}
-    </div>
-  );
+      </section>
+    );
+  }
 
   if (hero.layout === "split") {
     return (
@@ -54,7 +64,7 @@ function Hero({ hero, catalog }: { hero: SiteContent["hero"]; catalog: PublicCat
           {text(false)}
           <div className="relative aspect-[4/3] overflow-hidden rounded-3xl bg-soft lg:aspect-[5/5]">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            {img ? <img src={src} srcSet={srcSet} sizes="(min-width: 1024px) 50vw, 100vw" alt="" fetchPriority="high" className="h-full w-full object-cover" /> : stand}
+            <img src={src} srcSet={srcSet} sizes="(min-width: 1024px) 50vw, 100vw" alt="" fetchPriority="high" className="h-full w-full object-cover" />
           </div>
         </div>
       </section>
@@ -62,14 +72,10 @@ function Hero({ hero, catalog }: { hero: SiteContent["hero"]; catalog: PublicCat
   }
   return (
     <section className="relative flex min-h-[calc(100svh-6.5rem)] items-end overflow-hidden bg-night text-white sm:min-h-[calc(100svh-7rem)]">
-      {img ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={src} srcSet={srcSet} sizes="100vw" alt="" fetchPriority="high" className="absolute inset-0 h-full w-full object-cover" />
-      ) : (
-        <div className="absolute bottom-0 right-[3%] hidden h-[86%] w-[44%] max-w-[40rem] md:block">{stand}</div>
-      )}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={src} srcSet={srcSet} sizes="100vw" alt="" fetchPriority="high" className="absolute inset-0 h-full w-full object-cover" />
       {/* The overlay is a flat tint so the headline stays readable on any photo. */}
-      <div className="absolute inset-0 bg-night" style={{ opacity: img ? hero.overlay / 100 : 0 }} />
+      <div className="absolute inset-0 bg-night" style={{ opacity: hero.overlay / 100 }} />
       <div className="s-wrap relative pb-14 pt-28 sm:pb-20">{text(true)}</div>
     </section>
   );
@@ -239,7 +245,7 @@ export default async function HomePage() {
 
   return (
     <>
-      <Hero hero={content.hero} catalog={catalog} />
+      <Hero hero={content.hero} />
       {catalog.products.length === 0 && (
         <section className="s-wrap py-24 text-center">
           <h2 className="s-h2">The catalog is being stocked.</h2>

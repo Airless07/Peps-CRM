@@ -164,7 +164,7 @@ export function SingleImage({
 }: {
   value: string;
   onChange: (id: string) => void;
-  kind: "hero" | "logo" | "share" | "favicon";
+  kind: "hero" | "vial" | "logo" | "share" | "favicon";
   hint: string;
   shape?: "wide" | "square";
 }) {
@@ -177,7 +177,7 @@ export function SingleImage({
       <div className={cx("flex shrink-0 items-center justify-center overflow-hidden rounded-xl border border-line bg-surface2", shape === "square" ? "h-20 w-20" : "h-24 w-full sm:w-44")}>
         {src ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={src} alt="" className={cx("h-full w-full", kind === "logo" || kind === "favicon" ? "object-contain p-2" : "object-cover")} />
+          <img src={src} alt="" className={cx("h-full w-full", kind === "logo" || kind === "favicon" || kind === "vial" ? "object-contain p-2" : "object-cover")} />
         ) : (
           <span className="text-xs text-muted">None</span>
         )}

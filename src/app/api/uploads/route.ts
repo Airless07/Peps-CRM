@@ -2,7 +2,7 @@ import { HttpError, route } from "@/lib/api";
 import { rateLimit } from "@/lib/ratelimit";
 import { formFile, removeUpload, saveGif, saveImage, type ImageKind } from "@/lib/uploads";
 
-const KINDS = new Set(["product", "hero", "logo", "share", "favicon", "gif"]);
+const KINDS = new Set(["product", "hero", "vial", "logo", "share", "favicon", "gif"]);
 
 /** Admin image upload. Multipart: file + kind. Returns the upload id (photos) or file name (gif). */
 export const POST = route(async (req) => {
