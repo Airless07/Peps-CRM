@@ -4,11 +4,11 @@ import { themeScript } from "@/lib/theme";
 import "../globals.css";
 
 export const metadata: Metadata = {
-  title: { default: "Buckshot Peps admin", template: "%s | Buckshot Peps admin" },
+  title: { default: "Buckshot Labs admin", template: "%s | Buckshot Labs admin" },
   description: "Orders, inventory and money",
-  applicationName: "Buckshot Peps admin",
+  applicationName: "Buckshot Labs admin",
   manifest: "/manifest.webmanifest",
-  appleWebApp: { capable: true, title: "Peps admin", statusBarStyle: "default" },
+  appleWebApp: { capable: true, title: "Labs admin", statusBarStyle: "default" },
   icons: { icon: "/icon.svg", apple: "/apple-icon" },
   robots: { index: false, follow: false, nocache: true },
 };

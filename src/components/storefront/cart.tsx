@@ -370,22 +370,16 @@ export function CartTotals({ shippingCents, shippingLabel }: { shippingCents?: n
   const total = quote.subtotalCents - quote.discountCents + (shippingCents ?? 0);
   return (
     <dl className="space-y-2 text-[15px]">
-      {quote.qtySavingsCents > 0 && (
-        <div className="flex justify-between text-stone">
-          <dt>Items at regular price</dt>
-          <dd className="tabular-nums">{money(quote.listSubtotalCents)}</dd>
-        </div>
-      )}
+      <div className="flex justify-between text-stone">
+        <dt>Items at regular price</dt>
+        <dd className="tabular-nums">{money(quote.listSubtotalCents)}</dd>
+      </div>
       {quote.qtySavingsCents > 0 && (
         <div className="flex justify-between text-brand">
           <dt>Buy more, save more</dt>
           <dd className="tabular-nums">-{money(quote.qtySavingsCents)}</dd>
         </div>
       )}
-      <div className="flex justify-between">
-        <dt>Subtotal</dt>
-        <dd className="tabular-nums">{money(quote.subtotalCents)}</dd>
-      </div>
       {quote.applied
         .filter((a) => a.cents > 0)
         .map((a) => (
@@ -400,8 +394,8 @@ export function CartTotals({ shippingCents, shippingLabel }: { shippingCents?: n
           <dd className="shrink-0 tabular-nums">{shippingCents === null ? "Calculated next" : shippingCents === 0 ? "Free" : money(shippingCents)}</dd>
         </div>
       )}
-      <div className="flex items-baseline justify-between border-t border-rule pt-3 text-base font-semibold">
-        <dt>{shippingCents === undefined || shippingCents === null ? "Subtotal after savings" : "Total"}</dt>
+      <div data-cart-total className="flex items-baseline justify-between border-t border-rule pt-3 text-base font-semibold">
+        <dt>{shippingCents === undefined || shippingCents === null ? "Subtotal" : "Total"}</dt>
         <dd className="text-xl tabular-nums">{money(total)}</dd>
       </div>
       {saved > 0 && <div className="text-right text-[13px] font-medium text-brand">You save {money(saved)}</div>}

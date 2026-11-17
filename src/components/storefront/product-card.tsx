@@ -28,7 +28,7 @@ export function TestingBadge({ v, link = true, short = false, className = "" }: 
       </>
     );
     return v.coa && link ? (
-      <a href={v.coa.url} target="_blank" rel="noreferrer" aria-label={`${text}. View certificate of analysis`} className={`${base} border-rule text-coal transition hover:border-coal`}>
+      <a href={v.coa.url} target="_blank" rel="noreferrer" aria-label={`${text}. View certificate of analysis`} className={`tap ${base} border-rule text-coal transition hover:border-coal`}>
         {inner}
       </a>
     ) : (

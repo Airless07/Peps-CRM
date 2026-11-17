@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   BadgePercent,
   Boxes,
+  ChartNoAxesColumn,
   CircleHelp,
   ExternalLink,
   HandCoins,
@@ -63,6 +64,7 @@ const STORE: NavItem[] = [
   { href: "/admin/promotions", label: "Promotions", icon: BadgePercent },
   { href: "/admin/reviews", label: "Reviews", icon: Star, badges: (c) => [{ n: c.reviews, title: "reviews to approve", tone: "accent" }] },
   { href: "/admin/content", label: "Content", icon: PanelsTopLeft, badges: (c) => [{ n: c.messages, title: "new messages", tone: "accent" }] },
+  { href: "/admin/analytics", label: "Analytics", icon: ChartNoAxesColumn },
 ];
 const BOTTOM: NavItem[] = [
   { href: "/admin/settings", label: "Settings", icon: Settings },
@@ -135,7 +137,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const nav = (big = false) => (
     <>
       <div className="flex flex-col gap-0.5">{TOP.map((t) => link(t, big))}</div>
-      {groupLabel("Peps CRM")}
+      {groupLabel("Sales")}
       <div className="flex flex-col gap-0.5">{CRM.map((t) => link(t, big))}</div>
       {groupLabel("Store")}
       <div className="flex flex-col gap-0.5">{STORE.map((t) => link(t, big))}</div>
@@ -165,7 +167,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <Link href="/admin" className="mb-5 flex items-center gap-2.5 px-3">
           <img src="/icon.svg" alt="" className="h-8 w-8 rounded-lg" />
           <span className="text-[15px] font-semibold leading-tight tracking-tight">
-            Buckshot Peps
+            {data?.store.storeName || "Buckshot Labs"}
             <span className="block text-xs font-normal text-muted">Admin</span>
           </span>
         </Link>
@@ -291,6 +293,18 @@ function GlobalSearch() {
       <input
         ref={inputRef}
         type="search"
+        // Not a sign-in field: a neutral name and id plus autocomplete off, so browsers and
+        // password managers stop filling an email address or username in here.
+        id="admin-find"
+        name="admin-find"
+        autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck={false}
+        enterKeyHint="search"
+        data-1p-ignore
+        data-lpignore="true"
+        data-form-type="other"
         role="combobox"
         aria-expanded={open && q.trim().length > 0}
         aria-controls="global-search-results"

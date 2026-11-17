@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, CreditCard, Landmark, Lock } from "lucide-react";
 import { AuthPanel, cleanError, type AccountInfo } from "./auth-panel";
+import { resetCheckoutStart, trackCheckoutStart } from "./analytics";
 import { CartTotals, money, PromoField, useCart, useLineInfo } from "./cart";
 
 type Addr = AccountInfo["addresses"][number];
@@ -81,6 +82,12 @@ export function CheckoutView({ account: initial, states, ack, preview }: { accou
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addrKey]);
 
+  // Analytics: a checkout is "started" when the page is opened with something in the cart.
+  const hasItems = cart.ready && cart.items.length > 0;
+  useEffect(() => {
+    if (hasItems) trackCheckoutStart();
+  }, [hasItems]);
+
   const options = quote?.shipping ?? [];
   const methods = quote?.payMethods ?? [];
   useEffect(() => {
@@ -137,6 +144,7 @@ export function CheckoutView({ account: initial, states, ack, preview }: { accou
         throw new Error(cleanError(json.error) || "We couldn't place your order. Check your connection and try again.");
       }
       cart.clear();
+      resetCheckoutStart();
       router.push(`/order/${json.token}?placed=1`);
     } catch (err) {
       setFormError((err as Error).message);

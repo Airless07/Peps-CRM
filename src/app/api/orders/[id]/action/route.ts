@@ -1,6 +1,7 @@
 import { body, HttpError, route, type Ctx } from "@/lib/api";
 import { prisma } from "@/lib/db";
 import { buyLabel, cancelOrder, checkTracking, logEvent, markDelivered, markPaid, markShipped, requestOrigin } from "@/lib/order-ops";
+import { withLowStockAlert } from "@/lib/stock-alerts";
 import { orderAction } from "@/lib/store/schemas";
 
 /** Every admin action on an order goes through here. */
@@ -10,7 +11,8 @@ export const POST = route(async (req, ctx: Ctx<{ id: string }>) => {
   const origin = requestOrigin(req);
   switch (input.action) {
     case "mark-paid":
-      await markPaid(id, { paymentMethod: input.paymentMethod, origin, notify: input.notify });
+      // Marking paid is the moment a website order takes stock.
+      await withLowStockAlert(() => markPaid(id, { paymentMethod: input.paymentMethod, origin, notify: input.notify }), origin);
       return { ok: true, message: "Marked paid. The customer was emailed." };
     case "cancel":
       await cancelOrder(id, input.reason ? `Canceled: ${input.reason.replace(/^canceled:\s*/i, "")}` : "Canceled by the store", { origin, notify: input.notify });
@@ -44,5 +46,9 @@ export const POST = route(async (req, ctx: Ctx<{ id: string }>) => {
     case "note":
       await logEvent(prisma, id, "note", input.note);
       return { ok: true, message: "Note added." };
+    case "admin-note":
+      // Stored on the order only. It is not part of any email, the order status page or the account page.
+      await prisma.order.update({ where: { id }, data: { adminNote: input.note.trim() } });
+      return { ok: true, message: input.note.trim() ? "Internal note saved." : "Internal note cleared." };
   }
 });

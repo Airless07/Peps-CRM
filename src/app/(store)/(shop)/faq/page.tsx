@@ -1,13 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { FaqList } from "@/components/storefront/product-card";
+import { faqForDisplay } from "@/lib/store/copy";
 import { storeSnapshot } from "@/lib/store/server";
 
 export const metadata: Metadata = { title: "Frequently asked questions", description: "Answers about ordering, payment, shipping and certificates of analysis.", alternates: { canonical: "/faq" } };
 
 export default async function FaqPage() {
   const { data } = await storeSnapshot();
-  const items = data.content.faq.filter((f) => f.q.trim());
+  const items = faqForDisplay(data.content.faq, data.store.payments).filter((f) => f.q.trim());
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "FAQPage",

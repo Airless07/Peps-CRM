@@ -2,7 +2,9 @@ import Link from "next/link";
 import { ArrowRight, ArrowUpRight } from "lucide-react";
 import { FaqList, ProductGrid, TestingBadge, leadVariant } from "@/components/storefront/product-card";
 import { HeroVials } from "@/components/storefront/hero-vials";
+import { bestSellerRow } from "@/lib/store/catalog";
 import type { SiteContent } from "@/lib/store/config";
+import { faqForDisplay } from "@/lib/store/copy";
 import { storeSnapshot } from "@/lib/store/server";
 import type { ReviewRec } from "@/lib/types";
 
@@ -109,7 +111,11 @@ function SectionHead({ title, href, label }: { title: string; href?: string; lab
 export default async function HomePage() {
   const { data, catalog } = await storeSnapshot();
   const { content } = data;
-  const best = catalog.products.filter((p) => p.bestSeller).sort((a, b) => a.sellRank - b.sellRank).slice(0, 4);
+  // Always a full row of 4 (best sellers, then featured, then newest), or no section at all.
+  const best = bestSellerRow(catalog.products, 4);
+  const faq = faqForDisplay(content.faq, data.store.payments);
+  const sizes = catalog.products.flatMap((p) => p.variants);
+  const sizesWithCoa = sizes.filter((v) => v.testing === "coa_available" && v.coa).length;
   const reviews: ReviewRec[] = data.reviews.filter((r) => r.status === "approved").slice(0, 6);
   const tested = catalog.products.filter((p) => leadVariant(p).testing === "coa_available").slice(0, 4);
 
@@ -181,7 +187,9 @@ export default async function HomePage() {
             </dl>
             {tested.length > 0 && (
               <div className="mt-8" data-reveal>
-                <p className="text-sm text-white/70">Certificates on file now</p>
+                <p className="text-sm text-white/70">
+                  Third-party tested, certificate on file now ({sizesWithCoa} of {sizes.length} {sizes.length === 1 ? "size" : "sizes"})
+                </p>
                 <ul className="mt-3 flex flex-wrap gap-2">
                   {tested.map((p) => (
                     <li key={p.id} className="flex items-center gap-2 rounded-full bg-white py-1 pl-3.5 pr-1 text-coal">
@@ -217,7 +225,7 @@ export default async function HomePage() {
         </section>
       ),
     faq: (title) =>
-      content.faq.some((f) => f.q.trim()) && (
+      faq.some((f) => f.q.trim()) && (
         <section key="faq" className="s-wrap py-16 sm:py-24">
           <div className="grid gap-10 lg:grid-cols-[1fr_1.6fr] lg:gap-20">
             <div data-reveal>
@@ -231,8 +239,8 @@ export default async function HomePage() {
               </p>
             </div>
             <div data-reveal>
-              <FaqList items={content.faq.slice(0, 5)} />
-              {content.faq.length > 5 && (
+              <FaqList items={faq.slice(0, 5)} />
+              {faq.length > 5 && (
                 <Link href="/faq" className="s-link mt-6 inline-block">
                   All questions
                 </Link>

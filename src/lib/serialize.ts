@@ -85,6 +85,7 @@ export function toOrder(o: OrderWithLines): OrderRec {
     status: o.status as OrderRec["status"],
     archived: o.archived,
     shippingCents: o.shippingCents,
+    adminNote: o.adminNote,
     web: online
       ? {
           email: o.email,
@@ -104,6 +105,7 @@ export function toOrder(o: OrderWithLines): OrderRec {
           shippedAt: isoN(o.shippedAt),
           deliveredAt: isoN(o.deliveredAt),
           canceledAt: isoN(o.canceledAt),
+          reminderSentAt: isoN(o.reminderSentAt),
           trackingNumber: o.trackingNumber,
           trackingCarrier: o.trackingCarrier,
           trackingStatus: o.trackingStatus,

@@ -49,6 +49,8 @@ export interface PublicProduct {
   priceToCents: number;
   stock: StockLevel;
   bestSeller: boolean;
+  /** The owner ticked "Best seller" on this product (a manual pick, whatever the best seller mode is). */
+  featured: boolean;
   /** Position in the best selling order (0 = top). Not a sales figure. */
   sellRank: number;
   createdAt: string;
@@ -161,6 +163,7 @@ export function buildCatalog(data: AppData, ledger: Ledger, now = new Date()): P
       priceToCents: Math.max(...prices),
       stock: variants.some((v) => v.stock === "in") ? "in" : variants.some((v) => v.stock === "low") ? "low" : "out",
       bestSeller: false,
+      featured: l.bestSeller,
       sellRank: 0,
       createdAt: l.createdAt,
       seoTitle: l.seoTitle,
@@ -181,6 +184,23 @@ export function buildCatalog(data: AppData, ledger: Ledger, now = new Date()): P
     .map((g) => ({ id: g.id, name: g.name, slug: g.slug, count: products.filter((p) => p.groupIds.includes(g.id)).length }))
     .filter((g) => g.count > 0);
   return { products, groups };
+}
+
+/**
+ * The home page "Best sellers" row: always a full row, or nothing.
+ * Best sellers first, then the owner's featured picks, then the newest products.
+ * With fewer products than a full row the section is hidden (returns an empty list).
+ */
+export function bestSellerRow(products: PublicProduct[], size = 4): PublicProduct[] {
+  if (products.length < size) return [];
+  const out: PublicProduct[] = [];
+  const take = (list: PublicProduct[]) => {
+    for (const p of list) if (out.length < size && !out.includes(p)) out.push(p);
+  };
+  take(products.filter((p) => p.bestSeller).sort((a, b) => a.sellRank - b.sellRank));
+  take(products.filter((p) => p.featured));
+  take([...products].sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
+  return out;
 }
 
 /** Variants in the shape the pricing function needs (website products only). */

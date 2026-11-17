@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Ledger } from "../money";
 import type { AppData } from "../types";
 
-const dir = mkdtempSync(path.join(tmpdir(), "peps-test-"));
+const dir = mkdtempSync(path.join(tmpdir(), "labs-test-"));
 const root = path.resolve(import.meta.dirname, "../../..");
 process.env.DATABASE_URL = `file:${path.join(dir, "test.db").replace(/\\/g, "/")}`;
 process.env.DATA_DIR = dir;

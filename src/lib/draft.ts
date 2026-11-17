@@ -58,7 +58,7 @@ export function orderToDraft(o: OrderRec): Draft {
 /** `base` is the order being edited: its number, source, status and shipping are kept. */
 export function draftToOrder(d: Draft, createdAt = new Date().toISOString(), base?: OrderRec): OrderRec {
   const keep = base
-    ? { number: base.number, source: base.source, status: base.status, archived: base.archived, shippingCents: base.shippingCents, web: base.web }
+    ? { number: base.number, source: base.source, status: base.status, archived: base.archived, shippingCents: base.shippingCents, adminNote: base.adminNote, web: base.web }
     : ORDER_DEFAULTS;
   return {
     ...keep,

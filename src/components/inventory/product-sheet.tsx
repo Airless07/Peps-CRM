@@ -3,12 +3,13 @@
 // Edit one product. Two tabs: "Stock and pricing" (the CRM fields, per size) and "Website"
 // (everything the store shows). One product list: nothing here is duplicated anywhere else.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ExternalLink, FileText, Plus, Split, Trash2, Upload } from "lucide-react";
+import { ExternalLink, FileText, Plus, Split, Trash2, TriangleAlert, Upload } from "lucide-react";
 import { api, useLoaded } from "@/components/store";
 import { useToast } from "@/components/toast";
 import { Badge, Button, Field, Input, MoneyInput, NumberInput, Segmented, Select, Sheet, Textarea, Toggle, cx, useConfirm } from "@/components/ui";
 import { emptyListing } from "@/lib/backup";
 import { PRODUCT_COLORS, fmtDate, fmtMoney, toLocalDateInput, uid } from "@/lib/format";
+import { INFO_FIELDS, nameWithoutSize, sizeInName, websiteInfo } from "@/lib/store/product-info";
 import { slugify } from "@/lib/store/slug";
 import type { CoaRec, ListingRec, ProductRec, QtyDeal, TestingStatus } from "@/lib/types";
 import { PRODUCT_DEFAULTS, TESTING_LABEL } from "@/lib/types";
@@ -181,6 +182,19 @@ export function ProductSheet({ listingId, onClose }: { listingId: string | "new"
     }
   }
 
+  // A size inside the product name ("Reta 10mg"): sizes belong in the size label.
+  const nameSize = l ? sizeInName(l.name) : "";
+  const canMoveSize = !!l && !!nameSize && vs.length === 1 && !vs[0].variantLabel.trim() && !!nameWithoutSize(l.name);
+  function moveSizeToLabel() {
+    if (!l || !canMoveSize) return;
+    const clean = nameWithoutSize(l.name);
+    // The Sell screen name stays what it was ("Reta 10mg"), so sales history reads the same.
+    setVs((list) => list.map((v) => ({ ...v, variantLabel: nameSize, name: v.name.trim() || l.name.trim() })));
+    setL({ ...l, name: clean });
+  }
+  const info = l ? websiteInfo(l) : null;
+  const infoEmpty = (key: (typeof INFO_FIELDS)[number]["key"]) => (l && !l[key].trim() ? "Recommended" : undefined);
+
   const storeDeals = data.store.qtyDeals;
   const deals = l?.qtyDeals ?? null;
 
@@ -218,6 +232,21 @@ export function ProductSheet({ listingId, onClose }: { listingId: string | "new"
               <Field label="Product name" hint={multi ? "The name customers see. Each size below adds its label." : "Shown on the Sell screen and on the website."}>
                 <Input value={l.name} autoFocus={isNew} onChange={(e) => rename(e.target.value)} placeholder="e.g. BPC-157" maxLength={120} />
               </Field>
+              {nameSize && (
+                <div role="alert" className="-mt-2 flex flex-col gap-2 rounded-xl bg-warn/12 px-3.5 py-3 text-sm text-warn sm:flex-row sm:items-center">
+                  <span className="flex min-w-0 flex-1 items-start gap-2">
+                    <TriangleAlert size={16} className="mt-0.5 shrink-0" />
+                    <span>
+                      The name includes a size (“{nameSize}”). Sizes are variants, so keep the name to the compound (“{nameWithoutSize(l.name) || "BPC-157"}”) and put “{nameSize}” in the size label.
+                    </span>
+                  </span>
+                  {canMoveSize && (
+                    <Button size="sm" className="h-11 shrink-0" onClick={moveSizeToLabel}>
+                      Move “{nameSize}” to the size label
+                    </Button>
+                  )}
+                </div>
+              )}
 
               {vs.map((v, i) => {
                 const st = ledger.stock.get(v.id);
@@ -331,24 +360,29 @@ export function ProductSheet({ listingId, onClose }: { listingId: string | "new"
               </section>
 
               <section className="space-y-4">
-                <h3 className="text-sm font-semibold">Compound info</h3>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="text-sm font-semibold">Compound info</h3>
+                  <Badge tone="accent">Recommended</Badge>
+                  {info && <Badge tone={info.filled === info.total ? "pos" : "warn"}>{info.label}</Badge>}
+                </div>
+                <p className="-mt-2 text-sm text-muted">Shown as a spec table on the product page. Empty fields are left out, and the whole table is hidden when nothing is filled in.</p>
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <Field label="CAS number">
+                  <Field label="CAS number" tag={infoEmpty("casNumber")}>
                     <Input value={l.casNumber} onChange={(e) => setField("casNumber", e.target.value)} placeholder="e.g. 137525-51-0" />
                   </Field>
-                  <Field label="Molecular formula">
+                  <Field label="Molecular formula" tag={infoEmpty("formula")}>
                     <Input value={l.formula} onChange={(e) => setField("formula", e.target.value)} placeholder="e.g. C62H98N16O22" />
                   </Field>
-                  <Field label="Molecular weight">
+                  <Field label="Molecular weight" tag={infoEmpty("molecularWeight")}>
                     <Input value={l.molecularWeight} onChange={(e) => setField("molecularWeight", e.target.value)} placeholder="e.g. 1419.5 g/mol" />
                   </Field>
-                  <Field label="Purity %">
+                  <Field label="Purity %" tag={infoEmpty("purity")}>
                     <Input value={l.purity} onChange={(e) => setField("purity", e.target.value)} placeholder="e.g. ≥99%" />
                   </Field>
-                  <Field label="Form">
+                  <Field label="Form" tag={infoEmpty("form")}>
                     <Input value={l.form} onChange={(e) => setField("form", e.target.value)} placeholder="e.g. Lyophilized powder" />
                   </Field>
-                  <Field label="Storage conditions">
+                  <Field label="Storage conditions" tag={infoEmpty("storage")}>
                     <Input value={l.storage} onChange={(e) => setField("storage", e.target.value)} placeholder="e.g. Store at -20°C" />
                   </Field>
                 </div>

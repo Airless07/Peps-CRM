@@ -2,8 +2,10 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ProductGrid } from "@/components/storefront/product-card";
+import { TrackProductView } from "@/components/storefront/analytics";
 import { ProductView } from "@/components/storefront/product-view";
 import { siteUrl } from "@/lib/order-ops";
+import { productTestingSummary } from "@/lib/store/copy";
 import { storeSnapshot } from "@/lib/store/server";
 
 type Props = { params: Promise<{ slug: string }> };
@@ -14,7 +16,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const p = catalog.products.find((x) => x.slug === slug);
   if (!p) return { title: "Product not found" };
   const title = p.seoTitle || p.name;
-  const description = p.seoDescription || p.summary || `${p.name}: research compound with published testing status. For laboratory research use only.`;
+  const description = p.seoDescription || p.summary || productTestingSummary(p.name, p.variants.map((v) => v.testing));
   const image = p.photos[0] ? `/media/${p.photos[0].id}-1600.webp` : undefined;
   return {
     title,
@@ -73,6 +75,7 @@ export default async function ProductPage({ params }: Props) {
         <span className="text-coal">{p.name}</span>
       </nav>
 
+      <TrackProductView id={p.id} />
       <ProductView p={p} />
 
       {reviews.length > 0 && (

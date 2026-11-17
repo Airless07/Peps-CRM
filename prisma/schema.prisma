@@ -207,6 +207,10 @@ model Order {
   trackingCarrier  String          @default("")
   trackingStatus   String          @default("")
   labelUrl         String          @default("")
+  /// Internal note for the team. Never sent to or shown to the customer.
+  adminNote        String          @default("")
+  /// When the unpaid-order reminder email was sent (once per order)
+  reminderSentAt   DateTime?
   lines            OrderLine[]
   splitItems       SplitItem[]
   labels           LabelPurchase[]
@@ -345,6 +349,19 @@ model ContactMessage {
   message     String
   handled     Boolean  @default(false)
   createdAt   DateTime @default(now())
+}
+
+/// Built-in analytics: one counter per day, metric and key. Aggregate counts only, nothing about a person.
+/// metric: "visit" | "product_view" | "add_to_cart" | "checkout_start" | "order". key: listing id for product metrics, "" otherwise.
+model AnalyticsDay {
+  /// Local calendar day, "YYYY-MM-DD"
+  day    String
+  metric String
+  key    String @default("")
+  count  Int    @default(0)
+
+  @@id([day, metric, key])
+  @@index([day])
 }
 
 model Split {

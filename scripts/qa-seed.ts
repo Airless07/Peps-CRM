@@ -98,8 +98,8 @@ async function main() {
   const store = {
     ...DEFAULT_STORE,
     open: true,
-    payments: { ...DEFAULT_STORE.payments, zelle: { enabled: true, details: "pay@buckshotpeps.test" }, cashapp: { enabled: true, details: "$buckshotpeps" }, card: { enabled: false, comingSoon: "show" as const } },
-    shipFrom: { name: "Buckshot Peps", street1: "100 Congress Ave", street2: "", city: "Austin", state: "TX", zip: "78701", country: "US", phone: "5125550100", email: "ship@buckshotpeps.test" },
+    payments: { ...DEFAULT_STORE.payments, zelle: { enabled: true, details: "pay@buckshotlabs.test" }, cashapp: { enabled: true, details: "$buckshotlabs" }, card: { enabled: false, comingSoon: "show" as const } },
+    shipFrom: { name: "Buckshot Labs", street1: "100 Congress Ave", street2: "", city: "Austin", state: "TX", zip: "78701", country: "US", phone: "5125550100", email: "ship@buckshotlabs.test" },
   };
   await prisma.settings.update({ where: { id: 1 }, data: { storeJson: JSON.stringify(store) } });
 

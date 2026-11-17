@@ -22,8 +22,8 @@ export interface PayMethodDef {
 
 export const PAY_METHODS: PayMethodDef[] = [
   { id: "zelle", name: "Zelle", kind: "manual", blurb: "Send from your bank app. No fees.", detailsLabel: "Zelle email or phone", detailsHint: "Where customers send the money.", saleName: "Zelle" },
-  { id: "cashapp", name: "Cash App", kind: "manual", blurb: "Pay with your Cash App balance or card.", detailsLabel: "Cash App $cashtag", detailsHint: "For example $buckshotpeps.", saleName: "Cash App" },
-  { id: "venmo", name: "Venmo", kind: "manual", blurb: "Pay from your Venmo account.", detailsLabel: "Venmo username", detailsHint: "For example @buckshotpeps.", saleName: "Venmo" },
+  { id: "cashapp", name: "Cash App", kind: "manual", blurb: "Pay with your Cash App balance or card.", detailsLabel: "Cash App $cashtag", detailsHint: "For example $buckshotlabs.", saleName: "Cash App" },
+  { id: "venmo", name: "Venmo", kind: "manual", blurb: "Pay from your Venmo account.", detailsLabel: "Venmo username", detailsHint: "For example @buckshotlabs.", saleName: "Venmo" },
   { id: "bank", name: "Pay by Bank", kind: "provider", blurb: "Secure transfer straight from your bank.", saleName: "Pay by Bank" },
   { id: "card", name: "Credit / Debit Card", kind: "provider", blurb: "Visa, Mastercard, American Express, Discover.", saleName: "Card" },
 ];

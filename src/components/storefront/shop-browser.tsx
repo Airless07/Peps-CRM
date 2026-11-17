@@ -110,7 +110,11 @@ export function ShopBrowser({ products, groups, fixedGroup }: { products: Public
           )}
         </div>
       ) : (
-        <ProductGrid key={`${group}-${sort}-${q}`} products={list} priorityCount={4} />
+        <>
+          {/* Keeps the heading outline in order: page title (h1), this list (h2), product names (h3). */}
+          <h2 className="sr-only">Products</h2>
+          <ProductGrid key={`${group}-${sort}-${q}`} products={list} priorityCount={4} />
+        </>
       )}
     </div>
   );

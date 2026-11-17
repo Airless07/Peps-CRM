@@ -2,7 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Buckshot Peps storefront. Red and white: white and off-white surfaces, near-black ink,
+/* Buckshot Labs storefront. Red and white: white and off-white surfaces, near-black ink,
    thin neutral rules, one deep red used sparingly. Neutrals lean a hair toward the red hue. */
 .store {
   --font-sans: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -319,4 +319,47 @@ details.s-acc[open] .s-acc-icon {
   .marquee-track {
     animation: none !important;
   }
+}
+
+/* ---------------------------------------------------------------- Touch targets
+   On phones and touch screens every control is at least 44px tall (and buttons 44px wide), so
+   nothing is fiddly to tap. Desktop sizes are unchanged. ".tap" keeps a small pill or text link
+   looking the same and gives it an invisible 44px touch area instead. */
+@layer base {
+  @media (max-width: 767px), (pointer: coarse) {
+    .store :where(button:not(.tap), select, summary, [role="tab"], input:not([type="checkbox"], [type="radio"], [type="file"], [type="hidden"])) {
+      min-height: 2.75rem;
+    }
+    .store :where(button:not(.tap)) {
+      min-width: 2.75rem;
+    }
+    .store :where(label:has(> input[type="checkbox"]), label:has(> input[type="radio"])) {
+      min-height: 2.75rem;
+    }
+    /* Links that stand on their own (not inside a sentence) get the invisible 44px touch area too. */
+    .store :where(a:not(p a, .s-prose a, .tap)) {
+      position: relative;
+    }
+    .store :where(a:not(p a, .s-prose a, .tap))::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: max(100%, 2.75rem);
+      height: max(100%, 2.75rem);
+      transform: translate(-50%, -50%);
+    }
+  }
+}
+.tap {
+  position: relative;
+}
+.tap::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: max(100%, 2.75rem);
+  height: max(100%, 2.75rem);
+  transform: translate(-50%, -50%);
 }

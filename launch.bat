@@ -1,11 +1,11 @@
 @echo off
 setlocal
-title Buckshot Peps
+title Buckshot Labs
 cd /d "%~dp0"
 
 echo.
 echo  ==========================================
-echo    Buckshot Peps - local launcher
+echo    Buckshot Labs - local launcher
 echo  ==========================================
 echo.
 

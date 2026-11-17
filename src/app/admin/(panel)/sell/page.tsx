@@ -11,6 +11,7 @@ import { useToast } from "@/components/toast";
 import { Button, Empty, PageHeader, PageSkeleton, Sheet, cx, useConfirm } from "@/components/ui";
 import { draftPayload, draftToOrder, lineCount, resolveDraftCustomer } from "@/lib/draft";
 import { orderTotals } from "@/lib/money";
+import { sellGroups, sellVariantLabel } from "@/lib/admin/sell-groups";
 import { colorHex, fmtMoney, plural } from "@/lib/format";
 import type { ProductRec } from "@/lib/types";
 
@@ -26,6 +27,7 @@ export default function SellPage() {
   if (!s || !cart.ready) return <PageSkeleton />;
   const { data, ledger, mutate } = s;
   const products = data.products.filter((p) => !p.archived);
+  const groups = sellGroups(data);
   const { draft } = cart;
   const count = lineCount(draft);
   const totals = orderTotals(draft);
@@ -112,7 +114,7 @@ export default function SellPage() {
     <div>
       <PageHeader
         title="Sell"
-        sub={products.length ? "Tap a product to add it" : undefined}
+        sub={products.length ? "Tap a size to add it to the order" : undefined}
         actions={
           <Button variant="primary" onClick={newOrder}>
             <Plus size={18} /> New order
@@ -132,46 +134,71 @@ export default function SellPage() {
           }
         />
       ) : (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-          {products.map((p) => {
-            const stock = (ledger.stock.get(p.id)?.stock ?? 0) - inCart(p.id);
-            const n = inCart(p.id);
-            const stockTone = stock <= 0 ? "text-neg" : stock <= threshold(p) ? "text-warn" : "text-muted";
-            return (
-              <div key={p.id} className="relative flex flex-col overflow-hidden rounded-2xl border border-line bg-surface">
-                <div className="h-1.5" style={{ background: colorHex(p.color) }} />
-                <div className="flex flex-1 flex-col p-3.5">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="line-clamp-2 font-semibold leading-snug">{p.name}</div>
-                    {n > 0 && (
-                      <span className="flex h-6 min-w-6 shrink-0 animate-pop-in items-center justify-center rounded-full bg-accent px-1.5 text-xs font-semibold text-accent-ink">
-                        {n}
-                      </span>
-                    )}
-                  </div>
-                  <div className={cx("mt-1 text-sm tabular-nums", stockTone)}>
-                    {stock} in stock{stock <= 0 ? "" : stock <= threshold(p) ? " · low" : ""}
-                  </div>
-                  <div className="mt-auto space-y-2 pt-4">
-                    <button
-                      type="button"
-                      onClick={() => cart.addProduct(p, p.defaultPriceCents)}
-                      className="flex h-12 w-full items-center justify-center rounded-xl bg-accent text-[15px] font-semibold text-accent-ink transition hover:brightness-110 active:scale-[.97]"
-                    >
-                      Sell 1 for {fmtMoney(p.defaultPriceCents, { compact: true })}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setCustomFor(p)}
-                      className="flex h-10 w-full items-center justify-center rounded-xl text-sm font-medium text-muted transition hover:bg-surface2 hover:text-ink active:scale-[.97]"
-                    >
-                      Other price
-                    </button>
-                  </div>
+        // One card per product, its sizes together inside it, in the same order as the store.
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {groups.map((g) => (
+            <section key={g.key} aria-label={g.name} data-sell-product={g.name} className="flex flex-col overflow-hidden rounded-2xl border border-line bg-surface">
+              <div className="flex items-center gap-3 border-b border-line px-3.5 py-3">
+                {g.photoId ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={`/media/${g.photoId}-480.webp`} alt="" loading="lazy" className="h-12 w-12 shrink-0 rounded-xl bg-surface2 object-cover" />
+                ) : (
+                  <span aria-hidden className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-sm font-semibold text-white" style={{ background: colorHex(g.color) }}>
+                    {g.name.replace(/[^A-Za-z0-9]/g, "").slice(0, 2).toUpperCase()}
+                  </span>
+                )}
+                <div className="min-w-0 flex-1">
+                  <h2 className="truncate text-base font-semibold leading-snug">{g.name}</h2>
+                  <div className="text-xs text-muted">{g.variants.length > 1 ? `${g.variants.length} sizes` : "1 size"}</div>
                 </div>
               </div>
-            );
-          })}
+              <ul className="divide-y divide-line">
+                {g.variants.map((p) => {
+                  const n = inCart(p.id);
+                  const stock = (ledger.stock.get(p.id)?.stock ?? 0) - n;
+                  const stockTone = stock <= 0 ? "text-neg" : stock <= threshold(p) ? "text-warn" : "text-muted";
+                  const label = sellVariantLabel(g, p);
+                  return (
+                    <li key={p.id} data-sell-variant={p.name} className="px-3.5 py-3">
+                      {/* Line 1: which size and how many are left. Line 2: the two buttons, full width, so nothing is cut off. */}
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: colorHex(p.color) }} />
+                          <span className="text-[15px] font-semibold">{label || "One size"}</span>
+                          {n > 0 && (
+                            <span className="flex h-6 min-w-6 shrink-0 animate-pop-in items-center justify-center rounded-full bg-accent px-1.5 text-xs font-semibold text-accent-ink" aria-label={`${n} in the current order`}>
+                              {n}
+                            </span>
+                          )}
+                        </div>
+                        <div className={cx("shrink-0 whitespace-nowrap text-sm tabular-nums", stockTone)}>
+                          {stock} in stock{stock <= 0 ? "" : stock <= threshold(p) ? " · low" : ""}
+                        </div>
+                      </div>
+                      <div className="mt-2.5 flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setCustomFor(p)}
+                          aria-label={`Sell ${p.name} at another price`}
+                          className="flex h-12 flex-1 items-center justify-center whitespace-nowrap rounded-xl border border-line px-3 text-sm font-medium text-muted transition hover:bg-surface2 hover:text-ink active:scale-[.97]"
+                        >
+                          Other price
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => cart.addProduct(p, p.defaultPriceCents)}
+                          aria-label={`Sell 1 ${p.name} for ${fmtMoney(p.defaultPriceCents, { compact: true })}`}
+                          className="flex h-12 flex-[1.5] items-center justify-center whitespace-nowrap rounded-xl bg-accent px-3.5 text-[15px] font-semibold tabular-nums text-accent-ink transition hover:brightness-110 active:scale-[.97]"
+                        >
+                          Sell 1 · {fmtMoney(p.defaultPriceCents, { compact: true })}
+                        </button>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          ))}
         </div>
       )}
 

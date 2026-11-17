@@ -1,9 +1,9 @@
-# Buckshot Peps (store) + Peps CRM (admin)
+# Buckshot Labs (store + admin)
 
 One app, two sides:
 
 - **Store** at `/`: the public online store. Closed by default ("Coming soon") until you open it in Settings.
-- **Admin** at `/admin`: the Peps CRM. Orders (online and in person), ship queue, Sell screen, inventory, customers, money and partner splits, promotions, reviews, content and settings. Old CRM addresses (`/orders`, `/inventory`, ...) redirect to `/admin/...`.
+- **Admin** at `/admin`: the back office. Orders (online and in person), ship queue, Sell screen, inventory, customers, money and partner splits, promotions, reviews, content and settings. Old CRM addresses (`/orders`, `/inventory`, ...) redirect to `/admin/...`.
 
 **Stack:** Next.js 15 (App Router) · TypeScript · Tailwind · SQLite via Prisma · Vitest · sharp · Resend · Shippo
 
@@ -97,6 +97,8 @@ npm run dev
 | `npm start` | Apply migrations, start the production server |
 | `npm test` | All tests: money engine, customers, store pricing and promotions, public catalog privacy, and database tests (mark paid, auto-cancel, order numbers, combine / split) |
 | `npm run lint` | Type check |
+| `npm run e2e` | End-to-end tests (Playwright) on a production build and a **copy** of the database, store open, Resend and Shippo replaced by local fakes. Run `npm run build` first. Screenshots of every page at 390px and 1440px land in `e2e/screenshots/`. |
+| `npm run rebrand-report -- path/to/backup.db` | Shows, value by value, what the Buckshot Labs migration changes in the stored text of a database (works on a temporary copy). |
 | `npm run prove-migration` | Copies `data/peps.db`, migrates the copy, and proves counts and every money number are identical before and after |
 | `npm run seed` | Add 3 sample products (local only) |
 
@@ -113,3 +115,15 @@ npm run dev
 - Admin pages and admin APIs need the admin session. Only `/api/store/*`, the login route and the Shippo webhook are public.
 - The public catalog is built by `buildCatalog()` ([`src/lib/store/catalog.ts`](src/lib/store/catalog.ts)), which copies only public fields. A test proves no cost, profit or stock counts appear in it.
 - Login lockout after repeated wrong passwords, same-origin check on every state-changing API call (CSRF), security headers, rate limits on checkout, uploads, contact, reviews, sign up and order lookup, secret tokens for order status and review links.
+
+## Added in the Buckshot Labs review pass
+
+- **Honest testing copy.** Nothing says "every lot is tested" any more. "Third-party tested" is only shown for sizes whose status is "COA available". The FAQ answer about paying uses `{payment_methods}`, which is replaced with the payment methods that are switched on.
+- **Unpaid order reminder** (Settings, Email): one email with the payment instructions and time left, halfway to auto-cancel. On by default.
+- **Low stock alert** (Settings, Email): the alert emails are told once when a size drops to its low stock warning level.
+- **Internal notes** on an order (order page). Never emailed and never shown to the customer.
+- **Analytics** (admin, Analytics): daily store visits, product page views, add to carts, checkouts started, orders placed and conversion rate, for 7 or 30 days. Only daily counters are stored: no IP address, no cookie, no visitor id, no third party. Days follow `STORE_TZ` (default `America/New_York`).
+- **Product data checks**: a warning when a product name contains a size, "Website info 3/6" per product in Inventory, an "On website / Not on website" filter, and a launch checklist item for products with no website info.
+- **robots.txt** follows the open/closed switch on its own: closed blocks everything; open allows the public pages and blocks `/admin`, `/account`, `/checkout`, order and review links and `/api`.
+
+Names that were kept on purpose (they are technical, not shown to anyone, and renaming them would break live data or sign everyone out): the database file `peps.db`, backup file names `peps-YYYY-MM-DD.db`, the cookies `peps_session` / `peps_account`, and browser storage keys.

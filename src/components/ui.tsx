@@ -145,10 +145,13 @@ export function Badge({ children, tone = "neutral" }: { children: React.ReactNod
 }
 
 // ---------------------------------------------------------------- Form fields
-export function Field({ label, hint, children, className }: { label: string; hint?: React.ReactNode; children: React.ReactNode; className?: string }) {
+export function Field({ label, hint, children, className, tag }: { label: string; hint?: React.ReactNode; children: React.ReactNode; className?: string; /** Small pill after the label, e.g. "Recommended". */ tag?: string }) {
   return (
     <label className={cx("block", className)}>
-      <span className="mb-1.5 block text-sm font-medium text-muted">{label}</span>
+      <span className="mb-1.5 flex items-center gap-2 text-sm font-medium text-muted">
+        {label}
+        {tag && <span className="rounded-md bg-accent/10 px-1.5 py-0.5 text-[11px] font-medium text-accent">{tag}</span>}
+      </span>
       {children}
       {hint && <span className="mt-1 block text-xs text-muted">{hint}</span>}
     </label>

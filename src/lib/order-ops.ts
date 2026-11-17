@@ -12,6 +12,7 @@ import {
   orderReceivedEmail,
   outcomeText,
   paymentConfirmedEmail,
+  paymentReminderEmail,
   sendEmail,
   shippedEmail,
   type EmailContent,
@@ -25,6 +26,7 @@ import { parseContent, parseStore, type ShippingTierId, type StoreSettings } fro
 import { checkoutMethods, payInstructions, payMethod } from "./store/payments";
 import { priceCart, shippingOptions, type CartItemInput } from "./store/pricing";
 import type { Address, AppData, OrderRec, PromoSnapshot } from "./types";
+import { track } from "./analytics";
 
 type Tx = Prisma.TransactionClient;
 type Db = Tx | typeof prisma;
@@ -207,6 +209,9 @@ export async function placeOrder(input: CheckoutInput): Promise<{ id: string; to
     return n;
   });
 
+  // One more order placed (aggregate count only).
+  await track("order").catch(() => {});
+
   // Emails after the order is safely saved. Failures are logged on the order, never thrown.
   const { order } = await loadOrder(id);
   const base = siteUrl(store, input.origin);
@@ -309,6 +314,38 @@ export async function autoCancelDue(now = new Date()): Promise<number> {
     }
   }
   return due.length;
+}
+
+/** True when an unpaid order has reached the halfway point between being placed and being auto-canceled. */
+export function reminderDue(o: { placedAt: Date | null; expiresAt: Date | null; reminderSentAt: Date | null; status: string }, now: Date): boolean {
+  if (o.status !== "awaiting_payment" || o.reminderSentAt || !o.placedAt || !o.expiresAt) return false;
+  const half = o.placedAt.getTime() + (o.expiresAt.getTime() - o.placedAt.getTime()) / 2;
+  return now.getTime() >= half && now.getTime() < o.expiresAt.getTime();
+}
+
+/**
+ * Email a payment reminder for every website order that is still unpaid halfway to auto-cancel.
+ * Each order gets at most one reminder: it is marked as reminded before the email goes out, so a
+ * crash or a second run can never send it twice. Returns how many reminders were sent.
+ */
+export async function sendUnpaidReminders(now = new Date(), origin?: string): Promise<number> {
+  const { store } = await getStore();
+  if (!store.unpaidReminder) return 0;
+  const waiting = await prisma.order.findMany({ where: { status: "awaiting_payment", reminderSentAt: null, expiresAt: { gt: now } }, include: orderInclude });
+  let sent = 0;
+  for (const row of waiting) {
+    if (!reminderDue(row, now) || !row.email || !row.expiresAt) continue;
+    try {
+      const claimed = await prisma.order.updateMany({ where: { id: row.id, status: "awaiting_payment", reminderSentAt: null }, data: { reminderSentAt: now } });
+      if (claimed.count !== 1) continue;
+      const view = emailOrder(toOrder(row), siteUrl(store, origin));
+      await mailOrder(store, row.id, row.email, "Payment reminder email", paymentReminderEmail(store, view, payInstructions(store, row.payChoice), row.expiresAt, now));
+      sent++;
+    } catch (e) {
+      console.error("payment reminder failed", row.id, e);
+    }
+  }
+  return sent;
 }
 
 // ---------------------------------------------------------------- Labels

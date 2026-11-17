@@ -1,4 +1,4 @@
-# BUILD_PLAN: Buckshot Peps store + Peps CRM admin
+# BUILD_PLAN: Buckshot Labs store + admin
 
 Living checklist. `[x]` = done and verified, `[~]` = in progress, `[ ]` = not started.
 A new session: read "Architecture decisions" first, then continue at the first unchecked item.
@@ -40,7 +40,7 @@ A new session: read "Architecture decisions" first, then continue at the first u
 - [x] **6. Cart drawer** slides out after Add to cart: items, qty, size, promo code, savings, subtotal, View cart, Checkout. Plus /cart page.
 - [x] **7. Customer accounts (required to check out)**: sign up / sign in inside checkout without losing cart; password reset email;
       account page (order history with status + tracking, saved addresses); admin Customers shows "Has account". In-person customers unchanged.
-      Columns: `Customer.passwordHash`, `addressesJson`, `resetTokenHash`, `resetExpiresAt`. Cookie `peps_account` (signed, separate from admin).
+      Columns: `Customer.passwordHash`, `addressesJson`, `resetTokenHash`, `resetExpiresAt`. Cookie `peps_account` (technical name, kept) (signed, separate from admin).
 - [x] **8. Shipping tiers**: Standard / Priority / Express (USPS Ground Advantage / Priority Mail / Priority Mail Express via Shippo).
       Live rates or flat price per tier; rename / turn off tiers. Free shipping rules apply to Standard only unless set otherwise.
 - [x] **9. Payment methods**: selectable cards with icons; per-method on/off (defaults Zelle ON, Cash App OFF, Venmo OFF, Pay by Bank OFF, Card OFF);
@@ -55,7 +55,7 @@ A new session: read "Architecture decisions" first, then continue at the first u
 - Reference: https://www.arcticdose.com (home) and https://www.arcticdose.com/product/ghk-cu (product page).
 - Screenshot both at 390px and 1440px with Playwright and study: layout, spacing, typography, product page structure,
   how compound specs and COAs are presented, promo bar with copyable discount code, product cards, nav, footer.
-- Inspiration for STRUCTURE and POLISH only, in the red/white Buckshot Peps style. Never copy their text, images, logo, branding, or code.
+- Inspiration for STRUCTURE and POLISH only, in the red/white Buckshot Labs style. Never copy their text, images, logo, branding, or code.
 - Apply during the storefront build and again during visual QA.
 - [x] Reference screenshots taken and studied
 - [x] Promo bar shows a copyable discount code

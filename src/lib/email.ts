@@ -156,6 +156,53 @@ export function orderReceivedEmail(store: StoreSettings, o: EmailOrder, pay: { n
   return { subject: `Order #${o.number} received: payment instructions`, preview: `Send ${money(o.totalCents)} and put ${o.number} in the memo.`, heading: "We got your order", blocks };
 }
 
+/** "about 12 hours", "about 1 hour", "less than an hour". */
+export function timeLeftText(ms: number): string {
+  const hours = ms / 3600_000;
+  if (hours < 1) return "less than an hour";
+  if (hours < 36) {
+    const h = Math.round(hours);
+    return `about ${h} hour${h === 1 ? "" : "s"}`;
+  }
+  const d = Math.round(hours / 24);
+  return `about ${d} days`;
+}
+
+/** Sent once, when an order is still unpaid halfway to auto-cancel. */
+export function paymentReminderEmail(_store: StoreSettings, o: EmailOrder, pay: { name: string; sendTo: string; note: string } | null, expiresAt: Date, now = new Date()): EmailContent {
+  const left = timeLeftText(expiresAt.getTime() - now.getTime());
+  const deadline = expiresAt.toLocaleString("en-US", { weekday: "long", month: "long", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" });
+  const blocks: Block[] = [
+    { p: `Hi ${o.name.split(" ")[0] || "there"}, order #${o.number} is still waiting for payment. You have ${left} left: it is canceled automatically on ${deadline} if we have not received it.` },
+    { big: { label: "Amount to send", value: money(o.totalCents) } },
+  ];
+  if (pay) {
+    blocks.push({
+      box: {
+        title: `Pay with ${pay.name}`,
+        lines: [`Send exactly ${money(o.totalCents)} to: ${pay.sendTo}`, `Put your order number in the memo: ${o.number}`, ...(pay.note ? [pay.note] : [])],
+      },
+    });
+  }
+  blocks.push({ button: { label: "View order and upload payment screenshot", url: o.statusUrl } }, totalsRows(o), { small: "Already paid? Thank you. You can ignore this email, or upload a screenshot of the payment on the order page so we can confirm it faster." });
+  return { subject: `Reminder: order #${o.number} is waiting for payment`, preview: `${left} left to send ${money(o.totalCents)}.`, heading: "Your order is waiting for payment", blocks };
+}
+
+export function lowStockEmail(_store: StoreSettings, items: { name: string; stock: number; lowAt: number }[], adminUrl: string): EmailContent {
+  const one = items.length === 1;
+  return {
+    subject: one ? `Low stock: ${items[0].name} (${items[0].stock} left)` : `Low stock: ${items.length} products`,
+    preview: items.map((i) => `${i.name}: ${i.stock} left`).join(", ").slice(0, 110),
+    heading: one ? "A product is running low" : "Products are running low",
+    blocks: [
+      { p: one ? "This size just dropped to its low stock warning level:" : "These sizes just dropped to their low stock warning level:" },
+      { rows: items.map((i): [string, string] => [i.name, i.stock <= 0 ? "Out of stock" : `${i.stock} left (warning at ${i.lowAt})`]) },
+      { button: { label: "Open inventory", url: adminUrl } },
+      { small: "You get this once when a size reaches its warning level, not on every sale after that. Turn it off in Settings, Email." },
+    ],
+  };
+}
+
 export function paymentConfirmedEmail(_store: StoreSettings, o: EmailOrder): EmailContent {
   return {
     subject: `Payment confirmed for order #${o.number}`,

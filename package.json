@@ -1,5 +1,5 @@
 {
-  "name": "peps-crm",
+  "name": "buckshot-labs",
   "version": "1.0.0",
   "private": true,
   "scripts": {
@@ -11,6 +11,8 @@
     "lint": "tsc --noEmit",
     "seed": "tsx prisma/seed.ts",
     "prove-migration": "tsx scripts/prove-migration.ts",
+    "e2e": "tsx e2e/prepare.ts && playwright test",
+    "rebrand-report": "tsx scripts/rebrand-report.ts",
     "db:migrate": "prisma migrate deploy",
     "postinstall": "prisma generate"
   },
@@ -27,6 +29,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.1",
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^22.10.0",
     "@types/react": "^19.1.0",

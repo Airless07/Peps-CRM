@@ -3,8 +3,8 @@ import type { MetadataRoute } from "next";
 /** Installable admin app (the store itself is a normal website). */
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Buckshot Peps admin",
-    short_name: "Peps admin",
+    name: "Buckshot Labs admin",
+    short_name: "Labs admin",
     description: "Orders, inventory and money",
     id: "/admin",
     start_url: "/admin",

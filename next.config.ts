@@ -43,7 +43,7 @@ const nextConfig: NextConfig = {
       { source: "/review/:path*", headers: noindex },
     ];
   },
-  // Old Peps CRM addresses keep working: they now live under /admin.
+  // Old admin addresses (from before the store) keep working: they now live under /admin.
   async redirects() {
     const moved: [string, string][] = [
       ["/login", "/admin/login"],

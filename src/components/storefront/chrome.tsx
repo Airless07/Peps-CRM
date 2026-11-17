@@ -38,7 +38,7 @@ export function PromoBar({ items }: { items: PromoItem[] }) {
             tabIndex={hidden ? -1 : 0}
             onClick={() => copy(p.code)}
             aria-label={`Copy code ${p.code}`}
-            className="inline-flex h-7 items-center gap-1.5 rounded-full border border-white/30 px-2.5 font-semibold tracking-wider transition hover:border-white/70"
+            className="tap inline-flex h-7 items-center gap-1.5 rounded-full border border-white/30 px-2.5 font-semibold tracking-wider transition hover:border-white/70"
           >
             {p.code}
             {copied === p.code ? <Check size={12} /> : <Copy size={12} />}
@@ -53,7 +53,7 @@ export function PromoBar({ items }: { items: PromoItem[] }) {
               cart.setCode(p.code);
               cart.setOpen(true);
             }}
-            className="inline-flex h-7 items-center rounded-full bg-white px-3 font-semibold text-coal transition hover:bg-white/85"
+            className="tap inline-flex h-7 items-center rounded-full bg-white px-3 font-semibold text-coal transition hover:bg-white/85"
           >
             Apply now
           </button>
@@ -128,7 +128,7 @@ export function Header({ name, logo, signedIn }: { name: string; logo: string; s
   return (
     <header className={`bg-paper transition-shadow duration-300 ${scrolled ? "shadow-[0_1px_0_var(--s-line)]" : ""}`}>
       <div className="s-wrap flex h-16 items-center gap-2 sm:h-[4.5rem]">
-        <Link href="/" aria-label={`${name} home`} className="mr-auto shrink-0 lg:mr-0 lg:w-56">
+        <Link href="/" aria-label={`${name} home`} className="tap mr-auto shrink-0 lg:mr-0 lg:w-56">
           <Wordmark name={name} logo={logo} />
         </Link>
         <nav aria-label="Main" className="hidden flex-1 items-center justify-center gap-1 lg:flex">

@@ -4,7 +4,7 @@ import { SUPPORTED_BACKUP_VERSIONS } from "@/lib/backup";
 import { restore } from "@/lib/restore";
 
 const backup = z.object({
-  app: z.literal("peps-crm").optional(),
+  app: z.string().optional(),
   version: z.number(),
   data: z
     .object({

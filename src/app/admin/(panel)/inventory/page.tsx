@@ -10,6 +10,7 @@ import { api, useLoaded } from "@/components/store";
 import { useToast } from "@/components/toast";
 import { Badge, Button, Empty, Field, Input, PageHeader, PageSkeleton, SectionTitle, Segmented, Sheet, cx, useConfirm } from "@/components/ui";
 import { colorHex, fmtDate, fmtMoney, uid } from "@/lib/format";
+import { sizeInName, websiteInfo } from "@/lib/store/product-info";
 import type { AdjustmentRec, ListingRec, ProductRec, PurchaseRec } from "@/lib/types";
 import { TESTING_LABEL } from "@/lib/types";
 
@@ -22,6 +23,7 @@ export default function InventoryPage() {
   const [combine, setCombine] = useState(false);
   const [groups, setGroups] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
+  const [webFilter, setWebFilter] = useState<"all" | "on" | "off">("all");
   const [historyTab, setHistoryTab] = useState<"restocks" | "adjustments">("restocks");
   const [drag, setDrag] = useState<number | null>(null);
   const [over, setOver] = useState<number | null>(null);
@@ -46,6 +48,9 @@ export default function InventoryPage() {
   if (!s) return <PageSkeleton />;
   const { data, ledger, mutate } = s;
   const active = rows.filter((r) => !r.archived);
+  // Reordering always works on the full list, so the filter is ignored while reordering.
+  const shown = reorder || webFilter === "all" ? active : active.filter((r) => r.l.showOnWebsite === (webFilter === "on"));
+  const onWebsite = active.filter((r) => r.l.showOnWebsite).length;
   const archived = rows.filter((r) => r.archived);
   const productName = (id: string) => data.products.find((p) => p.id === id)?.name ?? "Unknown";
 
@@ -96,6 +101,7 @@ export default function InventoryPage() {
   const card = ({ l, variants }: (typeof rows)[number], i: number, sortable: boolean) => {
     const multi = variants.length > 1;
     const withCoa = variants.filter((v) => data.coas.some((c) => c.productId === v.id && c.isCurrent)).length;
+    const info = websiteInfo(l);
     return (
       <div
         key={l.id}
@@ -125,6 +131,10 @@ export default function InventoryPage() {
                 <Badge>Not on website</Badge>
               )}
               {multi && <Badge tone="accent">{variants.length} sizes</Badge>}
+              <Badge tone={info.filled === info.total ? "pos" : l.showOnWebsite ? "warn" : "neutral"}>
+                <span title={info.missing.length ? `Missing: ${info.missing.join(", ")}` : "All compound info is filled in"}>{info.label}</span>
+              </Badge>
+              {sizeInName(l.name) && <Badge tone="warn">Size in name</Badge>}
               {l.showOnWebsite && l.photos.length === 0 && <Badge tone="warn">No photo</Badge>}
               {l.showOnWebsite && <Badge tone={withCoa === variants.length ? "neutral" : "warn"}>{withCoa === variants.length ? "COA on file" : multi ? `COA ${withCoa}/${variants.length}` : TESTING_LABEL[variants[0]?.testingStatus ?? "coming_soon"]}</Badge>}
             </div>
@@ -178,6 +188,18 @@ export default function InventoryPage() {
           </Button>
         </div>
       )}
+      {rows.length > 0 && !reorder && (
+        <Segmented
+          className="mb-4 max-w-md"
+          value={webFilter}
+          onChange={setWebFilter}
+          options={[
+            { value: "all", label: `All (${active.length})` },
+            { value: "on", label: `On website (${onWebsite})` },
+            { value: "off", label: `Not on website (${active.length - onWebsite})` },
+          ]}
+        />
+      )}
       {reorder && <p className="mb-3 text-sm text-muted">Drag products into the order you want, or use the arrows. This is the order on the Sell screen and in the shop.</p>}
 
       {rows.length === 0 ? (
@@ -193,7 +215,12 @@ export default function InventoryPage() {
         />
       ) : (
         <>
-          <div className={cx("grid gap-3", reorder ? "md:grid-cols-1" : "md:grid-cols-2")}>{active.map((r, i) => card(r, i, reorder))}</div>
+          <div className={cx("grid gap-3", reorder ? "md:grid-cols-1" : "md:grid-cols-2")}>{shown.map((r, i) => card(r, i, reorder))}</div>
+          {shown.length === 0 && (
+            <p className="rounded-2xl border border-dashed border-line px-4 py-10 text-center text-sm text-muted">
+              {webFilter === "on" ? "No products are on the website yet. Open a product, go to the Website tab and switch on “Show on website”." : "Every product is on the website."}
+            </p>
+          )}
           {archived.length > 0 && (
             <>
               <SectionTitle

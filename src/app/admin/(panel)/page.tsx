@@ -8,7 +8,9 @@ import { Badge, Button, Card, PageHeader, PageSkeleton, SectionTitle, cx } from 
 import { adminCounts } from "@/lib/admin/counts";
 import { allOrders, customerName, orderPlaced, orderTotal, statusLabel, STATUS_TONE } from "@/lib/admin/orders-view";
 import { dayKey, fmtDay, fmtMoney, plural, startOfDay } from "@/lib/format";
+import { shipFromSet } from "@/lib/store/config";
 import { paymentWarnings } from "@/lib/store/payments";
+import { listingsMissingInfo } from "@/lib/store/product-info";
 import type { OrderRec } from "@/lib/types";
 
 interface Todo {
@@ -47,6 +49,13 @@ export default function DashboardPage() {
     if (c.reviews > 0) todos.push({ key: "reviews", text: plur(c.reviews, "review to approve", "reviews to approve"), button: "Open reviews", href: "/admin/reviews", tone: "neutral" });
     if (c.messages > 0) todos.push({ key: "msgs", text: plur(c.messages, "new message", "new messages"), button: "Read messages", href: "/admin/content?tab=messages", tone: "neutral" });
     for (const [i, w] of paymentWarnings(data.store.payments).entries()) todos.push({ key: `pay-${i}`, text: w, button: "Open settings", href: "/admin/settings?tab=payments", tone: "warn" });
+
+    // Setup gaps that quietly break things later.
+    if (data.store.alertEmails.length === 0) todos.push({ key: "setup-alerts", text: "No alert email is set", sub: "Nobody is emailed about new orders, payment screenshots, contact messages or low stock.", button: "Add an alert email", href: "/admin/settings?tab=email", tone: "warn" });
+    if (!data.store.emailFromAddress.trim()) todos.push({ key: "setup-from", text: "No email from-address is set", sub: "Order emails go out from Resend’s test sender, which only delivers to your own Resend account. Customers will not get them.", button: "Set the from-address", href: "/admin/settings?tab=email", tone: "warn" });
+    if (!shipFromSet(data.store)) todos.push({ key: "setup-shipfrom", text: "The ship-from address is missing", sub: "It is needed for shipping labels and packing slips.", button: "Add the address", href: "/admin/settings?tab=shipping", tone: "warn" });
+    const missingInfo = listingsMissingInfo(data.listings);
+    if (missingInfo.length > 0) todos.push({ key: "setup-info", text: plur(missingInfo.length, "website product is missing compound info", "website products are missing compound info"), sub: `${missingInfo.slice(0, 3).map((l) => l.name).join(", ")}${missingInfo.length > 3 ? " and more" : ""}. Fill in CAS, formula, weight, purity, form and storage on the product’s Website tab.`, button: "Open inventory", href: "/admin/inventory", tone: "neutral" });
 
     const today = dayKey(startOfDay());
     const month = today.slice(0, 7);

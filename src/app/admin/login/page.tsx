@@ -36,13 +36,14 @@ export default function LoginPage() {
       <form onSubmit={submit} className="w-full max-w-sm animate-pop-in">
         <div className="mb-8 flex flex-col items-center text-center">
           <img src="/icon.svg" alt="" className="mb-4 h-16 w-16 rounded-2xl shadow-sm" />
-          <h1 className="text-2xl font-semibold tracking-tight">Buckshot Peps admin</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Buckshot Labs admin</h1>
           <p className="mt-1 text-sm text-muted">Enter the shared password</p>
         </div>
         <div className="relative">
           <Lock size={18} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-muted" />
           <input
             type="password"
+            name="password"
             autoFocus
             autoComplete="current-password"
             value={password}

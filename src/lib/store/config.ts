@@ -41,6 +41,10 @@ export interface StoreSettings {
   bestSellerMode: "auto" | "manual";
   /** Public address of the site, used in emails and the sitemap. Empty = taken from the request. */
   siteUrl: string;
+  /** Email the customer a payment reminder when an unpaid order is halfway to auto-cancel. */
+  unpaidReminder: boolean;
+  /** Email the alert list when a variant drops to its low stock threshold. */
+  lowStockAlerts: boolean;
 }
 
 export type ShippingTierId = "standard" | "priority" | "express";
@@ -71,7 +75,7 @@ export const DEFAULT_ACCENT = "#9f1d22";
 
 export const DEFAULT_STORE: StoreSettings = {
   open: false,
-  storeName: "Buckshot Peps",
+  storeName: "Buckshot Labs",
   logo: "",
   favicon: "",
   accentColor: DEFAULT_ACCENT,
@@ -98,10 +102,12 @@ export const DEFAULT_STORE: StoreSettings = {
   shipFrom: { name: "", street1: "", street2: "", city: "", state: "", zip: "", country: "US", phone: "", email: "" },
   parcel: { lengthIn: 6, widthIn: 4, heightIn: 2, weightOz: 4 },
   alertEmails: [],
-  emailFromName: "Buckshot Peps",
+  emailFromName: "Buckshot Labs",
   emailFromAddress: "",
   bestSellerMode: "auto",
   siteUrl: "",
+  unpaidReminder: true,
+  lowStockAlerts: true,
 };
 
 export type SectionId = "bestsellers" | "groups" | "products" | "quality" | "reviews" | "faq";
@@ -151,6 +157,11 @@ export interface SiteContent {
   testing: { title: string; body: string };
 }
 
+/** Short honest line used where there is no editable text: footer fallback, Coming soon page, link preview image. */
+export const TAGLINE = "Research materials with testing status shown on every product.";
+/** In a FAQ answer this is replaced with the payment methods that are switched on (see faqForDisplay). */
+export const PAY_METHODS_TOKEN = "{payment_methods}";
+
 export const RESEARCH_LINE = "All products are sold for laboratory research use only. Not for human consumption. Not evaluated by the FDA.";
 
 const policy = (title: string, body: string): PolicyDoc => ({ title, body: body.trim(), reviewed: false });
@@ -162,8 +173,8 @@ export const DEFAULT_CONTENT: SiteContent = {
     video: "",
     overlay: 45,
     eyebrow: "Research compounds",
-    headline: "Research peptides, verified batch by batch.",
-    subtext: "Every lot is third-party tested, and the certificate of analysis is published on the product page.",
+    headline: "Research peptides for the lab.",
+    subtext: "Research materials with testing status shown on every product. Certificates of analysis are published per batch as they're completed.",
     buttonText: "Shop all products",
     buttonLink: "/shop",
     vials: { left: "", center: "", right: "" },
@@ -172,27 +183,27 @@ export const DEFAULT_CONTENT: SiteContent = {
     { id: "bestsellers", title: "Best sellers", show: true },
     { id: "groups", title: "Shop by category", show: true },
     { id: "products", title: "All products", show: true },
-    { id: "quality", title: "Tested, documented, traceable", show: true },
+    { id: "quality", title: "Testing, shown honestly", show: true },
     { id: "reviews", title: "Order experience", show: true },
     { id: "faq", title: "Common questions", show: true },
   ],
   quality: {
-    body: "Each batch is sent to an independent lab before it is listed. You can open the certificate for the exact lot we are shipping, and older lots stay on file.",
+    body: "Every product shows where it stands: certificate on file, tested by the supplier, testing pending, or certificate coming soon. When a certificate of analysis is completed for a batch, it is posted on the product page.",
     points: [
-      { title: "Third-party tested", text: "Identity and purity are confirmed by an independent laboratory for every lot." },
-      { title: "COA on every product", text: "The current certificate of analysis is on each product page to view or download." },
-      { title: "Lot traceability", text: "Each vial carries a lot number that matches its certificate." },
+      { title: "Status on every product", text: "Each product and size shows its current testing status, so you know what is on file before you order." },
+      { title: "COAs by batch", text: "Certificates of analysis are published per batch as they are completed. Earlier batches stay on file." },
+      { title: "Lot traceability", text: "When a certificate is on file, it lists the lot number it covers." },
     ],
   },
   faq: [
-    { q: "How do I pay?", a: "After you place an order you get payment instructions for Zelle or Cash App, with your order number and the exact amount. Put the order number in the memo so we can match your payment." },
+    { q: "How do I pay?", a: `After you place an order you get payment instructions for ${PAY_METHODS_TOKEN}, with your order number and the exact amount. Put the order number in the memo so we can match your payment.` },
     { q: "When does my order ship?", a: "Orders ship after payment is confirmed. You get an email with tracking as soon as the label is created." },
-    { q: "Where can I find the certificate of analysis?", a: "On each product page, under the size you select. Older batches are listed there as well." },
+    { q: "Where can I find the certificate of analysis?", a: "When a certificate is on file, it is on the product page under the size you select, and on the Testing page. Products that are still waiting on a certificate say so." },
     { q: "What are these products for?", a: "All products are sold for laboratory research use only. They are not for human consumption." },
   ],
   about: {
-    title: "About Buckshot Peps",
-    body: "Buckshot Peps supplies research compounds with published, lot-specific certificates of analysis. We keep the catalog small, document every batch, and ship quickly.",
+    title: "About Buckshot Labs",
+    body: "Buckshot Labs supplies research compounds and shows the testing status of every product. Certificates of analysis are published per batch as they are completed. We keep the catalog small and ship quickly.",
   },
   contact: { email: "", phone: "", hours: "", note: "We usually reply within one business day." },
   footerText: "",
@@ -206,8 +217,8 @@ export const DEFAULT_CONTENT: SiteContent = {
     body: "We publish what we know about every batch. When a certificate of analysis is on file you can open it from the table below or from the product page. When testing is still in progress, we say so.",
   },
   seo: {
-    title: "Buckshot Peps | Research peptides with published COAs",
-    description: "Research compounds with third-party certificates of analysis for every lot. For laboratory research use only.",
+    title: "Buckshot Labs | Research peptides with testing status on every product",
+    description: "Research materials with testing status shown on every product. Certificates of analysis are published per batch as they are completed. For laboratory research use only.",
     image: "",
   },
   policies: {
@@ -351,6 +362,9 @@ export function parseStore(json: string | null | undefined): StoreSettings {
   if (!Array.isArray(s.freeShippingTiers)) s.freeShippingTiers = ["standard"];
   s.qtyDeals = cleanQtyDeals(s.qtyDeals) ?? [];
   s.autoCancelHours = Math.min(720, Math.max(1, Number(s.autoCancelHours) || 24));
+  // Both default to on, also for settings saved before these switches existed.
+  s.unpaidReminder = s.unpaidReminder !== false;
+  s.lowStockAlerts = s.lowStockAlerts !== false;
   return s;
 }
 

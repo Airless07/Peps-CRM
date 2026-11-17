@@ -227,6 +227,9 @@ export default function ContentPage() {
               <Button onClick={() => set("faq", [...c.faq, { q: "", a: "" }])}>
                 <Plus size={16} /> Add a question
               </Button>
+              <p className="text-sm text-muted">
+                Write <code className="rounded bg-surface2 px-1 py-0.5 text-[13px]">{"{payment_methods}"}</code> in an answer and the store fills in the payment methods that are switched on right now (for example “Zelle or Venmo”), so the FAQ never names a method customers can’t use.
+              </p>
               <p className="rounded-lg bg-warn/12 px-3 py-2 text-sm font-medium text-warn">No dosing, health, or results claims.</p>
             </div>
 

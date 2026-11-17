@@ -3,6 +3,7 @@
 import { use, useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Mail, MessageSquareText, CircleDot } from "lucide-react";
+import { InternalNote } from "@/components/internal-note";
 import { StepButton, useOrderActions } from "@/components/order-actions";
 import { RowMenu } from "@/components/row-menu";
 import { api, useLoaded } from "@/components/store";
@@ -253,6 +254,8 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
               </div>
             )}
           </Card>
+
+          <InternalNote orderId={order.id} note={order.adminNote} />
 
           {review && (
             <Card className="p-4 sm:p-5">

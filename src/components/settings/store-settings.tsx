@@ -11,6 +11,7 @@ import { Badge, Button, Card, Field, Input, MoneyInput, NumberInput, SectionTitl
 import { fmtDateTime } from "@/lib/format";
 import { DEFAULT_ACCENT, paymentInfoSet, POLICY_IDS, shipFromSet, TIER_SERVICE, type StoreSettings } from "@/lib/store/config";
 import { PAY_METHODS, paymentWarnings } from "@/lib/store/payments";
+import { listingsMissingInfo, listingsWithNoInfo } from "@/lib/store/product-info";
 import { STATES } from "@/lib/store/schemas";
 import { RECOMMENDED_SIZES } from "@/lib/store/sizes";
 
@@ -106,6 +107,8 @@ export function StoreSettingsTabs({ tab, onTab }: { tab: StoreTab; onTab: (t: st
     const variantsOnSite = data.products.filter((p) => !p.archived && onSite.some((l) => l.id === p.listingId));
     const withCoa = variantsOnSite.filter((v) => data.coas.some((c) => c.productId === v.id)).length;
     const reviewed = POLICY_IDS.filter((id) => data.content.policies[id].reviewed).length;
+    const noInfo = listingsWithNoInfo(onSite);
+    const partInfo = listingsMissingInfo(onSite);
     let emailOk = false;
     let shippoOk = false;
     try {
@@ -121,6 +124,7 @@ export function StoreSettingsTabs({ tab, onTab }: { tab: StoreTab; onTab: (t: st
       { done: shipFromSet(data.store), title: "Ship-from address set", detail: "Used on labels and packing slips.", href: "/admin/settings?tab=shipping" },
       { done: emailOk, title: "Email working", detail: keys?.resend ? "Send a test email to confirm." : "RESEND_API_KEY is not set yet.", href: "/admin/settings?tab=email" },
       { done: shippoOk, title: "Shippo working", detail: keys?.shippo ? "Run “Test Shippo connection” to confirm." : needShippo ? "SHIPPO_API_KEY is not set yet." : "Optional with flat-rate shipping. Needed to buy labels in the admin.", href: "/admin/settings?tab=shipping", optional: !needShippo },
+      { done: onSite.length > 0 && noInfo.length === 0, title: "Products with no website info", detail: onSite.length === 0 ? "Add products to the website first." : noInfo.length === 0 ? `Every website product has compound info (${partInfo.length ? `${partInfo.length} still have empty fields` : "all complete"}).` : `${noInfo.length} of ${onSite.length} website products have no compound info at all (CAS, formula, weight, purity, form, storage): ${noInfo.slice(0, 4).map((l) => l.name).join(", ")}${noInfo.length > 4 ? "…" : ""}. Their product pages show no spec table.`, href: "/admin/inventory", optional: true },
       { done: reviewed === POLICY_IDS.length, title: "Policies reviewed", detail: `${reviewed} of ${POLICY_IDS.length} policy pages are marked as reviewed.`, href: "/admin/content?tab=policies" },
     ];
     const required = items.filter((i) => !i.optional);
@@ -229,7 +233,7 @@ export function StoreSettingsTabs({ tab, onTab }: { tab: StoreTab; onTab: (t: st
             </div>
           </Field>
           <Field label="Website address" hint="Used for links in emails. Leave empty to use the address the site is opened on.">
-            <Input value={form.siteUrl} placeholder="https://buckshotpeps.com" onChange={(e) => set("siteUrl", e.target.value)} inputMode="url" />
+            <Input value={form.siteUrl} placeholder="https://buckshotlabs.com" onChange={(e) => set("siteUrl", e.target.value)} inputMode="url" />
           </Field>
         </Card>
 
@@ -487,13 +491,31 @@ export function StoreSettingsTabs({ tab, onTab }: { tab: StoreTab; onTab: (t: st
           </div>
         </Card>
 
+        <SectionTitle>Automatic emails</SectionTitle>
+        <Card className="space-y-3 p-4">
+          <Toggle
+            checked={form.unpaidReminder}
+            onChange={(v) => set("unpaidReminder", v)}
+            label="Unpaid order reminder"
+            hint={`When a website order is still unpaid halfway to auto-cancel (after ${form.autoCancelHours / 2} of ${form.autoCancelHours} hours), the customer gets one reminder with the payment instructions and the time left.`}
+          />
+          <div className="border-t border-line pt-3">
+            <Toggle
+              checked={form.lowStockAlerts}
+              onChange={(v) => set("lowStockAlerts", v)}
+              label="Low stock alert"
+              hint={form.alertEmails.length ? "The alert emails above are told when a size drops to its low stock warning level." : "Tells the alert emails when a size drops to its low stock warning level. Add an alert email above to receive it."}
+            />
+          </div>
+        </Card>
+
         <SectionTitle>Sender</SectionTitle>
         <Card className="space-y-4 p-4">
           <Field label="From name" hint="The name customers see in their inbox.">
             <Input value={form.emailFromName} maxLength={60} onChange={(e) => set("emailFromName", e.target.value)} />
           </Field>
           <Field label="From address" hint="Must be on a domain you verified in Resend, like orders@yourdomain.com. Empty = Resend’s test sender, which only delivers to your own Resend account email.">
-            <Input type="email" value={form.emailFromAddress} placeholder="orders@buckshotpeps.com" onChange={(e) => set("emailFromAddress", e.target.value)} />
+            <Input type="email" value={form.emailFromAddress} placeholder="orders@buckshotlabs.com" onChange={(e) => set("emailFromAddress", e.target.value)} />
           </Field>
         </Card>
 

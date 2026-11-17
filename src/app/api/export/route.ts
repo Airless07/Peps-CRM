@@ -43,10 +43,10 @@ export const GET = route(async (req) => {
   const stamp = new Date().toISOString().slice(0, 10);
   const data = !table || table === "json" ? await loadBackup() : await loadAll();
   if (!table || table === "json") {
-    return new NextResponse(JSON.stringify({ app: "peps-crm", version: BACKUP_VERSION, exportedAt: new Date().toISOString(), data }, null, 2), {
+    return new NextResponse(JSON.stringify({ app: "buckshot-labs", version: BACKUP_VERSION, exportedAt: new Date().toISOString(), data }, null, 2), {
       headers: {
         "Content-Type": "application/json",
-        "Content-Disposition": `attachment; filename="peps-crm-backup-${stamp}.json"`,
+        "Content-Disposition": `attachment; filename="buckshot-labs-backup-${stamp}.json"`,
       },
     });
   }
@@ -55,7 +55,7 @@ export const GET = route(async (req) => {
   return new NextResponse(csv(fn(data)), {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="peps-crm-${table}-${stamp}.csv"`,
+      "Content-Disposition": `attachment; filename="buckshot-labs-${table}-${stamp}.csv"`,
     },
   });
 });

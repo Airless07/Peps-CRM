@@ -11,7 +11,7 @@ import type { SettingsRec, TipHandling } from "@/lib/types";
 
 const TABLES = ["customers", "products", "purchases", "adjustments", "orders", "order_lines", "labels", "splits", "split_items", "payouts", "settings"];
 
-/** The original Peps CRM settings: money rules, partners, Sell-screen payment methods, appearance, password, exports. */
+/** The original back office settings: money rules, partners, Sell-screen payment methods, appearance, password, exports. */
 export function BusinessSettings() {
   const s = useLoaded();
   const toast = useToast();
@@ -194,15 +194,17 @@ export function BusinessSettings() {
 
       <SectionTitle>Admin password</SectionTitle>
       <Card className="space-y-3 p-4">
+        {/* Gives the browser a username to pair these passwords with, so it does not pick the search box. */}
+        <input type="text" name="username" autoComplete="username" value="admin" readOnly hidden aria-hidden="true" tabIndex={-1} />
         <Field label="Current password">
-          <Input type="password" autoComplete="current-password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} />
+          <Input type="password" name="current-password" autoComplete="current-password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} />
         </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="New password">
-            <Input type="password" autoComplete="new-password" value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} />
+            <Input type="password" name="new-password" autoComplete="new-password" value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} />
           </Field>
           <Field label="Repeat new">
-            <Input type="password" autoComplete="new-password" value={pw.again} onChange={(e) => setPw({ ...pw, again: e.target.value })} />
+            <Input type="password" name="new-password-repeat" autoComplete="new-password" value={pw.again} onChange={(e) => setPw({ ...pw, again: e.target.value })} />
           </Field>
         </div>
         <Button disabled={pwBusy || !pw.current || pw.next.length < 6} onClick={changePassword}>

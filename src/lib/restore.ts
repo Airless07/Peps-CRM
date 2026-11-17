@@ -56,6 +56,7 @@ function orderRow(o: OrderRec, files: Map<string, { screenshotFile: string; revi
     shippedAt: dn(web?.shippedAt),
     deliveredAt: dn(web?.deliveredAt),
     canceledAt: dn(web?.canceledAt),
+    reminderSentAt: dn(web?.reminderSentAt),
     trackingNumber: web?.trackingNumber ?? "",
     trackingCarrier: web?.trackingCarrier ?? "",
     trackingStatus: web?.trackingStatus ?? "",

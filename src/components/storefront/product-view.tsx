@@ -7,7 +7,9 @@ import { useMemo, useState } from "react";
 import { Check, Download, FileText } from "lucide-react";
 import type { PublicProduct } from "@/lib/store/catalog";
 import { STOCK_LABEL } from "@/lib/store/catalog";
+import { testingClaim } from "@/lib/store/copy";
 import { discountedUnit, qtyPercentOff } from "@/lib/store/pricing";
+import { trackEvent } from "./analytics";
 import { money, QtyStepper, useCart } from "./cart";
 import { photoSrcSet, StockTag, TestingBadge } from "./product-card";
 import { Vial } from "./vial";
@@ -33,6 +35,7 @@ export function ProductView({ p }: { p: PublicProduct }) {
 
   function add() {
     cart.add(v.id, qty);
+    trackEvent("add_to_cart", p.id);
     setAdded(true);
     setTimeout(() => setAdded(false), 1600);
     setQty(1);
@@ -175,6 +178,7 @@ export function ProductView({ p }: { p: PublicProduct }) {
                     {[v.coa.lot ? `Lot ${v.coa.lot}` : "", v.coa.testDate ? `tested ${dateText(v.coa.testDate)}` : "", v.coa.purity ? `${v.coa.purity} purity` : ""].filter(Boolean).join(" · ") || "Current batch"}
                     {v.testing === "supplier_tested" ? ". Supplier certificate." : ""}
                   </p>
+                  {testingClaim(v.testing).thirdPartyTested && <p className="mt-1 text-sm font-medium leading-relaxed text-coal">Third-party tested</p>}
                   <div className="mt-3.5 flex flex-wrap gap-2">
                     <a href={v.coa.url} target="_blank" rel="noreferrer" className="s-btn-dark h-10 px-4 text-sm">
                       View COA
@@ -186,7 +190,7 @@ export function ProductView({ p }: { p: PublicProduct }) {
                 </>
               ) : (
                 <p className="mt-1 text-sm leading-relaxed text-stone">
-                  {v.testing === "pending" ? "Third-party testing is in progress for this batch. The certificate will be posted here when it is back." : "The certificate for this batch has not been posted yet. It will appear here."}
+                  {testingClaim(v.testing).line}
                 </p>
               )}
               {v.olderCoas.length > 0 && (
@@ -212,20 +216,24 @@ export function ProductView({ p }: { p: PublicProduct }) {
         </section>
 
         {p.specs.length > 0 && (
-          <section className="mt-10">
-            <h2 className="text-lg font-semibold">Compound information</h2>
-            <table className="mt-3 w-full border-t border-rule text-left text-[15px]">
-              <tbody>
-                {p.specs.map((s) => (
-                  <tr key={s.label} className="border-b border-rule">
-                    <th scope="row" className="w-2/5 py-3 pr-4 align-top font-normal text-stone">
-                      {s.label}
-                    </th>
-                    <td className="py-3 font-medium">{s.value}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <section className="mt-10" aria-labelledby="compound-info">
+            <h2 id="compound-info" className="text-lg font-semibold">
+              Compound information
+            </h2>
+            <div className="mt-3 overflow-hidden rounded-2xl border border-rule">
+              <table className="w-full table-fixed text-left text-[15px]">
+                <tbody className="divide-y divide-rule">
+                  {p.specs.map((s) => (
+                    <tr key={s.label}>
+                      <th scope="row" className="w-[42%] bg-soft px-4 py-3 align-top font-normal text-stone">
+                        {s.label}
+                      </th>
+                      <td className="break-words px-4 py-3 font-medium">{s.value}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </section>
         )}
 

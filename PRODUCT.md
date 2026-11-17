@@ -1,9 +1,9 @@
-# Buckshot Peps
+# Buckshot Labs
 
 ## What it is
 Two surfaces in one app:
 - **Store** (`/`): public online store for research compounds (peptides in vials). Register: **brand**.
-- **Admin** (`/admin`): the Peps CRM. Orders, shipping, inventory, money split between two partners. Register: **product**.
+- **Admin** (`/admin`): the back office. Orders, shipping, inventory, money split between two partners. Register: **product**.
 
 ## Who uses it
 - Store: adult (21+) buyers of laboratory research compounds, mostly on a phone, comparing vendors on trust: is the batch tested, can I see the COA, is checkout clear.

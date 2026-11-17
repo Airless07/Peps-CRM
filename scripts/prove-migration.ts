@@ -23,7 +23,7 @@ const root = path.resolve(import.meta.dirname, "..");
 // Use PROOF_DB, else the snapshot taken just before the store migration (if it is still there), else the live local file.
 const snapshot = path.join(root, "data", "peps.before-store-migration.db");
 const source = process.env.PROOF_DB ?? (existsSync(snapshot) ? snapshot : path.join(root, "data", "peps.db"));
-const work = path.join(tmpdir(), `peps-proof-${Date.now()}`);
+const work = path.join(tmpdir(), `labs-proof-${Date.now()}`);
 mkdirSync(work, { recursive: true });
 
 const isoOf = (v: unknown) => new Date(v as string | number).toISOString();

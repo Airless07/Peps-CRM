@@ -5,7 +5,7 @@ import { storeSnapshot } from "@/lib/store/server";
 
 export const metadata: Metadata = {
   title: "Testing and certificates of analysis",
-  description: "The testing status of every product, with links to the certificate of analysis for each batch on file.",
+  description: "The testing status of every product and size, with links to the certificates of analysis that are on file.",
   alternates: { canonical: "/testing" },
 };
 

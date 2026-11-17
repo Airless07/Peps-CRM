@@ -122,6 +122,8 @@ export interface OrderRec {
   archived: boolean;
   /** Shipping charged to the customer. 100% business money, never split. */
   shippingCents: number;
+  /** Internal note for the team. Never sent to or shown to the customer. */
+  adminNote: string;
   /** Website order details. Null for in-person sales. */
   web: WebOrderRec | null;
 }
@@ -165,6 +167,8 @@ export interface WebOrderRec {
   shippedAt: string | null;
   deliveredAt: string | null;
   canceledAt: string | null;
+  /** When the unpaid-order reminder email went out. Null = not sent. */
+  reminderSentAt: string | null;
   trackingNumber: string;
   trackingCarrier: string;
   trackingStatus: string;
@@ -373,7 +377,7 @@ export const STATUS_LABEL: Record<OrderStatus, string> = {
 };
 
 /** Defaults for the fields added with the store, for code that builds records by hand (tests, old backups). */
-export const ORDER_DEFAULTS = { number: null, source: "inperson", status: "completed", archived: false, shippingCents: 0, web: null } as const satisfies Partial<OrderRec>;
+export const ORDER_DEFAULTS = { number: null, source: "inperson", status: "completed", archived: false, shippingCents: 0, adminNote: "", web: null } as const satisfies Partial<OrderRec>;
 export const PRODUCT_DEFAULTS = { listingId: null, variantLabel: "", variantSort: 0, weightOz: null, testingStatus: "coming_soon" } as const satisfies Partial<ProductRec>;
 export const CUSTOMER_DEFAULTS = { email: "", hasAccount: false, addresses: [] as Address[] } satisfies Partial<CustomerRec>;
 export const emptyStoreData = () => ({

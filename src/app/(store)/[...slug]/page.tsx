@@ -29,7 +29,7 @@ export default async function PolicyPage({ params }: Props) {
           <ul className="flex flex-wrap gap-x-5 gap-y-1 border-t border-rule pt-5 lg:sticky lg:top-36 lg:block lg:space-y-1 lg:border-t-0 lg:pt-2">
             {POLICY_IDS.map((id) => (
               <li key={id}>
-                <Link href={`/${id}`} aria-current={id === slug[0] ? "page" : undefined} className={`inline-block py-1.5 text-[15px] ${id === slug[0] ? "font-semibold text-brand" : "text-stone hover:text-coal"}`}>
+                <Link href={`/${id}`} aria-current={id === slug[0] ? "page" : undefined} className={`inline-flex min-h-11 items-center text-[15px] ${id === slug[0] ? "font-semibold text-brand" : "text-stone hover:text-coal"}`}>
                   {data.content.policies[id].title}
                 </Link>
               </li>

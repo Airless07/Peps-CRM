@@ -3,9 +3,10 @@ import Link from "next/link";
 import { GeistSans } from "geist/font/sans";
 import { currentAccount } from "@/lib/account";
 import { AgeGate, Header, PromoBar, RevealInit, StandaloneRedirect, Wordmark, type PromoItem } from "@/components/storefront/chrome";
+import { TrackVisit } from "@/components/storefront/analytics";
 import { CartProvider } from "@/components/storefront/cart";
 import { siteUrl } from "@/lib/order-ops";
-import { DEFAULT_ACCENT, RESEARCH_LINE, type SiteContent } from "@/lib/store/config";
+import { DEFAULT_ACCENT, RESEARCH_LINE, TAGLINE, type SiteContent } from "@/lib/store/config";
 import { promoHeadlines } from "@/lib/store/pricing";
 import { isAdmin, storeSnapshot } from "@/lib/store/server";
 import type { PromotionRec } from "@/lib/types";
@@ -80,7 +81,7 @@ export default async function StoreLayout({ children }: { children: React.ReactN
             </div>
           ) : (
             <header className="s-wrap flex h-16 items-center">
-              <Link href="/" aria-label={`${store.storeName} home`}>
+              <Link href="/" aria-label={`${store.storeName} home`} className="tap">
                 <Wordmark name={store.storeName} logo={store.logo} />
               </Link>
             </header>
@@ -95,7 +96,7 @@ export default async function StoreLayout({ children }: { children: React.ReactN
               <div className="s-wrap grid grid-cols-2 gap-x-8 gap-y-10 py-14 sm:grid-cols-3 lg:grid-cols-[1.6fr_1fr_1fr_1fr]">
                 <div className="col-span-2 max-w-xs sm:col-span-3 lg:col-span-1">
                   <Wordmark name={store.storeName} logo={store.logo} />
-                  <p className="mt-4 text-[15px] leading-relaxed text-stone">{content.footerText || "Research compounds with a published certificate of analysis for every lot."}</p>
+                  <p className="mt-4 text-[15px] leading-relaxed text-stone">{content.footerText || TAGLINE}</p>
                   {(content.contact.email || content.contact.phone) && (
                     <p className="mt-4 text-[15px] leading-relaxed text-coal">
                       {content.contact.email && (
@@ -161,6 +162,7 @@ export default async function StoreLayout({ children }: { children: React.ReactN
           </footer>
           {live && <AgeGate name={store.storeName} />}
           <RevealInit />
+          {store.open && !admin && <TrackVisit />}
         </CartProvider>
       </body>
     </html>
@@ -171,10 +173,10 @@ function FooterCol({ title, links }: { title: string; links: [string, string][] 
   return (
     <nav aria-label={title}>
       <h2 className="text-sm font-semibold !tracking-normal text-coal">{title}</h2>
-      <ul className="mt-4 space-y-1">
+      <ul className="mt-2">
         {links.map(([href, label]) => (
           <li key={href}>
-            <Link href={href} className="inline-block py-1.5 text-[15px] text-stone transition hover:text-brand">
+            <Link href={href} className="inline-flex min-h-11 items-center text-[15px] text-stone transition hover:text-brand">
               {label}
             </Link>
           </li>
