@@ -6,6 +6,7 @@ import { groupCustomersFromOrders } from "./customers";
 import { uid } from "./format";
 import { parseContent, parseStore } from "./store/config";
 import { uniqueSlug } from "./store/slug";
+import { cleanSellButtons } from "./sell-buttons";
 import type {
   AppData,
   CoaRec,
@@ -19,6 +20,7 @@ import type {
   ProductRec,
   PromotionRec,
   ReviewRec,
+  SavedOrderRec,
 } from "./types";
 import { DEFAULT_SETTINGS, ORDER_DEFAULTS, PRODUCT_DEFAULTS, UNKNOWN_PAYMENT, countsInMoney } from "./types";
 
@@ -88,6 +90,7 @@ export function normalizeBackup(raw: Loose & { orders: Loose[] }, makeId: () => 
   const { store: _s, content: _c, ...flat } = (data.settings ?? {}) as Loose;
   const settings = { ...DEFAULT_SETTINGS, ...(flat as Partial<AppData["settings"]>) };
   settings.paymentMethods = cleanPaymentMethods((data.settings as unknown as Loose | undefined)?.paymentMethods);
+  settings.sellButtons = cleanSellButtons((data.settings as unknown as Loose | undefined)?.sellButtons);
 
   const fixOrder = (o: OrderRec): OrderRec => ({
     ...ORDER_DEFAULTS,
@@ -171,6 +174,10 @@ export function normalizeBackup(raw: Loose & { orders: Loose[] }, makeId: () => 
     promotions: arr<PromotionRec>(data.promotions).map((p) => ({ ...p, uses: arr(p.uses) })),
     reviews: arr<ReviewRec>(data.reviews),
     messages: arr<MessageRec>(data.messages),
+    // Saved (open) orders: missing in older backups. Kept apart from orders, so they never count in money.
+    savedOrders: arr<SavedOrderRec>(data.savedOrders)
+      .filter((s) => s && typeof s.id === "string" && Array.isArray(s.lines) && s.lines.length > 0)
+      .map((s) => ({ ...s, lines: s.lines.map((l) => ({ ...l, listPriceCents: typeof l.listPriceCents === "number" ? l.listPriceCents : null })) })),
     events: arr<OrderEventRec>(data.events),
     store,
     content,

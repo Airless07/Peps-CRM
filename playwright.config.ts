@@ -34,6 +34,8 @@ export default defineConfig({
     { name: "flow", testMatch: /flow\.spec\.ts/ },
     { name: "security", testMatch: /security\.spec\.ts/, dependencies: ["flow"] },
     { name: "pages", testMatch: /pages\.spec\.ts/, dependencies: ["security"] },
+    // Saved in-person orders and the Sell cart quick buttons. Stands on its own: npx playwright test --project=sell --no-deps
+    { name: "sell", testMatch: /sell\.spec\.ts/, dependencies: ["pages"] },
   ],
   webServer: {
     command: `npx next start -p ${PORT}`,

@@ -1,9 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ReceiptText, Search, SlidersHorizontal } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { OrderEditSheet } from "@/components/order-edit";
+import { SavedOrdersList } from "@/components/saved-orders";
 import { useLoaded } from "@/components/store";
 import { Badge, Button, Empty, Field, Input, PageHeader, PageSkeleton, Segmented, Select, cx } from "@/components/ui";
 import { dayKey, fmtDay, fmtMoney, fmtTime, plural } from "@/lib/format";
@@ -19,6 +21,15 @@ export default function OrdersPage() {
   const [payment, setPayment] = useState<string>("all");
   const [showFilters, setShowFilters] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
+  const [tab, setTab] = useState<"done" | "saved">("done");
+  const router = useRouter();
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("tab") === "saved") setTab("saved");
+  }, []);
+  const go = (t: "done" | "saved") => {
+    setTab(t);
+    window.history.replaceState(null, "", t === "saved" ? "/admin/in-person?tab=saved" : "/admin/in-person");
+  };
 
   const groups = useMemo(() => {
     if (!s) return [];
@@ -55,6 +66,23 @@ export default function OrdersPage() {
     <div>
       <PageHeader title="In-person orders" sub={`${plural(inPerson.length, "sale")} made from the Sell screen`} />
 
+      <Segmented
+        className="mb-4 max-w-sm"
+        value={tab}
+        onChange={go}
+        options={[
+          { value: "done", label: "Completed" },
+          { value: "saved", label: `Saved (${data.savedOrders.length})` },
+        ]}
+      />
+
+      {tab === "saved" ? (
+        <div className="max-w-2xl">
+          <p className="mb-3 text-sm text-muted">Orders put aside on the Sell screen. They change no stock or money until completed.</p>
+          <SavedOrdersList onOpened={() => router.push("/admin/sell?cart=1")} />
+        </div>
+      ) : (
+      <>
       <div className="mb-4 flex gap-2">
         <div className="relative flex-1">
           <Search size={18} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted" />
@@ -178,6 +206,9 @@ export default function OrdersPage() {
             );
           })}
         </div>
+      )}
+
+      </>
       )}
 
       <OrderEditSheet orderId={editing} onClose={() => setEditing(null)} />

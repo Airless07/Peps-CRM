@@ -19,6 +19,8 @@ import type {
   PurchaseRec,
   QtyDeal,
   ReviewRec,
+  SavedLineRec,
+  SavedOrderRec,
   SettingsRec,
   SplitRec,
 } from "./types";
@@ -26,6 +28,7 @@ import { countsInMoney } from "./types";
 import { prisma } from "./db";
 import { cleanPaymentMethods, type BackupData } from "./backup";
 import { parseContent, parseStore } from "./store/config";
+import { cleanSellButtons } from "./sell-buttons";
 
 const iso = (d: Date) => d.toISOString();
 const isoN = (d: Date | null) => (d ? d.toISOString() : null);
@@ -57,6 +60,24 @@ export function toSettings(s: SettingsRow): SettingsRec {
     defaultSoldBy: s.defaultSoldBy as SettingsRec["defaultSoldBy"],
     lowStockThreshold: s.lowStockThreshold,
     paymentMethods: cleanPaymentMethods(s.paymentMethods),
+    sellButtons: cleanSellButtons(s.sellButtonsJson),
+  };
+}
+
+type SavedOrderRow = Prisma.SavedOrderGetPayload<object>;
+export function toSavedOrder(o: SavedOrderRow): SavedOrderRec {
+  return {
+    id: o.id,
+    savedAt: iso(o.savedAt),
+    customer: o.customer,
+    customerId: o.customerId,
+    paymentMethod: o.paymentMethod,
+    note: o.note,
+    soldBy: o.soldBy as SavedOrderRec["soldBy"],
+    discountType: o.discountType as SavedOrderRec["discountType"],
+    discountValue: o.discountValue,
+    tipCents: o.tipCents,
+    lines: json<SavedLineRec[]>(o.linesJson, []),
   };
 }
 
@@ -179,7 +200,7 @@ export function toCustomer(c: CustomerRow): CustomerRec {
 }
 
 export async function loadAll(): Promise<AppData> {
-  const [settings, products, customers, purchases, adjustments, orders, splits, payouts, labels, listings, groups, coas, promotions, reviews, messages] =
+  const [settings, products, customers, purchases, adjustments, orders, splits, payouts, labels, listings, groups, coas, promotions, reviews, messages, savedOrders] =
     await Promise.all([
       getSettingsRow(),
       prisma.product.findMany({ orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] }),
@@ -196,6 +217,7 @@ export async function loadAll(): Promise<AppData> {
       prisma.promotion.findMany({ orderBy: { createdAt: "desc" }, include: { uses: true } }),
       prisma.review.findMany({ orderBy: { createdAt: "desc" } }),
       prisma.contactMessage.findMany({ orderBy: { createdAt: "desc" } }),
+      prisma.savedOrder.findMany({ orderBy: { savedAt: "desc" } }),
     ]);
   const allOrders = orders.map(toOrder);
   return {
@@ -229,6 +251,7 @@ export async function loadAll(): Promise<AppData> {
     promotions: promotions.map(toPromotion),
     reviews: reviews.map((r): ReviewRec => ({ ...r, status: r.status as ReviewRec["status"], createdAt: iso(r.createdAt) })),
     messages: messages.map((m): MessageRec => ({ ...m, createdAt: iso(m.createdAt) })),
+    savedOrders: savedOrders.map(toSavedOrder),
     store: parseStore(settings.storeJson),
     content: parseContent(settings.contentJson),
   };

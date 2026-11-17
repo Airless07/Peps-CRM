@@ -1,15 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ChevronUp, PackagePlus, Plus } from "lucide-react";
+import { Bookmark, ChevronUp, PackagePlus, Plus } from "lucide-react";
 import { useCart } from "@/components/cart";
 import { NumpadSheet } from "@/components/numpad";
 import { OrderForm } from "@/components/order-form";
-import { api, useLoaded } from "@/components/store";
-import { useToast } from "@/components/toast";
+import { PriceChangeNotes, SavedOrdersList, useSellActions } from "@/components/saved-orders";
+import { useLoaded } from "@/components/store";
 import { Button, Empty, PageHeader, PageSkeleton, Sheet, cx, useConfirm } from "@/components/ui";
-import { draftPayload, draftToOrder, lineCount, resolveDraftCustomer } from "@/lib/draft";
+import { lineCount } from "@/lib/draft";
 import { orderTotals } from "@/lib/money";
 import { sellGroups, sellVariantLabel } from "@/lib/admin/sell-groups";
 import { colorHex, fmtMoney, plural } from "@/lib/format";
@@ -19,18 +19,30 @@ export default function SellPage() {
   const s = useLoaded();
   const cart = useCart();
   const confirm = useConfirm();
-  const toast = useToast();
+  const { confirmStock, submitSale, saveForLater } = useSellActions();
   const [cartOpen, setCartOpen] = useState(false);
+  const [savedOpen, setSavedOpen] = useState(false);
   const [customFor, setCustomFor] = useState<ProductRec | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // Links from the Dashboard and the In-person orders page: ?saved=1 opens the saved list, ?cart=1 the cart.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    if (q.get("saved")) setSavedOpen(true);
+    if (q.get("cart")) setCartOpen(true);
+    if (q.get("saved") || q.get("cart")) window.history.replaceState(null, "", "/admin/sell");
+  }, []);
+
   if (!s || !cart.ready) return <PageSkeleton />;
-  const { data, ledger, mutate } = s;
+  const { data, ledger } = s;
   const products = data.products.filter((p) => !p.archived);
   const groups = sellGroups(data);
   const { draft } = cart;
   const count = lineCount(draft);
   const totals = orderTotals(draft);
+  const savedCount = data.savedOrders.length;
+  /** The saved order now open in the cart, if any. Saving updates it, completing removes it. */
+  const editingSaved = data.savedOrders.find((o) => o.id === draft.id) ?? null;
 
   // Stock remaining after what's already in the cart
   const inCart = (pid: string) => draft.lines.filter((l) => l.productId === pid).reduce((x, l) => x + l.quantity, 0);
@@ -52,75 +64,45 @@ export default function SellPage() {
 
   async function complete() {
     if (draft.lines.length === 0 || busy) return;
-    const short = draft.lines.filter((l) => {
-      if (!l.productId) return false;
-      const stock = ledger.stock.get(l.productId)?.stock ?? 0;
-      return stock - inCart(l.productId) < 0;
-    });
-    if (short.length) {
-      const names = [...new Set(short.map((l) => l.productName))].join(", ");
-      const ok = await confirm({
-        title: "Not enough stock",
-        body: `${names} will go below zero. Complete the order anyway?`,
-        confirmText: "Complete anyway",
-      });
-      if (!ok) return;
-    }
-    // Link the typed customer (existing one by name, or a new one created with the order)
-    const { draft: linked, created } = resolveDraftCustomer(draft, data.customers);
-    // Snapshot cost and cut at the moment of sale
-    const final = {
-      ...linked,
-      date: new Date().toISOString(),
-      lines: draft.lines.map((l) => ({
-        ...l,
-        unitCostCents: l.productId ? ledger.stock.get(l.productId)?.unitCost ?? l.unitCostCents : l.unitCostCents,
-        cutPercent: data.settings.businessCutPercent,
-      })),
-    };
-    if (final.soldBy !== "W") cart.rememberSeller(final.soldBy);
-    cart.rememberPayment(final.paymentMethod);
+    if (!(await confirmStock(draft.lines))) return;
     setBusy(true);
     setCartOpen(false);
     cart.reset();
-    const ok = await mutate(
-      (d) => ({
-        ...d,
-        customers: created ? [...d.customers, created] : d.customers,
-        orders: [draftToOrder(final), ...d.orders],
-      }),
-      () => api("/api/orders", "POST", draftPayload(final)),
-    );
+    const ok = await submitSale(draft);
     setBusy(false);
-    if (!ok) {
-      cart.setDraft(draft); // give the order back so nothing is lost
-      return;
-    }
-    toast.show({
-      message: `Order saved · ${fmtMoney(orderTotals(final).total)}`,
-      action: {
-        label: "Undo",
-        onClick: () =>
-          mutate(
-            (d) => ({ ...d, orders: d.orders.filter((o) => o.id !== final.id) }),
-            () => api(`/api/orders/${final.id}`, "DELETE"),
-          ).then((undone) => undone && toast.show({ message: "Order undone" })),
-      },
-      duration: 5000,
-    });
+    if (!ok) cart.setDraft(draft); // give the order back so nothing is lost
+  }
+
+  /** Put the cart aside as a saved order. No stock or money change. */
+  async function saveLater() {
+    if (draft.lines.length === 0 || busy) return;
+    setBusy(true);
+    setCartOpen(false);
+    cart.reset();
+    const ok = await saveForLater(draft);
+    setBusy(false);
+    if (!ok) cart.setDraft(draft);
   }
 
   return (
     <div>
       <PageHeader
         title="Sell"
-        sub={products.length ? "Tap a size to add it to the order" : undefined}
+        sub={products.length ? <span className="hidden sm:inline">Tap a size to add it to the order</span> : undefined}
         actions={
-          <Button variant="primary" onClick={newOrder}>
-            <Plus size={18} /> New order
-          </Button>
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button onClick={() => setSavedOpen(true)} data-saved-orders-button>
+              <Bookmark size={18} /> Saved orders ({savedCount})
+            </Button>
+            <Button variant="primary" onClick={newOrder}>
+              <Plus size={18} /> New order
+            </Button>
+          </div>
         }
       />
+
+      {/* On phones the two header buttons need the row, so the hint sits on its own line. */}
+      {products.length > 0 && <p className="-mt-3 mb-4 text-sm text-muted sm:hidden">Tap a size to add it to the order</p>}
 
       {products.length === 0 ? (
         <Empty
@@ -224,14 +206,34 @@ export default function SellPage() {
       <Sheet
         open={cartOpen}
         onClose={() => setCartOpen(false)}
-        title="Current order"
+        title={editingSaved ? "Saved order" : "Current order"}
         footer={
-          <Button variant="primary" size="lg" block disabled={draft.lines.length === 0 || busy} onClick={complete}>
-            Complete order · {fmtMoney(totals.total)}
-          </Button>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row">
+            <Button size="lg" className="sm:flex-1" disabled={draft.lines.length === 0 || busy} onClick={saveLater}>
+              Save for later
+            </Button>
+            <Button variant="primary" size="lg" className="sm:flex-[1.7]" disabled={draft.lines.length === 0 || busy} onClick={complete}>
+              Complete order · {fmtMoney(totals.total)}
+            </Button>
+          </div>
         }
       >
+        {editingSaved && (
+          <div className="mb-4 rounded-xl bg-accent/10 px-3.5 py-2.5 text-sm">
+            This is a saved order. “Save for later” keeps your changes, “Complete order” finishes it.
+            <PriceChangeNotes order={editingSaved} className="mt-1.5" />
+          </div>
+        )}
         <OrderForm mode="cart" draft={draft} onChange={cart.setDraft} />
+      </Sheet>
+
+      <Sheet open={savedOpen} onClose={() => setSavedOpen(false)} title={`Saved orders (${savedCount})`} wide>
+        <SavedOrdersList
+          onOpened={() => {
+            setSavedOpen(false);
+            setCartOpen(true);
+          }}
+        />
       </Sheet>
 
       <NumpadSheet

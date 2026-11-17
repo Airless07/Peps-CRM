@@ -5,7 +5,9 @@ import { ArrowDown, ArrowUp, Download, LogOut, Plus, Upload, X } from "lucide-re
 import { api, useLoaded } from "@/components/store";
 import { useToast } from "@/components/toast";
 import { Button, Card, Field, Input, MoneyInput, NumberInput, PageSkeleton, SectionTitle, Segmented, useConfirm } from "@/components/ui";
+import { SellButtonsEditor } from "@/components/settings/sell-buttons-editor";
 import { fromLocalInput, toLocalDateInput } from "@/lib/format";
+import { sellButtonsError } from "@/lib/sell-buttons";
 import { getThemePref, setThemePref, type ThemePref } from "@/lib/theme";
 import type { SettingsRec, TipHandling } from "@/lib/types";
 
@@ -131,6 +133,11 @@ export function BusinessSettings() {
       <SectionTitle>Payment methods on the Sell screen</SectionTitle>
       <Card className="p-4">
         <PaymentMethodsEditor value={form.paymentMethods} onChange={(v) => set("paymentMethods", v)} />
+      </Card>
+
+      <SectionTitle>Sell screen quick buttons</SectionTitle>
+      <Card className="p-4">
+        <SellButtonsEditor value={form.sellButtons} onChange={(v) => set("sellButtons", v)} />
       </Card>
 
       <SectionTitle>Partners</SectionTitle>
@@ -272,7 +279,7 @@ export function BusinessSettings() {
             <Button variant="ghost" onClick={() => setForm(data.settings)}>
               Discard
             </Button>
-            <Button variant="primary" onClick={save} disabled={!form.partnerAName.trim() || !form.partnerBName.trim() || !!methodsError(form.paymentMethods)}>
+            <Button variant="primary" onClick={save} disabled={!form.partnerAName.trim() || !form.partnerBName.trim() || !!methodsError(form.paymentMethods) || !!sellButtonsError(form.sellButtons)}>
               Save
             </Button>
           </div>

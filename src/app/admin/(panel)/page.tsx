@@ -37,6 +37,7 @@ export default function DashboardPage() {
     if (c.awaitingPayment > 0) todos.push({ key: "await", text: plur(c.awaitingPayment, "order waiting for payment", "orders waiting for payment"), sub: "Mark each one paid when the money arrives.", button: "View orders", href: "/admin/orders?view=open", tone: "warn" });
     if (c.readyToShip > 0) todos.push({ key: "ship", text: plur(c.readyToShip, "order paid, ready to ship", "orders paid, ready to ship"), sub: "Buy labels and print packing slips, one order at a time.", button: "Open ship queue", href: "/admin/ship", tone: "accent" });
 
+    if (data.savedOrders.length > 0) todos.push({ key: "saved", text: plur(data.savedOrders.length, "saved order waiting to be completed", "saved orders waiting to be completed"), sub: "Put aside on the Sell screen. They change no stock or money until you complete them.", button: "Open saved orders", href: "/admin/sell?saved=1", tone: "neutral" });
     const low = data.products
       .filter((p) => !p.archived)
       .map((p) => ({ p, stock: ledger.stock.get(p.id)?.stock ?? 0, lowAt: p.lowStockThreshold ?? data.settings.lowStockThreshold }))

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { defaultSellButtons } from "./sell-buttons";
 import {
   allocateDiscount,
   computeLedger,
@@ -33,6 +34,7 @@ function settings(over: Partial<SettingsRec> = {}): SettingsRec {
     defaultSoldBy: "A",
     lowStockThreshold: 3,
     paymentMethods: ["Cash", "Zelle"],
+    sellButtons: defaultSellButtons(),
     ...over,
   };
 }

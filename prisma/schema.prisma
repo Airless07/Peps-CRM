@@ -29,6 +29,8 @@ model Settings {
   storeJson            String   @default("{}")
   /// JSON: everything editable on the storefront (hero, sections, FAQ, policies, SEO)
   contentJson          String   @default("{}")
+  /// JSON { discounts: [{ type, value }], tips: [cents] }: quick buttons in the Sell cart. Empty = defaults.
+  sellButtonsJson      String   @default("")
   updatedAt            DateTime @updatedAt
 }
 
@@ -223,6 +225,26 @@ model Order {
   @@index([date])
   @@index([customerId])
   @@index([status])
+}
+
+/// An in-person order saved for later on the Sell screen. Not an order yet: it never touches stock or money.
+/// Completing it creates a normal Order and removes this row.
+model SavedOrder {
+  id            String   @id
+  customer      String   @default("")
+  /// Linked customer, or a new id to create with the order when it is completed. No relation on purpose.
+  customerId    String?
+  paymentMethod String   @default("")
+  note          String   @default("")
+  /// "A" | "B"
+  soldBy        String   @default("A")
+  /// "$" | "%"
+  discountType  String   @default("$")
+  discountValue Float    @default(0)
+  tipCents      Int      @default(0)
+  /// JSON array of { id, productId, productName, quantity, unitPriceCents, unitCostCents, cutPercent, listPriceCents }
+  linesJson     String   @default("[]")
+  savedAt       DateTime @default(now())
 }
 
 model Customer {

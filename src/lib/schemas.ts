@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_SELL_BUTTONS, MIN_SELL_BUTTONS, sellButtonsError } from "./sell-buttons";
 
 const cents = z.number().int().min(-1_000_000_000).max(1_000_000_000);
 const posCents = cents.min(0);
@@ -87,6 +88,38 @@ export const orderInput = z.object({
   lines: z.array(orderLineInput).min(1, "Add at least one item").max(200),
 });
 
+/** POST /api/orders: a sale, optionally completing a saved order (removed in the same transaction). */
+export const saleInput = orderInput.extend({ fromSavedId: idStr.nullable().optional() });
+
+export const savedOrderInput = z.object({
+  id: idStr,
+  savedAt: dateStr.optional(),
+  customer: text(120).default(""),
+  customerId: idStr.nullable().default(null),
+  paymentMethod: text(40).default(""),
+  note: text().default(""),
+  soldBy: z.enum(["A", "B", "W"]),
+  discountType: z.enum(["$", "%"]).default("$"),
+  discountValue: z.number().min(0).max(1_000_000_000).default(0),
+  tipCents: posCents.default(0),
+  lines: z
+    .array(orderLineInput.extend({ listPriceCents: posCents.nullable().default(null) }))
+    .min(1, "Add at least one item")
+    .max(200),
+});
+
+const sellButtonList = <T extends z.ZodType>(item: T, what: string) =>
+  z.array(item).min(MIN_SELL_BUTTONS, `Keep at least ${MIN_SELL_BUTTONS} ${what} button`).max(MAX_SELL_BUTTONS, `No more than ${MAX_SELL_BUTTONS} ${what} buttons`);
+export const sellButtonsInput = z
+  .object({
+    discounts: sellButtonList(z.object({ type: z.enum(["$", "%"]), value: z.number() }), "discount"),
+    tips: sellButtonList(z.number(), "tip"),
+  })
+  .superRefine((v, ctx) => {
+    const error = sellButtonsError(v);
+    if (error) ctx.addIssue({ code: "custom", message: error });
+  });
+
 export const settingsUpdate = z
   .object({
     startingBalanceCents: cents,
@@ -98,6 +131,7 @@ export const settingsUpdate = z
     tipHandling: z.enum(["profit", "seller", "business"]),
     defaultSoldBy: partner,
     lowStockThreshold: z.number().int().min(0).max(100000),
+    sellButtons: sellButtonsInput,
     /** Store settings and site content: whole objects, merged over the defaults when read. */
     store: z.record(z.string(), z.unknown()).transform((v) => JSON.stringify(v)),
     content: z.record(z.string(), z.unknown()).transform((v) => JSON.stringify(v)),

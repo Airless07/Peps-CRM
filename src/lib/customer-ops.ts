@@ -23,7 +23,10 @@ export async function ensureOrderCustomer(tx: Tx, customerId: string | null, nam
 export async function updateCustomer(id: string, patch: { name?: string; phone?: string; notes?: string }) {
   return prisma.$transaction(async (tx) => {
     const c = await tx.customer.update({ where: { id }, data: patch });
-    if (patch.name !== undefined) await tx.order.updateMany({ where: { customerId: id }, data: { customer: c.name } });
+    if (patch.name !== undefined) {
+      await tx.order.updateMany({ where: { customerId: id }, data: { customer: c.name } });
+      await tx.savedOrder.updateMany({ where: { customerId: id }, data: { customer: c.name } });
+    }
     return c;
   });
 }
@@ -38,6 +41,7 @@ export async function mergeCustomers(fromId: string, intoId: string) {
     ]);
     if (!from || !into) throw new HttpError(404, "Customer not found");
     const moved = await tx.order.updateMany({ where: { customerId: fromId }, data: { customerId: intoId, customer: into.name } });
+    await tx.savedOrder.updateMany({ where: { customerId: fromId }, data: { customerId: intoId, customer: into.name } });
     await tx.customer.update({ where: { id: intoId }, data: mergedFields(into, from) });
     await tx.customer.delete({ where: { id: fromId } });
     return { ok: true, movedOrders: moved.count };
@@ -48,6 +52,8 @@ export async function mergeCustomers(fromId: string, intoId: string) {
 export async function deleteCustomer(id: string) {
   return prisma.$transaction(async (tx) => {
     await tx.order.updateMany({ where: { customerId: id }, data: { customerId: null } });
+    // Saved orders keep the typed name, like orders do.
+    await tx.savedOrder.updateMany({ where: { customerId: id }, data: { customerId: null } });
     await tx.customer.delete({ where: { id } });
     return { ok: true };
   });

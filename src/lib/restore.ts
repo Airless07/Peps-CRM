@@ -25,6 +25,7 @@ export async function wipe(tx: Tx) {
   await tx.listing.deleteMany();
   await tx.productGroup.deleteMany();
   await tx.contactMessage.deleteMany();
+  await tx.savedOrder.deleteMany();
 }
 
 const d = (s: string) => new Date(s);
@@ -83,9 +84,10 @@ export async function restore(input: AppData | Parameters<typeof normalizeBackup
   await prisma.$transaction(
     async (tx) => {
       await wipe(tx);
-      const s = { ...DEFAULT_SETTINGS, ...data.settings };
+      const { sellButtons, ...s } = { ...DEFAULT_SETTINGS, ...data.settings };
       const row = {
         ...s,
+        sellButtonsJson: JSON.stringify(sellButtons),
         startDate: d(s.startDate),
         paymentMethods: JSON.stringify(s.paymentMethods),
         storeJson: JSON.stringify(data.store),
@@ -142,6 +144,9 @@ export async function restore(input: AppData | Parameters<typeof normalizeBackup
         data: data.reviews.map((r) => ({ ...r, orderId: r.orderId && orderIds.has(r.orderId) ? r.orderId : null, createdAt: d(r.createdAt) })),
       });
       await tx.contactMessage.createMany({ data: data.messages.map((m) => ({ ...m, createdAt: d(m.createdAt) })) });
+      await tx.savedOrder.createMany({
+        data: data.savedOrders.map(({ lines, ...s }) => ({ ...s, savedAt: d(s.savedAt), linesJson: JSON.stringify(lines) })),
+      });
       await tx.split.createMany({
         data: data.splits.map(({ items: _i, ...s }) => ({ ...s, date: d(s.date), createdAt: d(s.createdAt) })),
       });
@@ -158,8 +163,8 @@ export async function restore(input: AppData | Parameters<typeof normalizeBackup
 export async function resetAll() {
   await prisma.$transaction(async (tx) => {
     await wipe(tx);
-    const { startDate: _s, paymentMethods, ...rest } = DEFAULT_SETTINGS;
-    const defaults = { ...rest, paymentMethods: JSON.stringify(paymentMethods) };
+    const { startDate: _s, paymentMethods, sellButtons, ...rest } = DEFAULT_SETTINGS;
+    const defaults = { ...rest, paymentMethods: JSON.stringify(paymentMethods), sellButtonsJson: JSON.stringify(sellButtons) };
     await tx.settings.upsert({
       where: { id: 1 },
       update: { ...defaults, startDate: new Date() },

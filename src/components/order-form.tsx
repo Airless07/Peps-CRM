@@ -5,6 +5,7 @@ import { ChevronDown, X } from "lucide-react";
 import { orderTotals } from "@/lib/money";
 import type { Draft, DraftLine } from "@/lib/draft";
 import { colorHex, fmtMoney, fromLocalInput, toLocalDateTimeInput, uid } from "@/lib/format";
+import { discountButtonLabel, isDiscountButtonOn, tapDiscountButton, tapTipButton, tipButtonLabel } from "@/lib/sell-buttons";
 import type { DiscountType } from "@/lib/types";
 import { Field, Input, MoneyInput, NumberInput, Row, Segmented, Select, Stepper, cx } from "./ui";
 import { useLoaded } from "./store";
@@ -47,8 +48,8 @@ export function OrderForm({ draft, onChange, mode }: { draft: Draft; onChange: (
   };
 
   const setDiscount = (type: DiscountType, value: number) => onChange({ ...draft, discountType: type, discountValue: value });
-  const isDisc = (type: DiscountType, value: number) => draft.discountType === type && draft.discountValue === value;
-  const tipPresets = [500, 1000, 2000];
+  // Quick buttons: exactly the ones set in Settings, in that order.
+  const { discounts: discountButtons, tips: tipPresets } = data.settings.sellButtons;
   const tipIsPreset = tipPresets.includes(draft.tipCents);
   // Offered methods, plus the order's own one if it is no longer offered (or "Unknown")
   const methods = data.settings.paymentMethods.includes(draft.paymentMethod)
@@ -117,14 +118,18 @@ export function OrderForm({ draft, onChange, mode }: { draft: Draft; onChange: (
           ) : (
             <NumberInput className="w-28" value={draft.discountValue} min={0} max={100} step={0.5} suffix="%" onChange={(n) => setDiscount("%", n ?? 0)} />
           )}
-          {[500, 1000, 2000].map((c) => (
-            <button key={c} type="button" className={cx(chip, "h-12", isDisc("$", c) ? chipOn : chipOff)} onClick={() => setDiscount("$", isDisc("$", c) ? 0 : c)}>
-              -${c / 100}
+          {discountButtons.map((b) => (
+            <button
+              key={b.type + b.value}
+              type="button"
+              data-quick-discount
+              aria-pressed={isDiscountButtonOn(draft, b)}
+              className={cx(chip, "h-12", isDiscountButtonOn(draft, b) ? chipOn : chipOff)}
+              onClick={() => onChange(tapDiscountButton(draft, b))}
+            >
+              {discountButtonLabel(b)}
             </button>
           ))}
-          <button type="button" className={cx(chip, "h-12", isDisc("%", 10) ? chipOn : chipOff)} onClick={() => setDiscount("%", isDisc("%", 10) ? 0 : 10)}>
-            -10%
-          </button>
         </div>
       </div>
 
@@ -139,13 +144,14 @@ export function OrderForm({ draft, onChange, mode }: { draft: Draft; onChange: (
             <button
               key={c}
               type="button"
+              data-quick-tip
               className={cx(chip, "h-12", draft.tipCents === c && !customTip ? chipOn : chipOff)}
               onClick={() => {
                 setCustomTip(false);
-                onChange({ ...draft, tipCents: c });
+                onChange(tapTipButton(draft, c));
               }}
             >
-              ${c / 100}
+              {tipButtonLabel(c)}
             </button>
           ))}
           {customTip || (!tipIsPreset && draft.tipCents > 0) ? (

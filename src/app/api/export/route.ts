@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { HttpError, route } from "@/lib/api";
 import { BACKUP_VERSION } from "@/lib/backup";
+import { discountButtonLabel, tipButtonLabel } from "@/lib/sell-buttons";
 import { loadAll, loadBackup } from "@/lib/serialize";
 import type { AppData } from "@/lib/types";
 
@@ -17,7 +18,13 @@ function csv(rows: Record<string, unknown>[]): string {
 }
 
 const tables: Record<string, (d: AppData) => Record<string, unknown>[]> = {
-  settings: (d) => [{ ...d.settings, paymentMethods: d.settings.paymentMethods.join(" | ") }],
+  settings: (d) => [
+    {
+      ...d.settings,
+      paymentMethods: d.settings.paymentMethods.join(" | "),
+      sellButtons: [...d.settings.sellButtons.discounts.map(discountButtonLabel), ...d.settings.sellButtons.tips.map((t) => `tip ${tipButtonLabel(t)}`)].join(" | "),
+    },
+  ],
   customers: (d) => d.customers.map(({ addresses, ...c }) => ({ ...c, savedAddresses: addresses.length })),
   products: (d) => d.products.map((p) => ({ ...p, product: d.listings.find((l) => l.id === p.listingId)?.name ?? "" })),
   purchases: (d) => d.purchases.map((p) => ({ ...p })),

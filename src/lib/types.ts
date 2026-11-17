@@ -1,4 +1,5 @@
 import { DEFAULT_CONTENT, DEFAULT_STORE, type SiteContent, type StoreSettings } from "./store/config";
+import { defaultSellButtons, type SellButtons } from "./sell-buttons";
 // Plain data records shared by server and client. Dates are ISO strings, money is integer cents.
 
 export type Partner = "A" | "B";
@@ -23,6 +24,8 @@ export interface SettingsRec {
   lowStockThreshold: number;
   /** Payment methods offered at checkout, in display order. */
   paymentMethods: string[];
+  /** Quick discount and tip buttons in the Sell cart, in display order. */
+  sellButtons: SellButtons;
 }
 
 export interface ProductRec {
@@ -126,6 +129,34 @@ export interface OrderRec {
   adminNote: string;
   /** Website order details. Null for in-person sales. */
   web: WebOrderRec | null;
+}
+
+/** A line of a saved order: an order line plus the product's regular price when it was saved. */
+export interface SavedLineRec {
+  id: string;
+  productId: string | null;
+  productName: string;
+  quantity: number;
+  unitPriceCents: number;
+  unitCostCents: number;
+  cutPercent: number;
+  /** Regular price of the product when the line was first saved. Null when unknown. */
+  listPriceCents: number | null;
+}
+
+/** An in-person order saved for later on the Sell screen. Not an order: no stock or money effect. */
+export interface SavedOrderRec {
+  id: string;
+  savedAt: string;
+  customer: string;
+  customerId: string | null;
+  paymentMethod: string;
+  note: string;
+  soldBy: Seller;
+  discountType: DiscountType;
+  discountValue: number;
+  tipCents: number;
+  lines: SavedLineRec[];
 }
 
 export interface Address {
@@ -359,6 +390,8 @@ export interface AppData {
   promotions: PromotionRec[];
   reviews: ReviewRec[];
   messages: MessageRec[];
+  /** Sell carts saved for later. NOT orders: the money and stock math never reads this list. */
+  savedOrders: SavedOrderRec[];
   store: StoreSettings;
   content: SiteContent;
 }
@@ -389,6 +422,7 @@ export const emptyStoreData = () => ({
   promotions: [] as PromotionRec[],
   reviews: [] as ReviewRec[],
   messages: [] as MessageRec[],
+  savedOrders: [] as SavedOrderRec[],
   store: structuredClone(DEFAULT_STORE),
   content: structuredClone(DEFAULT_CONTENT),
 });
@@ -407,4 +441,5 @@ export const DEFAULT_SETTINGS: SettingsRec = {
   defaultSoldBy: "A",
   lowStockThreshold: 3,
   paymentMethods: [...DEFAULT_PAYMENT_METHODS],
+  sellButtons: defaultSellButtons(),
 };

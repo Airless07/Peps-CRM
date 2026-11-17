@@ -1,25 +1,11 @@
 import { body, route } from "@/lib/api";
-import { ensureOrderCustomer } from "@/lib/customer-ops";
-import { prisma } from "@/lib/db";
-import { nextOrderNumber, requestOrigin } from "@/lib/order-ops";
-import { withLowStockAlert } from "@/lib/stock-alerts";
-import { orderInput } from "@/lib/schemas";
+import { requestOrigin } from "@/lib/order-ops";
+import { saleInput } from "@/lib/schemas";
+import { recordSale } from "@/lib/sell-ops";
 
-/** Record an in-person sale (the Sell screen). It gets the next order number. */
+/** Record an in-person sale (the Sell screen), from the cart or by completing a saved order. */
 export const POST = route(async (req) => {
-  const { lines, ...order } = await body(req, orderInput);
-  await withLowStockAlert(() => prisma.$transaction(async (tx) => {
-    const customer = await ensureOrderCustomer(tx, order.customerId, order.customer);
-    await tx.order.create({
-      data: {
-        ...order,
-        customer,
-        number: await nextOrderNumber(tx),
-        source: "inperson",
-        status: "completed",
-        lines: { create: lines.map((l, i) => ({ ...l, sortOrder: i })) },
-      },
-    });
-  }), requestOrigin(req));
+  const { fromSavedId, ...sale } = await body(req, saleInput);
+  await recordSale(sale, requestOrigin(req), fromSavedId);
   return { ok: true };
 });
