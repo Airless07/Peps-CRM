@@ -4,6 +4,7 @@ import { createContext, forwardRef, useCallback, useContext, useEffect, useId, u
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { centsToInput, fmtMoney, parseMoney } from "@/lib/format";
+import { stepValue } from "@/lib/size";
 
 export const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(" ");
 
@@ -176,7 +177,34 @@ export function Textarea({ className, ...p }: React.TextareaHTMLAttributes<HTMLT
   return <textarea className={cx(inputCls, "h-auto min-h-[76px] py-3", className)} {...p} />;
 }
 
-/** Dollar input that reports cents. Keeps the typed text while focused. */
+// ---------------------------------------------------------------- Number fields with - / + buttons
+// Every number typed in the admin goes through NumberInput or MoneyInput, so they all look and behave
+// the same: a bordered field with "-" on the left and "+" on the right (44px wide, 48px tall, easy to
+// tap on a phone), and typing still works. The <input> comes FIRST in the DOM and the buttons are moved
+// into place with CSS order: a <Field> is a <label>, and a label forwards clicks to its first labelable
+// child, which must be the input, never the "-" button.
+const stepShell =
+  "flex h-12 w-full min-w-0 items-stretch overflow-hidden rounded-xl border border-line bg-bg transition focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/20";
+const stepBtn =
+  "flex w-11 shrink-0 select-none items-center justify-center text-xl leading-none text-muted transition hover:bg-surface2 hover:text-ink active:bg-surface2 disabled:pointer-events-none disabled:opacity-30 focus-visible:bg-surface2 focus-visible:text-ink focus-visible:outline-none";
+const stepInput =
+  "h-full w-full min-w-0 bg-transparent text-center text-base tabular-nums text-ink placeholder:text-muted/70 focus:outline-none";
+
+function StepShell({ onStep, canDec, canInc, label, children }: { onStep: (dir: -1 | 1) => void; canDec: boolean; canInc: boolean; label?: string; children: React.ReactNode }) {
+  return (
+    <div className={stepShell} data-stepper>
+      {children}
+      <button type="button" aria-label={label ? `Decrease ${label}` : "Decrease value"} className={cx(stepBtn, "order-first border-r border-line")} disabled={!canDec} onClick={() => onStep(-1)}>
+        −
+      </button>
+      <button type="button" aria-label={label ? `Increase ${label}` : "Increase value"} className={cx(stepBtn, "border-l border-line")} disabled={!canInc} onClick={() => onStep(1)}>
+        +
+      </button>
+    </div>
+  );
+}
+
+/** Dollar input that reports cents. Keeps the typed text while focused. "-" / "+" move by `step` cents ($1 by default). */
 export function MoneyInput({
   value,
   onChange,
@@ -185,6 +213,10 @@ export function MoneyInput({
   className,
   autoFocus,
   nullable,
+  step = 100,
+  min,
+  max,
+  label,
 }: {
   value: number | null;
   onChange: (cents: number | null) => void;
@@ -193,19 +225,40 @@ export function MoneyInput({
   className?: string;
   autoFocus?: boolean;
   nullable?: boolean;
+  /** Cents per "-" / "+" press. */
+  step?: number;
+  min?: number;
+  max?: number;
+  /** Names the buttons for screen readers ("Increase Total cost"). */
+  label?: string;
 }) {
   const [text, setText] = useState(centsToInput(value));
   const focused = useRef(false);
   useEffect(() => {
     if (!focused.current) setText(centsToInput(value));
   }, [value]);
+  const lo = min ?? (allowNegative ? -Infinity : 0);
+  const hi = max ?? Infinity;
+  // An empty optional field steps from what its placeholder shows (e.g. the average cost).
+  const base = value ?? parseMoney(placeholder) ?? 0;
   return (
-    <div className={cx("relative", className)}>
-      <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted">$</span>
+    <div className={cx("min-w-0", className)}>
+      <StepShell
+        label={label}
+        canDec={base > lo}
+        canInc={base < hi}
+        onStep={(d) => {
+          const next = stepValue(base, d, step, lo, hi);
+          setText(centsToInput(next));
+          onChange(next);
+        }}
+      >
+      <div className="relative min-w-0 flex-1">
+      <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted">$</span>
       <input
         inputMode="decimal"
         autoFocus={autoFocus}
-        className={cx(inputCls, "pl-7 tabular-nums")}
+        className={cx(stepInput, "pl-6 pr-2")}
         placeholder={placeholder}
         value={text}
         onFocus={(e) => {
@@ -224,6 +277,8 @@ export function MoneyInput({
           onChange(c === null ? (nullable ? null : 0) : c);
         }}
       />
+      </div>
+      </StepShell>
     </div>
   );
 }
@@ -239,6 +294,7 @@ export function NumberInput({
   suffix,
   nullable,
   placeholder,
+  label,
 }: {
   value: number | null;
   onChange: (n: number | null) => void;
@@ -250,17 +306,37 @@ export function NumberInput({
   suffix?: string;
   nullable?: boolean;
   placeholder?: string;
+  /** Names the buttons for screen readers ("Increase Quantity"). */
+  label?: string;
 }) {
   const [text, setText] = useState(value === null ? "" : String(value));
   const focused = useRef(false);
   useEffect(() => {
     if (!focused.current) setText(value === null ? "" : String(value));
   }, [value]);
+  const inc = step ?? 1;
+  const lo = min ?? (allowNegative ? -Infinity : 0);
+  const hi = max ?? Infinity;
+  // An empty optional field steps from what its placeholder shows (e.g. the store-wide default).
+  const fromPlaceholder = placeholder !== undefined && placeholder.trim() !== "" && Number.isFinite(Number(placeholder)) ? Number(placeholder) : null;
+  const base = value ?? fromPlaceholder;
   return (
-    <div className={cx("relative", className)}>
+    <div className={cx("min-w-0", className)}>
+      <StepShell
+        label={label}
+        canDec={base !== null && base > lo}
+        canInc={base === null || base < hi}
+        onStep={(d) => {
+          // Empty with no number to start from: the first press fills in the minimum (or 0).
+          const next = base === null ? Math.min(hi, Math.max(lo, 0)) : stepValue(base, d, inc, lo, hi);
+          setText(String(next));
+          onChange(next);
+        }}
+      >
+      <div className="relative min-w-0 flex-1">
       <input
         inputMode={step && step < 1 ? "decimal" : allowNegative ? "text" : "numeric"}
-        className={cx(inputCls, "tabular-nums", suffix && "pr-8")}
+        className={cx(stepInput, "px-2", suffix && "pr-9")}
         value={text}
         placeholder={placeholder}
         onFocus={(e) => {
@@ -283,7 +359,9 @@ export function NumberInput({
           onChange(n);
         }}
       />
-      {suffix && <span className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-muted">{suffix}</span>}
+      {suffix && <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-sm text-muted">{suffix}</span>}
+      </div>
+      </StepShell>
     </div>
   );
 }
@@ -302,7 +380,8 @@ export function Segmented<T extends string>({
   size?: "sm" | "md";
 }) {
   return (
-    <div className={cx("flex rounded-xl bg-surface2 p-1", className)} role="radiogroup">
+    // Equal grid columns: every pill is the same width and height and always wraps its whole label.
+    <div className={cx("grid auto-cols-fr grid-flow-col gap-1 rounded-xl bg-surface2 p-1", className)} role="radiogroup">
       {options.map((o) => (
         <button
           key={o.value}
@@ -311,7 +390,7 @@ export function Segmented<T extends string>({
           aria-checked={value === o.value}
           onClick={() => onChange(o.value)}
           className={cx(
-            "flex-1 whitespace-nowrap rounded-lg px-3 font-medium transition",
+            "flex min-w-0 items-center justify-center whitespace-nowrap rounded-lg px-4 font-medium transition",
             size === "sm" ? "h-8 text-sm" : "h-10 text-[15px]",
             value === o.value ? "bg-surface text-ink shadow-sm" : "text-muted hover:text-ink",
           )}
@@ -510,7 +589,7 @@ export function Stepper({ value, onChange, min = 1 }: { value: number; onChange:
       <button
         type="button"
         aria-label="Decrease"
-        className="h-10 w-10 text-lg text-muted transition hover:text-ink active:scale-90 disabled:opacity-30"
+        className="h-11 w-11 text-lg text-muted transition hover:text-ink active:scale-90 disabled:opacity-30"
         disabled={value <= min}
         onClick={() => onChange(Math.max(min, value - 1))}
       >
@@ -520,7 +599,7 @@ export function Stepper({ value, onChange, min = 1 }: { value: number; onChange:
       <button
         type="button"
         aria-label="Increase"
-        className="h-10 w-10 text-lg text-muted transition hover:text-ink active:scale-90"
+        className="h-11 w-11 text-lg text-muted transition hover:text-ink active:scale-90"
         onClick={() => onChange(value + 1)}
       >
         +

@@ -240,7 +240,7 @@ export function StoreSettingsTabs({ tab, onTab }: { tab: StoreTab; onTab: (t: st
         <SectionTitle>Orders</SectionTitle>
         <Card className="space-y-5 p-4">
           <Field label="Cancel unpaid orders after" hint="An order that is not marked paid in this time is canceled automatically, and the customer is emailed.">
-            <NumberInput className="w-36" value={form.autoCancelHours} min={1} max={720} suffix="hrs" onChange={(n) => set("autoCancelHours", n ?? 24)} />
+            <NumberInput className="w-44" value={form.autoCancelHours} min={1} max={720} suffix="hrs" onChange={(n) => set("autoCancelHours", n ?? 24)} />
           </Field>
           <Field label="Best sellers" hint="Automatic picks the top products by units sold in the last 30 days. Manual lets you pick them on each product’s Website tab.">
             <Segmented
@@ -347,7 +347,7 @@ export function StoreSettingsTabs({ tab, onTab }: { tab: StoreTab; onTab: (t: st
           <div className="space-y-3">
             {form.shippingTiers.map((t, i) => (
               <div key={t.id} className={cx("rounded-xl border border-line p-3", !t.enabled && "opacity-60")}>
-                <div className="grid grid-cols-[minmax(0,1fr)_8rem] gap-3">
+                <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_11rem]">
                   <Field label="Name shown at checkout" hint={TIER_SERVICE[t.id].label}>
                     <Input value={t.name} maxLength={30} onChange={(e) => set("shippingTiers", form.shippingTiers.map((x, k) => (k === i ? { ...x, name: e.target.value } : x)))} />
                   </Field>
@@ -355,18 +355,13 @@ export function StoreSettingsTabs({ tab, onTab }: { tab: StoreTab; onTab: (t: st
                     <MoneyInput value={t.flatCents} onChange={(c) => set("shippingTiers", form.shippingTiers.map((x, k) => (k === i ? { ...x, flatCents: c ?? 0 } : x)))} />
                   </Field>
                 </div>
-                <div className="mt-2 grid gap-x-6 sm:grid-cols-2">
+                <div className="mt-2">
                   <Toggle checked={t.enabled} onChange={(x) => set("shippingTiers", form.shippingTiers.map((y, k) => (k === i ? { ...y, enabled: x } : y)))} label="Offer this option" />
-                  <Toggle
-                    checked={form.freeShippingTiers.includes(t.id)}
-                    onChange={(x) => set("freeShippingTiers", x ? [...form.freeShippingTiers, t.id] : form.freeShippingTiers.filter((y) => y !== t.id))}
-                    label="Free shipping rules apply"
-                  />
                 </div>
               </div>
             ))}
           </div>
-          <p className="text-xs text-muted">Free shipping rules are created in Promotions. By default they make Standard free only.</p>
+          <p className="text-xs text-muted">Which options are free is chosen on each free shipping rule in Promotions.</p>
         </Card>
 
         <SectionTitle>Ship from</SectionTitle>

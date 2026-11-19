@@ -1,5 +1,5 @@
 import path from "node:path";
-import { defineConfig } from "@playwright/test";
+import { defineConfig, devices } from "@playwright/test";
 
 /**
  * End-to-end tests run against a production build on a COPY of the database (see e2e/prepare.ts),
@@ -36,6 +36,8 @@ export default defineConfig({
     { name: "pages", testMatch: /pages\.spec\.ts/, dependencies: ["security"] },
     // Saved in-person orders and the Sell cart quick buttons. Stands on its own: npx playwright test --project=sell --no-deps
     { name: "sell", testMatch: /sell\.spec\.ts/, dependencies: ["pages"] },
+    // Phones: product cards open on the first touch tap (iPhone 14, WebKit, touch). Stands on its own: npx playwright test --project=mobile --no-deps
+    { name: "mobile", testMatch: /mobile\.spec\.ts/, use: { ...devices["iPhone 14"], hasTouch: true }, dependencies: ["sell"] },
   ],
   webServer: {
     command: `npx next start -p ${PORT}`,

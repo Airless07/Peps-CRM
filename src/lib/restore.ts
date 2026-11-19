@@ -124,16 +124,19 @@ export async function restore(input: AppData | Parameters<typeof normalizeBackup
         data: data.adjustments.map((a) => ({ ...a, date: d(a.date), createdAt: d(a.createdAt) })),
       });
       await tx.order.createMany({ data: orders.map((o) => orderRow(o, files)) });
-      await tx.orderLine.createMany({ data: orders.flatMap((o) => o.lines) });
+      // `size` is display-only (the product's current size), not a column.
+      await tx.orderLine.createMany({ data: orders.flatMap((o) => o.lines.map(({ size: _s, ...l }) => l)) });
       await tx.orderEvent.createMany({ data: data.events.filter((e) => orderIds.has(e.orderId)).map((e) => ({ ...e, at: d(e.at) })) });
       await tx.labelPurchase.createMany({
         data: data.labels.map((l) => ({ ...l, orderId: l.orderId && orderIds.has(l.orderId) ? l.orderId : null, date: d(l.date), createdAt: d(l.createdAt) })),
       });
       await tx.promotion.createMany({
-        data: data.promotions.map(({ uses: _u, listingIds, groupIds, ...p }) => ({
+        data: data.promotions.map(({ uses: _u, listingIds, groupIds, shippingTiers, ...p }) => ({
           ...p,
           listingIdsJson: JSON.stringify(listingIds ?? []),
           groupIdsJson: JSON.stringify(groupIds ?? []),
+          // Backups from before shipping options per rule: the rule covered Standard.
+          shippingTiersJson: JSON.stringify(shippingTiers ?? (p.kind === "free_shipping" ? ["standard"] : [])),
           startsAt: dn(p.startsAt),
           endsAt: dn(p.endsAt),
           createdAt: d(p.createdAt),

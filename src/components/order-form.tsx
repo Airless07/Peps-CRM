@@ -5,6 +5,7 @@ import { ChevronDown, X } from "lucide-react";
 import { orderTotals } from "@/lib/money";
 import type { Draft, DraftLine } from "@/lib/draft";
 import { colorHex, fmtMoney, fromLocalInput, toLocalDateTimeInput, uid } from "@/lib/format";
+import { withSize } from "@/lib/size";
 import { discountButtonLabel, isDiscountButtonOn, tapDiscountButton, tapTipButton, tipButtonLabel } from "@/lib/sell-buttons";
 import type { DiscountType } from "@/lib/types";
 import { Field, Input, MoneyInput, NumberInput, Row, Segmented, Select, Stepper, cx } from "./ui";
@@ -37,7 +38,7 @@ export function OrderForm({ draft, onChange, mode }: { draft: Draft; onChange: (
         {
           id: uid(),
           productId: p.id,
-          productName: p.name,
+          productName: withSize(p.name, p.variantLabel),
           quantity: 1,
           unitPriceCents: p.defaultPriceCents,
           unitCostCents: ledger.stock.get(p.id)?.unitCost ?? 0,
@@ -114,9 +115,9 @@ export function OrderForm({ draft, onChange, mode }: { draft: Draft; onChange: (
         </div>
         <div className="flex flex-wrap gap-2">
           {draft.discountType === "$" ? (
-            <MoneyInput className="w-32" value={draft.discountValue} onChange={(c) => setDiscount("$", c ?? 0)} />
+            <MoneyInput className="w-44" label="discount" value={draft.discountValue} onChange={(c) => setDiscount("$", c ?? 0)} />
           ) : (
-            <NumberInput className="w-28" value={draft.discountValue} min={0} max={100} step={0.5} suffix="%" onChange={(n) => setDiscount("%", n ?? 0)} />
+            <NumberInput className="w-44" label="discount" value={draft.discountValue} min={0} max={100} step={0.5} suffix="%" onChange={(n) => setDiscount("%", n ?? 0)} />
           )}
           {discountButtons.map((b) => (
             <button
@@ -155,7 +156,7 @@ export function OrderForm({ draft, onChange, mode }: { draft: Draft; onChange: (
             </button>
           ))}
           {customTip || (!tipIsPreset && draft.tipCents > 0) ? (
-            <MoneyInput className="w-32" autoFocus={customTip} value={draft.tipCents} onChange={(c) => onChange({ ...draft, tipCents: c ?? 0 })} />
+            <MoneyInput className="w-44" label="tip" autoFocus={customTip} value={draft.tipCents} onChange={(c) => onChange({ ...draft, tipCents: c ?? 0 })} />
           ) : (
             <button type="button" className={cx(chip, "h-12", chipOff)} onClick={() => setCustomTip(true)}>
               Custom
@@ -251,7 +252,7 @@ function LineRow({
           <div className="truncate font-medium">{line.productName || "Deleted product"}</div>
           {editPrice ? (
             <MoneyInput
-              className="mt-1 w-32"
+              className="mt-1 w-full max-w-[11rem]"
               autoFocus
               value={line.unitPriceCents}
               onChange={(c) => onChange({ unitPriceCents: c ?? 0 })}

@@ -151,6 +151,8 @@ export interface ProductStock {
   /** Override if set, else weighted average, else 0. */
   unitCost: number;
   soldQty: number;
+  /** Units set aside by saved (not yet completed) Sell orders. Already taken out of `stock`. */
+  heldQty: number;
 }
 
 export interface Ledger {
@@ -193,7 +195,7 @@ export function computeLedger(data: AppData): Ledger {
   const stockOf = (pid: string) => {
     let st = stock.get(pid);
     if (!st) {
-      st = { stock: 0, purchasedQty: 0, purchasedCost: 0, avgCost: null, unitCost: 0, soldQty: 0 };
+      st = { stock: 0, purchasedQty: 0, purchasedCost: 0, avgCost: null, unitCost: 0, soldQty: 0, heldQty: 0 };
       stock.set(pid, st);
     }
     return st;
@@ -402,6 +404,18 @@ export function computeLedger(data: AppData): Ledger {
     return x.tie < y.tie ? -1 : x.tie > y.tie ? 1 : 0;
   });
   for (const e of events) e.apply();
+
+  // Saved Sell orders hold their items: the units come out of stock while the order is saved (so they
+  // can't be sold twice, in person or on the website) and go back if it is deleted. Money is not
+  // touched until the order is completed; completing it turns the hold into a normal sale.
+  for (const so of data.savedOrders ?? []) {
+    for (const l of so.lines) {
+      if (!l.productId || !(l.quantity > 0)) continue;
+      const st = stockOf(l.productId);
+      st.stock -= l.quantity;
+      st.heldQty += l.quantity;
+    }
+  }
 
   for (const p of data.products) {
     const st = stockOf(p.id);

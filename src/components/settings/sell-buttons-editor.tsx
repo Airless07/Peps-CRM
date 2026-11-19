@@ -100,13 +100,14 @@ export function SellButtonsEditor({ value, onChange }: { value: SellButtons; onC
         </div>
         <ul className="space-y-2">
           {value.discounts.map((b, i) => (
-            <li key={i} ref={dDrag.row(i)} className={cx("flex items-center gap-1 rounded-xl transition", dDrag.dragging === i && "bg-accent/10 ring-1 ring-accent/40")}>
+            // On phones the amount gets its own full-width line (it has - / + buttons and needs the room).
+            <li key={i} ref={dDrag.row(i)} className={cx("flex flex-wrap items-center gap-1 rounded-xl transition sm:flex-nowrap", dDrag.dragging === i && "bg-accent/10 ring-1 ring-accent/40")}>
               <button {...dDrag.handle(i, `discount button ${discountButtonLabel(b)}`)} data-drag-handle className={cx(iconBtn, "cursor-grab active:cursor-grabbing")}>
                 <GripVertical size={18} />
               </button>
               <Segmented<DiscountType>
                 size="sm"
-                className="w-24 shrink-0"
+                className="w-28 shrink-0"
                 value={b.type}
                 onChange={(t) => setType(i, t)}
                 options={[
@@ -115,13 +116,13 @@ export function SellButtonsEditor({ value, onChange }: { value: SellButtons; onC
                 ]}
               />
               {b.type === "$" ? (
-                <MoneyInput className="min-w-0 flex-1" value={b.value} onChange={(c) => patchDiscount(i, { value: c ?? 0 })} />
+                <MoneyInput className="order-last w-full sm:order-none sm:w-auto sm:flex-1" label="discount amount" value={b.value} onChange={(c) => patchDiscount(i, { value: c ?? 0 })} />
               ) : (
-                <NumberInput className="min-w-0 flex-1" value={b.value} min={0} max={100} step={0.5} suffix="%" onChange={(n) => patchDiscount(i, { value: n ?? 0 })} />
+                <NumberInput className="order-last w-full sm:order-none sm:w-auto sm:flex-1" label="discount percent" value={b.value} min={0} max={100} step={0.5} suffix="%" onChange={(n) => patchDiscount(i, { value: n ?? 0 })} />
               )}
               <button
                 type="button"
-                className={iconBtn}
+                className={cx(iconBtn, "ml-auto sm:ml-0")}
                 disabled={value.discounts.length <= MIN_SELL_BUTTONS}
                 onClick={() => setDiscounts(value.discounts.filter((_, j) => j !== i))}
                 aria-label={`Remove discount button ${discountButtonLabel(b)}`}

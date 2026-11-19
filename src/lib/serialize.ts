@@ -82,6 +82,9 @@ export function toSavedOrder(o: SavedOrderRow): SavedOrderRec {
 }
 
 type OrderWithLines = Prisma.OrderGetPayload<{ include: { lines: true } }>;
+type LineRow = OrderWithLines["lines"][number] & { product?: { variantLabel: string } | null };
+/** Include for order lines that also loads each product's current size (shown next to the name). */
+export const LINE_SIZE = { orderBy: { sortOrder: "asc" as const }, include: { product: { select: { variantLabel: true } } } };
 type SplitWithItems = Prisma.SplitGetPayload<{ include: { items: true } }>;
 type ListingRow = Prisma.ListingGetPayload<object>;
 type PromotionRow = Prisma.PromotionGetPayload<{ include: { uses: true } }>;
@@ -100,7 +103,8 @@ export function toOrder(o: OrderWithLines): OrderRec {
     discountValue: o.discountValue,
     tipCents: o.tipCents,
     createdAt: iso(o.createdAt),
-    lines: [...o.lines].sort((a, b) => a.sortOrder - b.sortOrder),
+    // When the query included the product's size (LINE_SIZE), each line carries it for display.
+    lines: [...(o.lines as LineRow[])].sort((a, b) => a.sortOrder - b.sortOrder).map(({ product, ...l }) => (product?.variantLabel.trim() ? { ...l, size: product.variantLabel.trim() } : l)),
     number: o.number,
     source: online ? "online" : "inperson",
     status: o.status as OrderRec["status"],
@@ -178,6 +182,7 @@ export function toPromotion(p: PromotionRow): PromotionRec {
     oncePerEmail: p.oncePerEmail,
     listingIds: json<string[]>(p.listingIdsJson, []),
     groupIds: json<string[]>(p.groupIdsJson, []),
+    shippingTiers: json<PromotionRec["shippingTiers"]>(p.shippingTiersJson, []).filter((t) => t === "standard" || t === "priority" || t === "express"),
     active: p.active,
     createdAt: iso(p.createdAt),
     uses: p.uses.map((u) => ({ id: u.id, promotionId: u.promotionId, orderId: u.orderId, email: u.email, createdAt: iso(u.createdAt) })),
@@ -207,7 +212,7 @@ export async function loadAll(): Promise<AppData> {
       prisma.customer.findMany({ orderBy: { name: "asc" } }),
       prisma.purchase.findMany({ orderBy: { date: "desc" } }),
       prisma.stockAdjustment.findMany({ orderBy: { date: "desc" } }),
-      prisma.order.findMany({ orderBy: { date: "desc" }, include: { lines: { orderBy: { sortOrder: "asc" } } } }),
+      prisma.order.findMany({ orderBy: { date: "desc" }, include: { lines: LINE_SIZE } }),
       prisma.split.findMany({ orderBy: { date: "desc" }, include: { items: true } }),
       prisma.payout.findMany({ orderBy: { date: "desc" } }),
       prisma.labelPurchase.findMany({ orderBy: { date: "desc" } }),
@@ -220,6 +225,7 @@ export async function loadAll(): Promise<AppData> {
       prisma.savedOrder.findMany({ orderBy: { savedAt: "desc" } }),
     ]);
   const allOrders = orders.map(toOrder);
+  const backfill = await prisma.dataMigration.findUnique({ where: { id: "sizes-from-names" } }).catch(() => null);
   return {
     settings: toSettings(settings),
     products: products.map((p): ProductRec => ({ ...p, testingStatus: p.testingStatus as ProductRec["testingStatus"], createdAt: iso(p.createdAt) })),
@@ -254,6 +260,7 @@ export async function loadAll(): Promise<AppData> {
     savedOrders: savedOrders.map(toSavedOrder),
     store: parseStore(settings.storeJson),
     content: parseContent(settings.contentJson),
+    sizeBackfill: backfill ? { ranAt: iso(backfill.ranAt), items: json<{ productId: string; product: string; size: string }[]>(backfill.detail, []) } : null,
   };
 }
 

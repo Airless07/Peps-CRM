@@ -6,6 +6,7 @@ import { fmtDate, fmtMoney } from "@/lib/format";
 import { orderTotals } from "@/lib/money";
 import { RESEARCH_LINE } from "@/lib/store/config";
 import type { AppData, OrderRec } from "@/lib/types";
+import { lineName } from "@/lib/size";
 
 export default function PackingSlipPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -110,7 +111,7 @@ export default function PackingSlipPage({ params }: { params: Promise<{ id: stri
             {order.lines.map((l) => (
               <tr key={l.id} className="border-b border-neutral-200">
                 <td className="py-3 text-lg font-bold tabular-nums">{l.quantity}</td>
-                <td className="py-3 text-[15px] font-medium">{l.productName}</td>
+                <td className="py-3 text-[15px] font-medium">{lineName(l)}</td>
                 <td className="py-3">
                   <span className="mx-auto block h-5 w-5 rounded border-2 border-neutral-400" />
                 </td>

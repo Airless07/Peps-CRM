@@ -3,7 +3,7 @@
 // so they can never disagree.
 import { discountAmount } from "../money";
 import type { PromotionRec, QtyDeal } from "../types";
-import type { ShippingTierId, StoreSettings } from "./config";
+import type { ShippingTier, ShippingTierId, StoreSettings } from "./config";
 
 export interface PricedVariant {
   variantId: string;
@@ -48,9 +48,31 @@ export interface CartPricing {
   /** Why the typed code was not applied, in plain words. Empty when fine or no code. */
   codeError: string;
   code: string;
-  /** A free shipping rule matched this cart (which tiers it covers is a store setting). */
+  /** At least one free shipping rule matched this cart. */
   freeShipping: boolean;
+  /** The shipping options the matched rules make free (each rule picks its own). */
+  freeTiers: ShippingTierId[];
+  /** Exactly what is free, e.g. "Free standard shipping". */
   freeShippingLabel: string;
+}
+
+const TIER_ORDER: ShippingTierId[] = ["standard", "priority", "express"];
+const TIER_WORD: Record<ShippingTierId, string> = { standard: "Standard", priority: "Priority", express: "Express" };
+
+/**
+ * Says exactly what a free shipping rule covers, with the option names from Settings:
+ * "Free standard shipping", "Free standard and priority shipping", or "Free shipping" when it
+ * covers every option the store offers.
+ */
+export function freeShippingText(tiers: ShippingTierId[], options?: Pick<ShippingTier, "id" | "name" | "enabled">[]): string {
+  const offered = options ? options.filter((o) => o.enabled).map((o) => o.id) : TIER_ORDER;
+  const covered = TIER_ORDER.filter((t) => tiers.includes(t) && offered.includes(t));
+  if (covered.length === 0) return "Free shipping";
+  if (offered.length > 0 && offered.every((t) => covered.includes(t)) && offered.length > 1) return "Free shipping";
+  const name = (t: ShippingTierId) => (options?.find((o) => o.id === t)?.name.trim() || TIER_WORD[t]).replace(/\s*shipping$/i, "").toLowerCase();
+  const names = covered.map(name);
+  const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+  return `Free ${list} shipping`;
 }
 
 /** The percent off for a quantity: the highest tier whose minimum is met. */
@@ -114,6 +136,8 @@ export function priceCart(input: {
   code?: string;
   email?: string;
   now?: Date;
+  /** The store's shipping options, so free shipping text uses their current names. */
+  shippingTiers?: Pick<ShippingTier, "id" | "name" | "enabled">[];
 }): CartPricing {
   const now = input.now ?? new Date();
   const email = (input.email ?? "").trim();
@@ -183,17 +207,19 @@ export function priceCart(input: {
   }
 
   // 3. Free shipping rules: date range + optional minimum, checked against the subtotal after discounts.
-  let freeShipping = false;
-  let freeShippingLabel = "";
+  //    Each rule makes only its own shipping options free; several matching rules add up.
+  const free = new Set<ShippingTierId>();
   for (const p of input.promotions) {
     if (p.kind !== "free_shipping" || !isLive(p, now) || usesLeft(p) === 0) continue;
+    if (p.shippingTiers.length === 0) continue;
     if (lines.length > 0 && remaining >= p.minSubtotalCents) {
-      freeShipping = true;
-      freeShippingLabel = p.name || "Free shipping";
-      applied.push({ id: p.id, kind: "free_shipping", label: freeShippingLabel, cents: 0 });
-      break;
+      p.shippingTiers.forEach((t) => free.add(t));
+      applied.push({ id: p.id, kind: "free_shipping", label: freeShippingText(p.shippingTiers, input.shippingTiers), cents: 0 });
     }
   }
+  const freeTiers = TIER_ORDER.filter((t) => free.has(t));
+  const freeShipping = freeTiers.length > 0;
+  const freeShippingLabel = freeShipping ? freeShippingText(freeTiers, input.shippingTiers) : "";
 
   return {
     lines,
@@ -205,6 +231,7 @@ export function priceCart(input: {
     codeError,
     code: usedCode,
     freeShipping,
+    freeTiers,
     freeShippingLabel,
   };
 }
@@ -228,8 +255,9 @@ export interface ShippingOption {
  * live rates and a lookup succeeded; any tier missing from it falls back to its flat price.
  */
 export function shippingOptions(
-  store: Pick<StoreSettings, "shippingTiers" | "freeShippingTiers">,
-  freeShipping: boolean,
+  store: Pick<StoreSettings, "shippingTiers">,
+  /** Options made free by the free shipping rules that matched the cart (CartPricing.freeTiers). */
+  freeTiers: ShippingTierId[],
   live?: Partial<Record<ShippingTierId, { cents: number; service: string; estimate: string }>>,
 ): ShippingOption[] {
   return store.shippingTiers
@@ -237,20 +265,22 @@ export function shippingOptions(
     .map((tier) => {
       const l = live?.[tier.id];
       const baseCents = Math.max(0, l ? l.cents : tier.flatCents);
-      const free = freeShipping && store.freeShippingTiers.includes(tier.id);
+      const free = freeTiers.includes(tier.id);
       return { tier: tier.id, name: tier.name, service: l?.service ?? "", cents: free ? 0 : baseCents, baseCents, free, estimate: l?.estimate ?? "" };
     });
 }
 
 /** Text for the announcement bar generated from what is live right now. Empty when nothing is. */
-export function promoHeadlines(promotions: PromotionRec[], now = new Date()): { text: string; code: string }[] {
+export function promoHeadlines(promotions: PromotionRec[], now = new Date(), shippingTiers?: Pick<ShippingTier, "id" | "name" | "enabled">[]): { text: string; code: string }[] {
   const out: { text: string; code: string }[] = [];
   for (const p of promotions) {
     if (!isLive(p, now)) continue;
     const left = usesLeft(p);
     if (left === 0) continue;
     const min = p.minSubtotalCents > 0 ? ` on orders ${money(p.minSubtotalCents)}+` : "";
-    if (p.kind === "free_shipping") out.push({ text: `Free shipping${min}`, code: "" });
+    if (p.kind === "free_shipping") {
+      if (p.shippingTiers.length > 0) out.push({ text: `${freeShippingText(p.shippingTiers, shippingTiers)}${min}`, code: "" });
+    }
     else if (p.kind === "auto") out.push({ text: `${promoValueLabel(p)}${min}${left !== null ? `: ${left} left` : ""}`, code: "" });
     else if (p.kind === "code" && p.listingIds.length === 0 && p.groupIds.length === 0 && !p.oncePerEmail && left === null) {
       // Only open, unlimited codes are advertised automatically.

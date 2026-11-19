@@ -228,6 +228,13 @@
   filter: drop-shadow(0 22px 20px oklch(0.25 0.03 25 / 0.16)) drop-shadow(0 5px 6px oklch(0.25 0.03 25 / 0.12));
   -webkit-user-drag: none;
 }
+/* Decorative only (aria-hidden): on touch screens it never takes a tap, so nothing under or next to it is blocked. */
+@media not all and (hover: hover) {
+  .hv,
+  .hv * {
+    pointer-events: none;
+  }
+}
 @media (hover: hover) and (pointer: fine) {
   .hv:hover .hv-center .hv-hover {
     transform: translateY(-12px);
@@ -287,7 +294,11 @@
   }
 }
 
-.marquee:hover .marquee-track,
+@media (hover: hover) {
+  .marquee:hover .marquee-track {
+    animation-play-state: paused;
+  }
+}
 .marquee:focus-within .marquee-track {
   animation-play-state: paused;
 }

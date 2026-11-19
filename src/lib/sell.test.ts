@@ -223,10 +223,22 @@ describe("saved orders: pure helpers", () => {
     expect(created).toMatchObject({ id: "c9", name: "Sam Lee" });
   });
 
-  it("saved orders are invisible to the money and stock math", () => {
+  it("saved orders hold their items out of stock but never touch money", () => {
     const base: AppData = { settings: { ...DEFAULT_SETTINGS, startDate: "2026-01-01T00:00:00.000Z" }, products, customers: [], purchases: [{ id: "pu", date: "2026-01-02T00:00:00.000Z", productId: "p1", quantity: 5, totalCostCents: 5000, note: "", fromInvestment: false, createdAt: "2026-01-02T00:00:00.000Z" }], adjustments: [], orders: [], splits: [], payouts: [], ...emptyStoreData() };
     const withSaved: AppData = { ...base, savedOrders: [toSavedOrder(cart, products), toSavedOrder({ ...cart, id: "d2" }, products)] };
-    expect(computeLedger(withSaved)).toEqual(computeLedger(base));
-    expect(computeLedger(withSaved).stock.get("p1")?.stock).toBe(5);
+    const a = computeLedger(base);
+    const b = computeLedger(withSaved);
+    // Money: identical.
+    expect({ ...b, stock: null, history: null }).toEqual({ ...a, stock: null, history: null });
+    expect(b.history).toEqual(a.history);
+    // Stock: each saved order takes its quantities out (p1: 2 + 2 held of 5; p2: 1 + 1 held of 0).
+    expect(b.stock.get("p1")).toMatchObject({ stock: 1, heldQty: 4, soldQty: 0, unitCost: a.stock.get("p1")!.unitCost });
+    expect(b.stock.get("p2")).toMatchObject({ stock: -2, heldQty: 2 });
+    // Completing one: the hold becomes a sale, so stock stays where it was (never subtracted twice).
+    const order = { ...ORDER_DEFAULTS, ...cart, id: "d2", lines: cart.lines.map((l, i) => ({ ...l, orderId: "d2", sortOrder: i })) } as OrderRec;
+    const completed = computeLedger({ ...withSaved, savedOrders: withSaved.savedOrders.filter((o) => o.id !== "d2"), orders: [order] });
+    expect(completed.stock.get("p1")).toMatchObject({ stock: 1, heldQty: 2, soldQty: 2 });
+    // Deleting a saved order puts its stock back.
+    expect(computeLedger({ ...withSaved, savedOrders: [] }).stock.get("p1")?.stock).toBe(5);
   });
 });

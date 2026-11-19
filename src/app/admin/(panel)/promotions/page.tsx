@@ -7,13 +7,13 @@ import { api, useLoaded } from "@/components/store";
 import { useToast } from "@/components/toast";
 import { Badge, Button, Card, Empty, Field, Input, MoneyInput, NumberInput, PageHeader, PageSkeleton, SectionTitle, Segmented, Sheet, Toggle, cx, useConfirm } from "@/components/ui";
 import { fmtDate, fmtMoney, fromLocalInput, toLocalDateTimeInput, uid } from "@/lib/format";
-import { isLive, promoHeadlines, promoValueLabel, usesLeft } from "@/lib/store/pricing";
+import { freeShippingText, isLive, promoHeadlines, promoValueLabel, usesLeft } from "@/lib/store/pricing";
 import type { PromotionKind, PromotionRec } from "@/lib/types";
 
 const KIND: Record<PromotionKind, { title: string; one: string; icon: typeof Zap; blurb: string }> = {
   code: { title: "Discount codes", one: "discount code", icon: BadgePercent, blurb: "Customers type the code in the cart or at checkout." },
   auto: { title: "Automatic deals", one: "automatic deal", icon: Zap, blurb: "Applied with no code. Can count down, like “$20 off the next 10 orders”, and stop on their own." },
-  free_shipping: { title: "Free shipping rules", one: "free shipping rule", icon: Truck, blurb: "Free shipping during a date range, with an optional minimum subtotal." },
+  free_shipping: { title: "Free shipping rules", one: "free shipping rule", icon: Truck, blurb: "Makes the shipping options you pick free, with an optional minimum subtotal and date range." },
 };
 
 const blank = (kind: PromotionKind): PromotionRec => ({
@@ -30,6 +30,7 @@ const blank = (kind: PromotionKind): PromotionRec => ({
   oncePerEmail: false,
   listingIds: [],
   groupIds: [],
+  shippingTiers: kind === "free_shipping" ? ["standard"] : [],
   active: true,
   createdAt: new Date().toISOString(),
   uses: [],
@@ -57,7 +58,8 @@ export default function PromotionsPage() {
   const { data, mutate } = s;
   const now = new Date();
   const bar = data.content.announcement;
-  const headlines = promoHeadlines(data.promotions, now);
+  const headlines = promoHeadlines(data.promotions, now, data.store.shippingTiers);
+  const tierName = (id: string) => data.store.shippingTiers.find((t) => t.id === id)?.name || id;
   const dealsDirty = JSON.stringify(deals) !== JSON.stringify(data.store.qtyDeals);
 
   const saveContent = (announcement: typeof bar) => {
@@ -99,7 +101,7 @@ export default function PromotionsPage() {
                       </div>
                       <div className="mt-0.5 text-sm text-muted">
                         {[
-                          kind === "free_shipping" ? "Free shipping" : promoValueLabel(p),
+                          kind === "free_shipping" ? (p.shippingTiers.length ? `Free: ${p.shippingTiers.map(tierName).join(", ")}` : "No shipping option picked") : promoValueLabel(p),
                           p.minSubtotalCents > 0 ? `orders ${fmtMoney(p.minSubtotalCents)}+` : "",
                           p.listingIds.length || p.groupIds.length ? "selected products" : "",
                           p.oncePerEmail ? "once per email" : "",
@@ -245,6 +247,7 @@ function PromotionSheet({ value, onClose }: { value: { p: PromotionRec; isNew: b
   async function save() {
     if (!p || !value) return;
     const { uses: _u, createdAt: _c, ...rest } = p;
+    if (p.kind === "free_shipping" && p.shippingTiers.length === 0) return toast.show({ message: "Pick at least one shipping option this rule makes free.", tone: "error" });
     const body = { ...rest, listingIds: limited ? p.listingIds : [], groupIds: limited ? p.groupIds : [] };
     try {
       await api("/api/promotions", value.isNew ? "POST" : "PUT", body);
@@ -295,16 +298,44 @@ function PromotionSheet({ value, onClose }: { value: { p: PromotionRec; isNew: b
               <Input value={p.code} maxLength={30} autoFocus={value?.isNew} placeholder="SAVE10" className="font-mono uppercase tracking-wide" onChange={(e) => set("code", e.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, ""))} />
             </Field>
           ) : (
-            <Field label="Name" hint={p.kind === "auto" ? "Shown to the customer next to the discount, for example “Launch deal”." : "Shown in the cart and the announcement bar, for example “Free shipping weekend”."}>
+            <Field label="Name" hint={p.kind === "auto" ? "Shown to the customer next to the discount, for example “Launch deal”." : "For you, in this list. Customers see exactly what is free instead, for example “Free standard shipping on orders $100+”."}>
               <Input value={p.name} maxLength={80} autoFocus={value?.isNew} onChange={(e) => set("name", e.target.value)} />
             </Field>
+          )}
+
+          {p.kind === "free_shipping" && (
+            <fieldset data-free-tiers>
+              <legend className="mb-1.5 text-sm font-medium text-muted">Makes these shipping options free</legend>
+              <div className="space-y-2">
+                {data.store.shippingTiers.map((t) => {
+                  const on = p.shippingTiers.includes(t.id);
+                  return (
+                    <label key={t.id} className={cx("flex min-h-12 cursor-pointer items-center gap-3 rounded-xl border px-3.5 py-2.5 transition", on ? "border-accent bg-accent/5" : "border-line")}>
+                      <input
+                        type="checkbox"
+                        className="h-5 w-5 shrink-0 accent-[rgb(var(--accent))]"
+                        checked={on}
+                        onChange={(e) => set("shippingTiers", e.target.checked ? (["standard", "priority", "express"] as const).filter((x) => x === t.id || p.shippingTiers.includes(x)) : p.shippingTiers.filter((x) => x !== t.id))}
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block font-medium">{t.name}</span>
+                        <span className="block text-xs text-muted">{t.enabled ? `${fmtMoney(t.flatCents)} flat price` : "Not offered right now (Settings, Shipping)"}</span>
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+              <p className={cx("mt-1.5 text-xs", p.shippingTiers.length === 0 ? "font-medium text-neg" : "text-muted")}>
+                {p.shippingTiers.length === 0 ? "Pick at least one." : `Customers see: “${freeShippingText(p.shippingTiers, data.store.shippingTiers)}${p.minSubtotalCents > 0 ? ` on orders ${fmtMoney(p.minSubtotalCents).replace(/\.00$/, "")}+` : ""}”. Other options are charged as usual.`}
+              </p>
+            </fieldset>
           )}
 
           {p.kind !== "free_shipping" && (
             <Field label="Discount">
               <div className="flex gap-2">
                 <Segmented
-                  className="w-32 shrink-0"
+                  className="shrink-0"
                   value={p.discountType}
                   onChange={(t) => setP({ ...p, discountType: t, discountValue: t === "%" ? Math.min(100, p.discountType === "%" ? p.discountValue : 10) : p.discountType === "$" ? p.discountValue : 1000 })}
                   options={[
@@ -339,7 +370,7 @@ function PromotionSheet({ value, onClose }: { value: { p: PromotionRec; isNew: b
               label={p.kind === "auto" ? "Stop after this many orders" : "Total use limit (optional)"}
               hint={`${p.uses.length} used so far${usesLeft(p) !== null ? `, ${usesLeft(p)} left` : ""}. Canceled orders don’t count. Empty = no limit.`}
             >
-              <NumberInput nullable className="w-40" value={p.maxUses} min={1} placeholder="no limit" onChange={(n) => set("maxUses", n)} />
+              <NumberInput nullable className="w-48" value={p.maxUses} min={1} placeholder="no limit" onChange={(n) => set("maxUses", n)} />
             </Field>
           )}
 

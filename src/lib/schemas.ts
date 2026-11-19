@@ -22,6 +22,7 @@ export const productCreate = z.object({
   sortOrder: z.number().int().default(0),
   archived: z.boolean().default(false),
   variantLabel: text(40).default(""),
+  vialVolume: text(20).default(""),
   variantSort: z.number().int().default(0),
   weightOz: z.number().min(0).max(2000).nullable().default(null),
   testingStatus: z.enum(["coa_available", "supplier_tested", "pending", "coming_soon"]).default("coming_soon"),

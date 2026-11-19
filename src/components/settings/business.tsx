@@ -161,7 +161,7 @@ export function BusinessSettings() {
               onChange={(e) => set("partnerARatio", Number(e.target.value))}
               className="h-12 flex-1 accent-[rgb(var(--accent))]"
             />
-            <NumberInput className="w-24" value={form.partnerARatio} min={0} max={100} step={0.5} suffix="%" onChange={(n) => set("partnerARatio", n ?? 0)} />
+            <NumberInput className="w-40" value={form.partnerARatio} min={0} max={100} step={0.5} suffix="%" onChange={(n) => set("partnerARatio", n ?? 0)} />
           </div>
         </Field>
         <Field label="Default “sold by”">

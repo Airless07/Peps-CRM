@@ -105,7 +105,7 @@ async function main() {
 
   const promos = [
     { id: "qa-code", kind: "code", code: "WELCOME10", discountType: "%", discountValue: 10 },
-    { id: "qa-ship", kind: "free_shipping", name: "Free shipping", minSubtotalCents: 15000 },
+    { id: "qa-ship", kind: "free_shipping", name: "Free shipping", minSubtotalCents: 15000, shippingTiersJson: JSON.stringify(["standard"]) },
   ];
   for (const p of promos) await prisma.promotion.upsert({ where: { id: p.id }, update: {}, create: p });
   console.log("QA data ready:", await prisma.listing.count({ where: { showOnWebsite: true } }), "products on the website.");

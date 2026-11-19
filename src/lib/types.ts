@@ -40,8 +40,10 @@ export interface ProductRec {
   createdAt: string;
   /** Parent product (Listing). */
   listingId: string | null;
-  /** Size label shown on the website, e.g. "10mg". */
+  /** Size label, e.g. "10mg" or "5mg / 5mg". Shown on the website, the Sell screen, orders and packing slips. */
   variantLabel: string;
+  /** Optional vial volume, e.g. "3ml". */
+  vialVolume: string;
   variantSort: number;
   /** Shipping weight in ounces. Null = default parcel weight. */
   weightOz: number | null;
@@ -87,6 +89,8 @@ export interface OrderLineRec {
   unitCostCents: number;
   cutPercent: number;
   sortOrder: number;
+  /** The product's current size label, for display next to the name (not stored on the line). */
+  size?: string;
 }
 
 export interface CustomerRec {
@@ -303,6 +307,8 @@ export interface PromotionRec {
   oncePerEmail: boolean;
   listingIds: string[];
   groupIds: string[];
+  /** Free shipping rules only: the shipping options it makes free. */
+  shippingTiers: ("standard" | "priority" | "express")[];
   active: boolean;
   createdAt: string;
   uses: PromotionUseRec[];
@@ -394,6 +400,8 @@ export interface AppData {
   savedOrders: SavedOrderRec[];
   store: StoreSettings;
   content: SiteContent;
+  /** The one-time "sizes from product names" fill-in: when it ran and what it filled. Null before it ran. */
+  sizeBackfill?: { ranAt: string; items: { productId: string; product: string; size: string }[] } | null;
 }
 
 /** True when an order counts in stock and money. */
@@ -411,7 +419,7 @@ export const STATUS_LABEL: Record<OrderStatus, string> = {
 
 /** Defaults for the fields added with the store, for code that builds records by hand (tests, old backups). */
 export const ORDER_DEFAULTS = { number: null, source: "inperson", status: "completed", archived: false, shippingCents: 0, adminNote: "", web: null } as const satisfies Partial<OrderRec>;
-export const PRODUCT_DEFAULTS = { listingId: null, variantLabel: "", variantSort: 0, weightOz: null, testingStatus: "coming_soon" } as const satisfies Partial<ProductRec>;
+export const PRODUCT_DEFAULTS = { listingId: null, variantLabel: "", vialVolume: "", variantSort: 0, weightOz: null, testingStatus: "coming_soon" } as const satisfies Partial<ProductRec>;
 export const CUSTOMER_DEFAULTS = { email: "", hasAccount: false, addresses: [] as Address[] } satisfies Partial<CustomerRec>;
 export const emptyStoreData = () => ({
   pendingOrders: [] as OrderRec[],

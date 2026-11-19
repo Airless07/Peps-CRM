@@ -6,7 +6,7 @@ import { AgeGate, Header, PromoBar, RevealInit, StandaloneRedirect, Wordmark, ty
 import { TrackVisit } from "@/components/storefront/analytics";
 import { CartProvider } from "@/components/storefront/cart";
 import { siteUrl } from "@/lib/order-ops";
-import { DEFAULT_ACCENT, RESEARCH_LINE, TAGLINE, type SiteContent } from "@/lib/store/config";
+import { DEFAULT_ACCENT, RESEARCH_LINE, TAGLINE, type SiteContent, type StoreSettings } from "@/lib/store/config";
 import { promoHeadlines } from "@/lib/store/pricing";
 import { isAdmin, storeSnapshot } from "@/lib/store/server";
 import type { PromotionRec } from "@/lib/types";
@@ -34,7 +34,7 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover", themeColor: "#ffffff" };
 
-function promoItems(content: SiteContent, promotions: PromotionRec[], now: Date): PromoItem[] {
+function promoItems(content: SiteContent, promotions: PromotionRec[], now: Date, shippingTiers: StoreSettings["shippingTiers"]): PromoItem[] {
   const a = content.announcement;
   if (a.mode === "off") return [];
   if (a.mode === "custom") {
@@ -43,14 +43,14 @@ function promoItems(content: SiteContent, promotions: PromotionRec[], now: Date)
     if (a.endsAt && new Date(a.endsAt) < now) return [];
     return [{ text: a.text.trim(), code: a.code.trim() }];
   }
-  return promoHeadlines(promotions, now);
+  return promoHeadlines(promotions, now, shippingTiers);
 }
 
 export default async function StoreLayout({ children }: { children: React.ReactNode }) {
   const [{ data, catalog }, admin, account] = await Promise.all([storeSnapshot(), isAdmin(), currentAccount()]);
   const { store, content } = data;
   const live = store.open || admin;
-  const promos = live ? promoItems(content, data.promotions, new Date()) : [];
+  const promos = live ? promoItems(content, data.promotions, new Date(), data.store.shippingTiers) : [];
   const accent = /^#[0-9a-fA-F]{6}$/.test(store.accentColor) ? store.accentColor : DEFAULT_ACCENT;
   const year = new Date().getFullYear();
 

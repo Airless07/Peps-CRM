@@ -139,6 +139,7 @@ export const listingUpdate = z
 const variantFields = {
   name: text(120).min(1, "Name is required"),
   variantLabel: text(40).default(""),
+  vialVolume: text(20).default(""),
   defaultPriceCents: cents,
   costOverrideCents: cents.nullable().default(null),
   lowStockThreshold: z.number().int().min(0).max(100000).nullable().default(null),
@@ -175,6 +176,8 @@ export const promotionInput = z.object({
   oncePerEmail: z.boolean().default(false),
   listingIds: z.array(idStr).max(200).default([]),
   groupIds: z.array(idStr).max(50).default([]),
+  /** Free shipping rules: which shipping options it makes free (at least one, checked in the route). */
+  shippingTiers: z.array(z.enum(["standard", "priority", "express"])).max(3).default([]),
   active: z.boolean().default(true),
 });
 

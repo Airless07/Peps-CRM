@@ -75,7 +75,12 @@ export default function InventoryPage() {
       <div key={p.id} className={cx("py-3", multi && "border-t border-line first:border-t-0")}>
         <div className="flex items-center gap-2">
           <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: colorHex(p.color) }} />
-          {multi && <span className="truncate text-sm font-semibold">{p.variantLabel || p.name}</span>}
+          {multi ? (
+            <span className="truncate text-sm font-semibold">{p.variantLabel || p.name}</span>
+          ) : (
+            <span className="truncate text-sm font-semibold">{p.variantLabel.trim() ? `Size ${p.variantLabel.trim()}` : <span className="font-normal text-muted">No size set</span>}</span>
+          )}
+          {p.vialVolume.trim() && <span className="text-sm text-muted">{p.vialVolume.trim()}</span>}
           {p.archived && <Badge>Archived</Badge>}
         </div>
         <div className="mt-2 grid grid-cols-4 gap-2 text-sm">
@@ -170,6 +175,23 @@ export default function InventoryPage() {
           </Button>
         }
       />
+
+      {data.sizeBackfill && data.sizeBackfill.items.length > 0 && (
+        <details data-size-backfill className="mb-4 rounded-2xl border border-line bg-surface px-4 py-3 text-sm">
+          <summary className="cursor-pointer font-medium">
+            Sizes filled in from product names ({data.sizeBackfill.items.length}) on {fmtDate(data.sizeBackfill.ranAt)}
+          </summary>
+          <p className="mt-2 text-muted">Only empty sizes were filled. Products with no size in the name were left blank. Change any of them on the product’s Stock and pricing tab.</p>
+          <ul className="mt-2 divide-y divide-line">
+            {data.sizeBackfill.items.map((f) => (
+              <li key={f.productId} className="flex justify-between gap-3 py-1.5">
+                <span className="min-w-0 truncate">{f.product}</span>
+                <span className="shrink-0 font-semibold tabular-nums">{f.size}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
 
       {data.products.length > 0 && (
         <div className="mb-4 flex flex-wrap gap-2">

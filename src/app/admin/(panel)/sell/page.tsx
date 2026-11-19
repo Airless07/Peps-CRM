@@ -14,6 +14,7 @@ import { orderTotals } from "@/lib/money";
 import { sellGroups, sellVariantLabel } from "@/lib/admin/sell-groups";
 import { colorHex, fmtMoney, plural } from "@/lib/format";
 import type { ProductRec } from "@/lib/types";
+import { heldBy } from "@/lib/saved-orders";
 
 export default function SellPage() {
   const s = useLoaded();
@@ -64,7 +65,7 @@ export default function SellPage() {
 
   async function complete() {
     if (draft.lines.length === 0 || busy) return;
-    if (!(await confirmStock(draft.lines))) return;
+    if (!(await confirmStock(draft.lines, draft.id))) return;
     setBusy(true);
     setCartOpen(false);
     cart.reset();
@@ -137,7 +138,8 @@ export default function SellPage() {
               <ul className="divide-y divide-line">
                 {g.variants.map((p) => {
                   const n = inCart(p.id);
-                  const stock = (ledger.stock.get(p.id)?.stock ?? 0) - n;
+                  // Stock already has the open saved order's units taken out: count only what the cart adds.
+                  const stock = (ledger.stock.get(p.id)?.stock ?? 0) - n + heldBy(editingSaved, p.id);
                   const stockTone = stock <= 0 ? "text-neg" : stock <= threshold(p) ? "text-warn" : "text-muted";
                   const label = sellVariantLabel(g, p);
                   return (
@@ -146,7 +148,10 @@ export default function SellPage() {
                       <div className="flex items-center justify-between gap-3">
                         <div className="flex min-w-0 items-center gap-2">
                           <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: colorHex(p.color) }} />
-                          <span className="text-[15px] font-semibold">{label || "One size"}</span>
+                          <span className="text-[15px] font-semibold" data-sell-size>
+                            {label || "One size"}
+                            {p.vialVolume.trim() && <span className="ml-1.5 text-sm font-normal text-muted">{p.vialVolume.trim()}</span>}
+                          </span>
                           {n > 0 && (
                             <span className="flex h-6 min-w-6 shrink-0 animate-pop-in items-center justify-center rounded-full bg-accent px-1.5 text-xs font-semibold text-accent-ink" aria-label={`${n} in the current order`}>
                               {n}

@@ -12,6 +12,7 @@ import { allOrders, customerName, itemsSummary, orderPlaced, orderTotal, shipToL
 import { fmtDate, fmtMoney, fmtTime, plural } from "@/lib/format";
 import { trackingUrl } from "@/lib/tracking";
 import type { OrderRec } from "@/lib/types";
+import { lineName } from "@/lib/size";
 
 type Source = "all" | "online" | "inperson";
 type View = "open" | "all" | "archived";
@@ -48,7 +49,7 @@ export default function OrdersPage() {
           customerName(o).toLowerCase().includes(needle) ||
           (o.web?.email ?? "").toLowerCase().includes(needle) ||
           (o.web?.trackingNumber ?? "").toLowerCase().includes(needle) ||
-          o.lines.some((l) => l.productName.toLowerCase().includes(needle)),
+          o.lines.some((l) => lineName(l).toLowerCase().includes(needle)),
       );
   }, [everything, view, source, status, q]);
 

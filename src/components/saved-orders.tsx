@@ -12,7 +12,7 @@ import { Button, Empty, Row, Sheet, cx, useConfirm } from "@/components/ui";
 import { draftPayload, draftToOrder, lineCount, type Draft } from "@/lib/draft";
 import { fmtDateTime, fmtMoney, plural } from "@/lib/format";
 import { orderTotals } from "@/lib/money";
-import { finalizeSale, priceChanges, savedItemsText, savedToDraft, savedTotals, stockShortfalls, toSavedOrder } from "@/lib/saved-orders";
+import { finalizeSale, heldBy, priceChanges, savedItemsText, savedToDraft, savedTotals, stockShortfalls, toSavedOrder } from "@/lib/saved-orders";
 import type { SavedOrderRec } from "@/lib/types";
 
 /** Actions shared by the Sell cart and the saved orders list. */
@@ -23,9 +23,11 @@ export function useSellActions() {
   const toast = useToast();
 
   /** Warn when the sale would push any size below zero stock. Resolves false when the user backs out. */
-  async function confirmStock(lines: Draft["lines"]): Promise<boolean> {
+  async function confirmStock(lines: Draft["lines"], savedId?: string): Promise<boolean> {
     if (!s) return false;
-    const short = stockShortfalls(lines, (pid) => s.ledger.stock.get(pid)?.stock ?? 0);
+    // Completing a saved order: its own held units are available to it.
+    const saved = savedId ? s.data.savedOrders.find((o) => o.id === savedId) : null;
+    const short = stockShortfalls(lines, (pid) => (s.ledger.stock.get(pid)?.stock ?? 0) + heldBy(saved, pid));
     if (short.length === 0) return true;
     return confirm({
       title: "Not enough stock",
@@ -164,7 +166,7 @@ export function SavedOrdersList({ onOpened }: { onOpened?: () => void }) {
   async function complete() {
     const o = completing;
     if (!o || !method || busy) return;
-    if (!(await confirmStock(o.lines))) return;
+    if (!(await confirmStock(o.lines, o.id))) return;
     setBusy(true);
     const ok = await submitSale({ ...savedToDraft(o, method), paymentMethod: method });
     setBusy(false);

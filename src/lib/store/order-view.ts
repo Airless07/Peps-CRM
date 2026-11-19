@@ -2,7 +2,8 @@
 import { prisma } from "../db";
 import { orderTotals } from "../money";
 import { addressLines } from "../order-ops";
-import { toOrder } from "../serialize";
+import { LINE_SIZE, toOrder } from "../serialize";
+import { lineName } from "../size";
 import { trackingUrl } from "../tracking";
 import type { OrderStatus } from "../types";
 import type { StoreSettings } from "./config";
@@ -32,7 +33,7 @@ export interface PublicOrder {
   canReview: boolean;
 }
 
-const include = { lines: { orderBy: { sortOrder: "asc" as const } }, review: true };
+const include = { lines: LINE_SIZE, review: true };
 
 export function toPublicOrder(row: NonNullable<Awaited<ReturnType<typeof findRow>>>, store: StoreSettings): PublicOrder {
   const o = toOrder(row);
@@ -53,7 +54,7 @@ export function toPublicOrder(row: NonNullable<Awaited<ReturnType<typeof findRow
     status: s,
     placedAt: w.placedAt ?? o.date,
     expiresAt: w.expiresAt,
-    lines: o.lines.map((l) => ({ name: l.productName, quantity: l.quantity, unitCents: l.unitPriceCents, totalCents: l.quantity * l.unitPriceCents })),
+    lines: o.lines.map((l) => ({ name: lineName(l), quantity: l.quantity, unitCents: l.unitPriceCents, totalCents: l.quantity * l.unitPriceCents })),
     subtotalCents: t.subtotal,
     discountCents: t.discount,
     discountLabels: w.promo?.labels.filter((x) => !/free shipping/i.test(x)) ?? [],

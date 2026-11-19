@@ -67,10 +67,10 @@ export function RestockSheet({ value, onClose }: { value: PurchaseRec | null; on
           </Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Quantity">
-              <NumberInput value={p.quantity} min={0} onChange={(n) => setP({ ...p, quantity: n ?? 0 })} />
+              <NumberInput label="quantity" value={p.quantity} min={1} onChange={(n) => setP({ ...p, quantity: n ?? 0 })} />
             </Field>
             <Field label="Total cost">
-              <MoneyInput value={p.totalCostCents} onChange={(c) => setP({ ...p, totalCostCents: c ?? 0 })} />
+              <MoneyInput label="total cost" value={p.totalCostCents} step={100} min={0} onChange={(c) => setP({ ...p, totalCostCents: c ?? 0 })} />
             </Field>
           </div>
           <div className="flex items-center justify-between rounded-xl bg-surface2/70 px-4 py-3">
@@ -104,6 +104,8 @@ export function AdjustSheet({ value, onClose }: { value: AdjustmentRec | null; o
   if (!s) return null;
   const isNew = !value?.id;
   const dir = a && a.quantity < 0 ? -1 : 1;
+  // Current stock without this adjustment (when editing one, the ledger already counts its old amount).
+  const stockNow = a ? (s.ledger.stock.get(a.productId)?.stock ?? 0) - (value?.id && value.productId === a.productId ? value.quantity : 0) : 0;
 
   async function save() {
     if (!a || a.quantity === 0) return;
@@ -153,20 +155,28 @@ export function AdjustSheet({ value, onClose }: { value: AdjustmentRec | null; o
               ))}
             </Select>
           </Field>
-          <Field label="Change">
-            <div className="flex gap-2">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Change">
               <Segmented
-                className="w-36"
+                className="h-12"
                 value={dir === -1 ? "minus" : "plus"}
                 onChange={(v) => setA({ ...a, quantity: Math.abs(a.quantity || 1) * (v === "minus" ? -1 : 1) })}
                 options={[
-                  { value: "minus", label: "− Remove" },
-                  { value: "plus", label: "+ Add" },
+                  { value: "plus", label: "Add" },
+                  { value: "minus", label: "Remove" },
                 ]}
               />
-              <NumberInput className="flex-1" value={Math.abs(a.quantity)} min={0} onChange={(n) => setA({ ...a, quantity: (n ?? 0) * dir })} />
-            </div>
-          </Field>
+            </Field>
+            <Field label="Quantity">
+              <NumberInput label="quantity" value={Math.abs(a.quantity)} min={1} onChange={(n) => setA({ ...a, quantity: (n ?? 0) * dir })} />
+            </Field>
+          </div>
+          <div className="flex items-center justify-between rounded-xl bg-surface2/70 px-4 py-3">
+            <span className="text-sm text-muted">Stock after</span>
+            <span className="text-lg font-semibold tabular-nums" data-stock-after>
+              {stockNow} <span className="text-muted">→</span> {stockNow + a.quantity}
+            </span>
+          </div>
           <Field label="Reason">
             <Segmented<AdjustmentReason>
               value={a.reason}

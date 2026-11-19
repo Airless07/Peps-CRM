@@ -6,6 +6,7 @@ import type { Ledger } from "../money";
 import type { AppData, CoaRec, ListingRec, ProductRec, QtyDeal, TestingStatus } from "../types";
 import { TESTING_LABEL } from "../types";
 import type { PricedVariant } from "./pricing";
+import { withSize } from "../size";
 
 export type StockLevel = "in" | "low" | "out";
 export const STOCK_LABEL: Record<StockLevel, string> = { in: "In stock", low: "Low stock", out: "Sold out" };
@@ -21,7 +22,10 @@ export interface PublicCoa {
 
 export interface PublicVariant {
   id: string;
+  /** Size, e.g. "10mg". Every variant has one once it is filled in, also a product with one size. */
   label: string;
+  /** Optional vial volume, e.g. "3ml". */
+  volume: string;
   priceCents: number;
   stock: StockLevel;
   testing: TestingStatus;
@@ -95,7 +99,7 @@ export function listingVariants(data: Pick<AppData, "products">, listingId: stri
 
 /** What the customer sees for a variant: "BPC-157 10mg", or just the product name when it has one size. */
 export function variantDisplayName(l: Pick<ListingRec, "name">, v: Pick<ProductRec, "variantLabel">): string {
-  return v.variantLabel.trim() ? `${l.name} ${v.variantLabel.trim()}` : l.name;
+  return withSize(l.name, v.variantLabel);
 }
 
 export const resolveQtyDeals = (l: Pick<ListingRec, "qtyDeals">, storeDefault: QtyDeal[]): QtyDeal[] => l.qtyDeals ?? storeDefault;
@@ -128,6 +132,7 @@ export function buildCatalog(data: AppData, ledger: Ledger, now = new Date()): P
       return {
         id: v.id,
         label: v.variantLabel.trim() || (vs.length > 1 ? v.name : ""),
+        volume: v.vialVolume.trim(),
         priceCents: v.defaultPriceCents,
         stock: stockLevel(ledger.stock.get(v.id)?.stock ?? 0, lowAt),
         testing: v.testingStatus,

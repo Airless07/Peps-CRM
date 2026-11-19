@@ -18,6 +18,11 @@ let v20 = "";
 let price20 = 0;
 let savedId = "";
 
+/** Stock with `held` units taken out of one variant (saved orders hold their items out of stock). */
+const heldOut = (s: AdminState, variantId: string, held: number) => {
+  const n = numbers(s);
+  return { ...n, stock: { ...n.stock, [variantId]: n.stock[variantId] - held } };
+};
 /** Stock and money as one comparable value. */
 const numbers = (s: AdminState) => ({
   money: s.money,
@@ -71,6 +76,8 @@ test("1. the cart shows the default quick buttons and Save for later next to Com
   await row.getByRole("button", { name: /^Sell 1 Reta 20mg/ }).click();
   await adm.getByRole("button", { name: /Current order/ }).click();
   const dialog = adm.getByRole("dialog");
+  // Wait for the cart sheet to be open before reading its buttons.
+  await expect(dialog.locator("[data-quick-discount]").first()).toBeVisible();
   expect(await texts("[data-quick-discount]")).toEqual(["-$5", "-$10", "-$20", "-10%"]);
   expect(await texts("[data-quick-tip]")).toEqual(["$5", "$10", "$20"]);
   await dialog.locator("[data-quick-discount]", { hasText: "-10%" }).click();
@@ -86,15 +93,17 @@ test("1. the cart shows the default quick buttons and Save for later next to Com
   await adm.setViewportSize({ width: 1280, height: 900 });
 });
 
-test("2. Save for later stores the order and changes no stock or money", async () => {
-  await adm.getByRole("dialog").getByRole("button", { name: "Save for later" }).click();
+test("2. Save for later stores the order, holds its items out of stock and changes no money", async () => {
+  await Promise.all([adm.waitForResponse((r) => r.url().endsWith("/api/saved-orders") && r.request().method() === "POST"), adm.getByRole("dialog").getByRole("button", { name: "Save for later" }).click()]);
   await expect(adm.getByText(/Saved for later/).first()).toBeVisible();
   await expect(adm.locator("[data-saved-orders-button]")).toHaveText(/Saved orders \(1\)/);
   // The cart is empty again.
   await expect(adm.getByRole("button", { name: /Current order/ })).toHaveCount(0);
 
   const s = await adminState(admin.request);
-  expect(numbers(s)).toEqual(numbers(start));
+  // The 2 saved vials are out of stock while the order waits; money is untouched.
+  expect(numbers(s)).toEqual(heldOut(start, v20, 2));
+  expect(s.ledger.stock.get(v20)!.heldQty).toBe(2);
   expect(s.data.savedOrders).toHaveLength(1);
   const o = s.data.savedOrders[0];
   savedId = o.id;
@@ -144,24 +153,27 @@ test("5. Open loads it into the cart to edit, and saving again updates the same 
   const dialog = adm.getByRole("dialog").filter({ has: adm.getByRole("heading", { name: "Saved order", exact: true }) });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByText(`$${(price20 / 100).toFixed(2)} each`)).toBeVisible(); // the saved price, not the new one
-  await dialog.getByRole("button", { name: "Increase" }).click();
+  await dialog.getByRole("button", { name: "Increase", exact: true }).click();
   await shot("05-opened-in-cart");
-  await dialog.getByRole("button", { name: "Save for later" }).click();
+  // Wait for the save to reach the server before reading the numbers.
+  await Promise.all([adm.waitForResponse((r) => r.url().endsWith("/api/saved-orders") && r.request().method() === "POST"), dialog.getByRole("button", { name: "Save for later" }).click()]);
   await expect(adm.locator("[data-saved-orders-button]")).toHaveText(/Saved orders \(1\)/);
   const s = await adminState(admin.request);
-  expect(numbers(s)).toEqual(numbers(start));
+  // Now 3 held (not 2 + 3): saving again replaces the hold.
+  expect(numbers(s)).toEqual(heldOut(start, v20, 3));
   expect(s.data.savedOrders).toHaveLength(1);
   expect(s.data.savedOrders[0].id).toBe(savedId);
   expect(s.data.savedOrders[0].lines.map((l) => [l.quantity, l.unitPriceCents, l.listPriceCents])).toEqual([[3, price20, price20]]);
 });
 
 test("6. Complete asks for the payment method, warns about stock, then completes like a normal sale", async () => {
-  // Take stock down so that 3 no longer fit: 1 left.
+  // Take stock down so that 3 no longer fit: 1 vial on the shelf. The 3 held by the saved order are
+  // already out of stock, so stock shows 1 - 3 = -2.
   const before0 = await adminState(admin.request);
-  const adj = await admin.request.post("/api/adjustments", { headers: ORIGIN, data: { id: `e2e-adj-${Date.now()}`, date: new Date().toISOString(), productId: v20, quantity: -(before0.stock(v20) - 1), reason: "correction", note: "e2e" } });
+  const adj = await admin.request.post("/api/adjustments", { headers: ORIGIN, data: { id: `e2e-adj-${Date.now()}`, date: new Date().toISOString(), productId: v20, quantity: -(before0.stock(v20) + 3 - 1), reason: "correction", note: "e2e" } });
   expect(adj.status()).toBe(200);
   const before = await adminState(admin.request);
-  expect(before.stock(v20)).toBe(1);
+  expect(before.stock(v20)).toBe(-2);
   expect(before.data.savedOrders).toHaveLength(1);
 
   await adm.goto("/admin/sell?saved=1");
@@ -187,7 +199,9 @@ test("6. Complete asks for the payment method, warns about stock, then completes
   expect(sale).toMatchObject({ source: "inperson", status: "completed", paymentMethod: "Zelle", note: "Pick up Friday", discountType: "%", discountValue: 10, tipCents: 500 });
   expect(sale.lines.map((l) => [l.productId, l.quantity, l.unitPriceCents])).toEqual([[v20, 3, price20]]);
   expect(sale.number).toBe(Math.max(1000, ...before.all.map((o) => o.number ?? 0)) + 1);
-  expect(s.stock(v20)).toBe(before.stock(v20) - 3);
+  // The hold became the sale: stock does not drop a second time.
+  expect(s.stock(v20)).toBe(before.stock(v20));
+  expect(s.ledger.stock.get(v20)!.heldQty).toBe(0);
   const r = s.ledger.orders.get(sale.id)!;
   expect(r.total).toBe(total);
   const moved = s.money.business - before.money.business + (s.money.pendingA - before.money.pendingA) + (s.money.pendingB - before.money.pendingB);
@@ -200,13 +214,15 @@ test("6. Complete asks for the payment method, warns about stock, then completes
   await expect(adm.locator("main")).toContainText("Pick up Friday");
 });
 
-test("7. Delete asks first and changes nothing", async () => {
+test("7. Delete asks first, and puts the held stock back", async () => {
   const before = await adminState(admin.request);
   await adm.goto("/admin/sell");
   await adm.locator('[data-sell-product="Reta"] [data-sell-variant]').nth(0).getByRole("button", { name: /^Sell 1 Reta 10mg/ }).click();
   await adm.getByRole("button", { name: /Current order/ }).click();
-  await adm.getByRole("dialog").getByRole("button", { name: "Save for later" }).click();
+  await Promise.all([adm.waitForResponse((r) => r.url().endsWith("/api/saved-orders") && r.request().method() === "POST"), adm.getByRole("dialog").getByRole("button", { name: "Save for later" }).click()]);
   await expect(adm.locator("[data-saved-orders-button]")).toHaveText(/Saved orders \(1\)/);
+  const v10 = before.data.products.find((p) => p.name === "Reta 10mg")!.id;
+  expect(numbers(await adminState(admin.request))).toEqual(heldOut(before, v10, 1));
   await adm.locator("[data-saved-orders-button]").click();
   await adm.getByRole("button", { name: /^Delete saved order/ }).click();
   const ask = adm.getByRole("dialog").filter({ hasText: "Delete this saved order?" });
@@ -289,6 +305,8 @@ test("9. the Sell cart shows exactly these buttons in this order, and they apply
   await row.getByRole("button", { name: /^Sell 1 Reta 10mg/ }).click();
   await adm.getByRole("button", { name: /Current order/ }).click();
   const dialog = adm.getByRole("dialog");
+  // Wait for the cart sheet to be open before reading its buttons.
+  await expect(dialog.locator("[data-quick-discount]").first()).toBeVisible();
   expect(await texts("[data-quick-discount]")).toEqual(["-25%", "-$5", "-$10", "-10%"]);
   expect(await texts("[data-quick-tip]")).toEqual(["$20", "$5", "$7.50"]);
   // The custom amount options are still there.

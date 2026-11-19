@@ -59,57 +59,62 @@ export function ProductCard({ p, priority, index = 0 }: { p: PublicProduct; prio
   const lead = leadVariant(p);
   const photo = p.photos[0];
   const sizes = p.variants.map((v) => v.label).filter(Boolean);
+  // The whole card is ONE real link (image, name, price, badges), so the first tap anywhere opens the
+  // product, on touch screens too. Nothing interactive is nested inside it (the COA link lives on the
+  // product page), and every hover effect is hover-capable devices only (see tailwind.config.ts).
   return (
-    <article data-reveal style={{ ["--i" as string]: index % 4 }} className="group relative flex flex-col">
-      <div className="relative aspect-[4/5] overflow-hidden rounded-2xl bg-soft">
-        {photo ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={`/media/${photo.id}-960.webp`}
-            srcSet={photoSrcSet(photo.id)}
-            sizes="(min-width: 1024px) 25vw, (min-width: 640px) 33vw, 50vw"
-            alt={photo.alt}
-            width={960}
-            height={1200}
-            loading={priority ? "eager" : "lazy"}
-            fetchPriority={priority ? "high" : undefined}
-            decoding="async"
-            className={`h-full w-full object-cover transition duration-700 ease-out group-hover:scale-[1.045] ${p.hoverGif ? "group-hover:opacity-0" : ""}`}
-          />
-        ) : (
-          <Vial name={p.name} size={sizes.length === 1 ? sizes[0] : ""} className="h-full w-full p-[14%] transition duration-700 ease-out group-hover:scale-[1.045]" />
-        )}
-        {p.hoverGif && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={`/media/${p.hoverGif}`} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-cover opacity-0 transition duration-500 group-hover:opacity-100" />
-        )}
-        {(p.badges.length > 0 || p.bestSeller) && (
-          <div className="absolute left-3 top-3 flex flex-wrap gap-1.5">
-            {[...new Set([...(p.bestSeller ? ["Best seller"] : []), ...p.badges])].slice(0, 2).map((b) => (
-              <span key={b} className="rounded-full bg-brand px-2.5 py-1 text-[11px] font-semibold text-white">
-                {b}
-              </span>
-            ))}
+    <article data-reveal style={{ ["--i" as string]: index % 4 }} className="flex flex-col">
+      <Link href={`/product/${p.slug}`} data-product-card={p.slug} className="s-card group flex flex-1 flex-col rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-4">
+        <div className="relative aspect-[4/5] overflow-hidden rounded-2xl bg-soft">
+          {photo ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={`/media/${photo.id}-960.webp`}
+              srcSet={photoSrcSet(photo.id)}
+              sizes="(min-width: 1024px) 25vw, (min-width: 640px) 33vw, 50vw"
+              alt={photo.alt}
+              width={960}
+              height={1200}
+              loading={priority ? "eager" : "lazy"}
+              fetchPriority={priority ? "high" : undefined}
+              decoding="async"
+              className={`pointer-events-none h-full w-full object-cover transition duration-700 ease-out group-hover:scale-[1.045] ${p.hoverGif ? "group-hover:opacity-0" : ""}`}
+            />
+          ) : (
+            <Vial name={p.name} size={sizes.length === 1 ? sizes[0] : ""} className="pointer-events-none h-full w-full p-[14%] transition duration-700 ease-out group-hover:scale-[1.045]" />
+          )}
+          {p.hoverGif && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={`/media/${p.hoverGif}`} alt="" loading="lazy" className="pointer-events-none absolute inset-0 hidden h-full w-full object-cover opacity-0 transition duration-500 group-hover:opacity-100 [@media(hover:hover)_and_(pointer:fine)]:block" />
+          )}
+          {(p.badges.length > 0 || p.bestSeller) && (
+            <div className="pointer-events-none absolute left-3 top-3 flex flex-wrap gap-1.5">
+              {[...new Set([...(p.bestSeller ? ["Best seller"] : []), ...p.badges])].slice(0, 2).map((b) => (
+                <span key={b} className="rounded-full bg-brand px-2.5 py-1 text-[11px] font-semibold text-white">
+                  {b}
+                </span>
+              ))}
+            </div>
+          )}
+          {p.stock === "out" && <span className="pointer-events-none absolute right-3 top-3 rounded-full bg-coal px-2.5 py-1 text-[11px] font-semibold text-white">Sold out</span>}
+        </div>
+        <div className="mt-3.5 flex flex-1 flex-col">
+          <div className="flex flex-col gap-x-3 gap-y-0.5 sm:flex-row sm:items-start sm:justify-between">
+            <h3 className="text-[1.0625rem] font-semibold leading-snug group-hover:text-brand">{p.name}</h3>
+            <span className="shrink-0 text-[15px] font-medium tabular-nums sm:pt-px">{priceRange(p)}</span>
           </div>
-        )}
-        {p.stock === "out" && <span className="absolute right-3 top-3 rounded-full bg-coal px-2.5 py-1 text-[11px] font-semibold text-white">Sold out</span>}
-      </div>
-      <div className="mt-3.5 flex flex-1 flex-col">
-        <div className="flex flex-col gap-x-3 gap-y-0.5 sm:flex-row sm:items-start sm:justify-between">
-          <h3 className="text-[1.0625rem] font-semibold leading-snug">
-            <Link href={`/product/${p.slug}`} className="outline-none after:absolute after:inset-0 after:rounded-2xl group-hover:text-brand">
-              {p.name}
-            </Link>
-          </h3>
-          <span className="shrink-0 text-[15px] font-medium tabular-nums sm:pt-px">{priceRange(p)}</span>
+          {p.summary && <p className="mt-1 line-clamp-2 text-sm leading-relaxed text-stone">{p.summary}</p>}
+          <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+            <TestingBadge v={lead} short link={false} />
+            {p.stock !== "out" && <StockTag level={p.stock} />}
+            {sizes.length > 1 ? (
+              <span className="text-[13px] text-stone">{sizes.length} sizes</span>
+            ) : sizes.length === 1 ? (
+              <span data-size className="text-[13px] text-stone">{sizes[0]}</span>
+            ) : null}
+          </div>
         </div>
-        {p.summary && <p className="mt-1 line-clamp-2 text-sm leading-relaxed text-stone">{p.summary}</p>}
-        <div className="relative z-10 mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
-          <TestingBadge v={lead} short />
-          {p.stock !== "out" && <StockTag level={p.stock} />}
-          {sizes.length > 1 && <span className="text-[13px] text-stone">{sizes.length} sizes</span>}
-        </div>
-      </div>
+      </Link>
     </article>
   );
 }

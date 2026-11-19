@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useMemo } from "react";
 import { uid } from "@/lib/format";
+import { withSize } from "@/lib/size";
 import { upgradeDraft, type Draft } from "@/lib/draft";
 import type { Partner, ProductRec } from "@/lib/types";
 import { usePersistentState, useStore } from "./store";
@@ -65,7 +66,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
             {
               id: uid(),
               productId: p.id,
-              productName: p.name,
+              productName: withSize(p.name, p.variantLabel),
               quantity: 1,
               unitPriceCents: priceCents,
               unitCostCents: cost,

@@ -1,7 +1,11 @@
 import type { Config } from "tailwindcss";
+import plugin from "tailwindcss/plugin";
 
 export default {
   darkMode: "class",
+  // hover: and group-hover: only apply on devices that can really hover (mouse/trackpad). On touch
+  // screens a hover style can swallow the first tap (iOS shows the hover state instead of clicking).
+  future: { hoverOnlyWhenSupported: true },
   content: ["./src/**/*.{ts,tsx}"],
   theme: {
     extend: {
@@ -58,5 +62,11 @@ export default {
       },
     },
   },
-  plugins: [],
+  plugins: [
+    // The flag above only covers hover:. These make group-hover: and peer-hover: hover-capable devices only too.
+    plugin(({ addVariant }) => {
+      addVariant("group-hover", "@media (hover: hover) and (pointer: fine) { :merge(.group):hover & }");
+      addVariant("peer-hover", "@media (hover: hover) and (pointer: fine) { :merge(.peer):hover ~ & }");
+    }),
+  ],
 } satisfies Config;

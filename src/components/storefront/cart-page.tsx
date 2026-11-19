@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { ShoppingBag } from "lucide-react";
-import { CartLines, CartTotals, PromoField, useCart } from "./cart";
+import { CartLines, CartTotals, PromoField, ShippingNote, useCart } from "./cart";
 
 export function CartPageView() {
   const cart = useCart();
@@ -42,7 +42,7 @@ export function CartPageView() {
             <div className="h-20 animate-pulse rounded-xl bg-rule/60" />
           )}
           <PromoField />
-          <p className="text-[13px] text-stone">Shipping is calculated at checkout.</p>
+          <ShippingNote />
           <Link href="/checkout" aria-disabled={blocked} className={`s-btn-primary w-full ${blocked ? "pointer-events-none opacity-45" : ""}`}>
             Checkout
           </Link>

@@ -6,6 +6,7 @@ import Link from "next/link";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Minus, Plus, ShoppingBag, Tag, X } from "lucide-react";
+import { sizeWithVolume } from "@/lib/size";
 import type { PublicProduct } from "@/lib/store/catalog";
 import { Vial } from "./vial";
 
@@ -47,6 +48,7 @@ export interface Quote {
   codeError: string;
   code: string;
   freeShipping: boolean;
+  freeTiers: string[];
   freeShippingLabel: string;
   missing: string[];
   shipping: ShipOption[];
@@ -285,13 +287,13 @@ export function CartLines({ compact }: { compact?: boolean }) {
                   >
                     {product.variants.map((v) => (
                       <option key={v.id} value={v.id} disabled={v.stock === "out" && v.id !== it.variantId}>
-                        {v.label}
+                        {sizeWithVolume(v.label, v.volume)}
                         {v.stock === "out" ? " (sold out)" : ""}
                       </option>
                     ))}
                   </select>
                 ) : (
-                  variant.label && <span className="s-chip h-10 px-3.5 text-sm">{variant.label}</span>
+                  variant.label && <span data-cart-size className="s-chip h-10 px-3.5 text-sm">{sizeWithVolume(variant.label, variant.volume)}</span>
                 )}
                 <QtyStepper small value={it.quantity} onChange={(n) => cart.setQty(it.variantId, n)} label={product.name} />
                 <button type="button" onClick={() => cart.remove(it.variantId)} className="ml-auto h-10 px-1 text-[13px] font-medium text-stone underline decoration-rule underline-offset-4 hover:text-coal">
@@ -360,6 +362,22 @@ export function PromoField() {
         </p>
       )}
     </form>
+  );
+}
+
+/** Under the cart totals: exactly what free shipping covers (only the options the rule picked), else the plain note. */
+export function ShippingNote() {
+  const { quote } = useCart();
+  return (
+    <p data-shipping-note className="text-[13px] text-stone">
+      {quote?.freeShipping ? (
+        <>
+          <span className="font-medium text-brand">{quote.freeShippingLabel}</span> on this order.{quote.freeShippingLabel === "Free shipping" ? "" : " Other shipping options are calculated at checkout."}
+        </>
+      ) : (
+        "Shipping is calculated at checkout."
+      )}
+    </p>
   );
 }
 
@@ -480,7 +498,7 @@ function CartDrawer() {
               ) : (
                 <div className="h-16 animate-pulse rounded-xl bg-soft" />
               )}
-              <p className="text-[13px] text-stone">Shipping is calculated at checkout.</p>
+              <ShippingNote />
               <div className="grid grid-cols-2 gap-2.5">
                 <Link href="/cart" onClick={() => cart.setOpen(false)} className="s-btn-line">
                   View cart

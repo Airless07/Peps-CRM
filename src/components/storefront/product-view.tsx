@@ -87,6 +87,16 @@ export function ProductView({ p }: { p: PublicProduct }) {
           <StockTag level={v.stock} />
         </div>
 
+        {/* One size: a plain label, not a picker. */}
+        {p.variants.length === 1 && v.label && (
+          <div className="mt-7" data-single-size>
+            <p className="s-label">Size</p>
+            <span className="inline-flex h-12 items-center rounded-full border border-coal px-5 text-[15px] font-medium">
+              {v.label}
+              {v.volume && <span className="ml-2 font-normal text-stone">· {v.volume} vial</span>}
+            </span>
+          </div>
+        )}
         {p.variants.length > 1 && (
           <div className="mt-7">
             <label htmlFor="size" className="s-label">
@@ -103,6 +113,7 @@ export function ProductView({ p }: { p: PublicProduct }) {
                   className={`flex h-12 items-center gap-2 rounded-full border px-5 text-[15px] font-medium transition ${x.id === v.id ? "border-coal bg-coal text-white" : "border-rule hover:border-coal"} ${x.stock === "out" ? "opacity-60" : ""}`}
                 >
                   {x.label}
+                  {x.volume && <span className={`text-xs font-normal ${x.id === v.id ? "text-white/75" : "text-stone"}`}>{x.volume}</span>}
                   {x.stock === "out" && <span className="text-xs font-normal">Sold out</span>}
                 </button>
               ))}
@@ -110,7 +121,8 @@ export function ProductView({ p }: { p: PublicProduct }) {
             <select id="size" value={v.id} onChange={(e) => setVariantId(e.target.value)} className="s-input sm:hidden">
               {p.variants.map((x) => (
                 <option key={x.id} value={x.id}>
-                  {x.label} · {money(x.priceCents)} · {STOCK_LABEL[x.stock]}
+                  {x.label}
+                  {x.volume ? ` (${x.volume})` : ""} · {money(x.priceCents)} · {STOCK_LABEL[x.stock]}
                 </option>
               ))}
             </select>

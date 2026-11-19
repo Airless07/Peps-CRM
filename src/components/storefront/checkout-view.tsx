@@ -1,5 +1,6 @@
 "use client";
 
+import { sizeWithVolume } from "@/lib/size";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -188,10 +189,10 @@ export function CheckoutView({ account: initial, states, ack, preview }: { accou
       <ul className="mt-4 divide-y divide-rule border-y border-rule">
         {lines.map(({ l, meta }) => (
           <li key={l.variantId} className="flex items-start justify-between gap-4 py-3 text-[15px]">
-            <span className="min-w-0">
+            <span className="min-w-0" data-checkout-line>
               <span className="block font-medium">{meta?.product.name ?? l.name}</span>
               <span className="block text-[13px] text-stone">
-                {[meta?.variant.label, `Qty ${l.quantity}`, l.percentOff ? `${l.percentOff}% off` : ""].filter(Boolean).join(" · ")}
+                {[meta ? sizeWithVolume(meta.variant.label, meta.variant.volume) : "", `Qty ${l.quantity}`, l.percentOff ? `${l.percentOff}% off` : ""].filter(Boolean).join(" · ")}
               </span>
             </span>
             <span className="shrink-0 tabular-nums">{money(l.lineTotalCents)}</span>

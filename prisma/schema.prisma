@@ -92,6 +92,8 @@ model Product {
   listing           Listing?          @relation(fields: [listingId], references: [id], onDelete: SetNull)
   /// Size label shown on the website, e.g. "10mg"
   variantLabel      String            @default("")
+  /// Optional vial volume shown with the size, e.g. "3ml"
+  vialVolume        String            @default("")
   variantSort       Int               @default(0)
   /// Shipping weight in ounces. Null = default parcel weight from Settings.
   weightOz          Float?
@@ -331,6 +333,8 @@ model Promotion {
   /// JSON arrays. Empty = applies to everything.
   listingIdsJson   String         @default("[]")
   groupIdsJson     String         @default("[]")
+  /// Free shipping rules only: JSON array of the shipping option ids it makes free ("standard" | "priority" | "express"). At least one.
+  shippingTiersJson String        @default("[]")
   active           Boolean        @default(true)
   createdAt        DateTime       @default(now())
   uses             PromotionUse[]
@@ -384,6 +388,15 @@ model AnalyticsDay {
 
   @@id([day, metric, key])
   @@index([day])
+}
+
+/// One-time data fixes that run at server start (after the SQL migrations). A row here means it already
+/// ran, so it never runs again (e.g. a size the owner later clears is never filled back in).
+model DataMigration {
+  id     String   @id
+  ranAt  DateTime @default(now())
+  /// JSON: what it changed, for the record
+  detail String   @default("")
 }
 
 model Split {

@@ -79,6 +79,13 @@ export function priceChanges(s: Pick<SavedOrderRec, "lines">, products: Pick<Pro
   return out;
 }
 
+/**
+ * Units of a product held by one saved order. Saved orders take their items out of stock while they
+ * wait (src/lib/money.ts), so a sale that completes or edits that same order gets them back first.
+ */
+export const heldBy = (saved: Pick<SavedOrderRec, "lines"> | null | undefined, productId: string) =>
+  (saved?.lines ?? []).filter((l) => l.productId === productId).reduce((x, l) => x + l.quantity, 0);
+
 /** Names of the products this sale would push below zero stock. Empty = enough stock. */
 export function stockShortfalls(lines: Pick<DraftLine, "productId" | "productName" | "quantity">[], stockOf: (productId: string) => number): string[] {
   const need = new Map<string, { name: string; qty: number }>();

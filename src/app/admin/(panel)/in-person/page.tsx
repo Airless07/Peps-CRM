@@ -11,6 +11,7 @@ import { Badge, Button, Empty, Field, Input, PageHeader, PageSkeleton, Segmented
 import { dayKey, fmtDay, fmtMoney, fmtTime, plural } from "@/lib/format";
 import { splitOrderIds } from "@/lib/money";
 import { UNKNOWN_PAYMENT, type Partner } from "@/lib/types";
+import { lineName } from "@/lib/size";
 
 export default function OrdersPage() {
   const s = useLoaded();
@@ -173,7 +174,7 @@ export default function OrdersPage() {
                   {orders.map((o) => {
                     const r = ledger.orders.get(o.id);
                     if (!r) return null;
-                    const items = o.lines.map((l) => `${l.quantity > 1 ? l.quantity + "× " : ""}${l.productName}`).join(", ");
+                    const items = o.lines.map((l) => `${l.quantity > 1 ? l.quantity + "× " : ""}${lineName(l)}`).join(", ");
                     return (
                       <button
                         key={o.id}

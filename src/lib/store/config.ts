@@ -29,8 +29,6 @@ export interface StoreSettings {
   /** "live" = Shippo rates by address, "flat" = the flat price of each tier. */
   shippingMode: "flat" | "live";
   shippingTiers: ShippingTier[];
-  /** Tier ids that free shipping rules apply to. */
-  freeShippingTiers: ShippingTierId[];
   /** Store-wide "buy more, save more" tiers. A product can override them. */
   qtyDeals: { minQty: number; percentOff: number }[];
   shipFrom: ShipFrom;
@@ -94,7 +92,6 @@ export const DEFAULT_STORE: StoreSettings = {
     { id: "priority", name: "Priority", enabled: true, flatCents: 1195 },
     { id: "express", name: "Express", enabled: true, flatCents: 3495 },
   ],
-  freeShippingTiers: ["standard"],
   qtyDeals: [
     { minQty: 2, percentOff: 5 },
     { minQty: 3, percentOff: 10 },
@@ -359,7 +356,8 @@ export function parseStore(json: string | null | undefined): StoreSettings {
   // Tiers: always the three known ids, in order, with saved values on top.
   const saved = new Map((Array.isArray(s.shippingTiers) ? s.shippingTiers : []).map((t) => [t?.id, t]));
   s.shippingTiers = DEFAULT_STORE.shippingTiers.map((t) => ({ ...t, ...(saved.get(t.id) ?? {}), id: t.id }));
-  if (!Array.isArray(s.freeShippingTiers)) s.freeShippingTiers = ["standard"];
+  // Which options are free is now set on each free shipping rule (Promotions), not here.
+  delete (s as { freeShippingTiers?: unknown }).freeShippingTiers;
   s.qtyDeals = cleanQtyDeals(s.qtyDeals) ?? [];
   s.autoCancelHours = Math.min(720, Math.max(1, Number(s.autoCancelHours) || 24));
   // Both default to on, also for settings saved before these switches existed.

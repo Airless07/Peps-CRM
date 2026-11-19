@@ -106,6 +106,10 @@ async function snapshot() {
   };
 }
 
+/** The snapshot without stock: everything money. Saved orders hold stock but never move money. */
+const moneyOnly = ({ stock: _s, ...rest }: Awaited<ReturnType<typeof snapshot>>) => rest;
+const stockNum = (snap: Awaited<ReturnType<typeof snapshot>>, id: string) => snap.stock[id].stock;
+
 /** The cart: 2 Reta 10mg at the regular $70, 1 KPV at a custom $35, 10% off, $5 tip, a new customer, a note. */
 const cart = (over: Partial<Draft> = {}): Draft => ({
   id: "sale-1",
@@ -158,11 +162,13 @@ describe("migration 20261117120000_saved_orders_sell_buttons", () => {
 });
 
 describe("saved orders", () => {
-  it("saving does not change stock or money, and is not an order", async () => {
+  it("saving holds its items out of stock, changes no money, and is not an order", async () => {
     const before = await snapshot();
     await saveLikeTheSellScreen(cart());
     const after = await snapshot();
-    expect(after).toEqual(before);
+    expect(moneyOnly(after)).toEqual(moneyOnly(before));
+    expect(after.stock.r10).toMatchObject({ stock: stockNum(before, "r10") - 2, heldQty: 2, soldQty: before.stock.r10.soldQty, unitCost: before.stock.r10.unitCost });
+    expect(after.stock.kpv).toMatchObject({ stock: stockNum(before, "kpv") - 1, heldQty: 1 });
     const data = await ser.loadAll();
     expect(data.savedOrders).toHaveLength(1);
     expect(data.savedOrders[0]).toMatchObject({ id: "sale-1", customer: "Sam Lee", customerId: "c-sam", soldBy: "B", note: "Pick up Friday", discountType: "%", discountValue: 10, tipCents: 500 });
@@ -183,7 +189,10 @@ describe("saved orders", () => {
     expect(list).toHaveLength(1);
     expect(list[0]).toMatchObject({ note: "Now Saturday" });
     expect(list[0].lines[0].quantity).toBe(3);
-    expect(await snapshot()).toEqual(before);
+    const after = await snapshot();
+    expect(moneyOnly(after)).toEqual(moneyOnly(before));
+    // The hold follows the edit (3 now, not 2 + 3).
+    expect(after.stock.r10).toMatchObject({ stock: stockNum(before, "r10") - 1, heldQty: 3 });
   });
 
   it("completing matches a normal sale exactly", async () => {
@@ -199,13 +208,17 @@ describe("saved orders", () => {
 
     // B: the same cart, saved for later, opened from the list and completed.
     await saveLikeTheSellScreen(cart());
-    expect(await snapshot()).toEqual(start);
+    const held = await snapshot();
+    expect(moneyOnly(held)).toEqual(moneyOnly(start));
+    expect(stockNum(held, "r10")).toBe(stockNum(start, "r10") - 2);
     const s = (await ser.loadAll()).savedOrders[0];
     await completeLikeTheSellScreen(saved.savedToDraft(s, "Cash", NOW), s.id);
     const viaSaved = await snapshot();
     const savedRow = await orderRow("sale-1");
 
+    // Completing turns the hold into the sale: the same stock as a normal sale, never subtracted twice.
     expect(viaSaved).toEqual(normal);
+    expect(stockNum(viaSaved, "r10")).toBe(stockNum(held, "r10"));
     expect(savedRow).toEqual(normalRow);
     // And the numbers are the expected ones: $175.00 - 10% + $5.00 tip, stock down by 2 and 1.
     expect(viaSaved.orders["sale-1"]).toMatchObject({ subtotal: 17500, discount: 1750, tip: 500, total: 16250 });
@@ -240,14 +253,18 @@ describe("saved orders", () => {
     expect((await ser.loadAll()).savedOrders).toHaveLength(0);
   });
 
-  it("deleting a saved order changes nothing", async () => {
+  it("deleting a saved order puts its stock back and changes no money", async () => {
     const before = await snapshot();
     await saveLikeTheSellScreen(cart());
     await saveLikeTheSellScreen(cart({ id: "sale-2", lines: [{ id: "s2-1", productId: "kpv", productName: "KPV", quantity: 4, unitPriceCents: 4000, unitCostCents: 0, cutPercent: 0 }] }));
     await sell.deleteSavedOrder("sale-1");
     const data = await ser.loadAll();
     expect(data.savedOrders.map((o) => o.id)).toEqual(["sale-2"]);
-    expect(await snapshot()).toEqual(before);
+    const one = await snapshot();
+    expect(moneyOnly(one)).toEqual(moneyOnly(before));
+    // sale-1's stock is back; sale-2 still holds its 4 KPV.
+    expect(stockNum(one, "r10")).toBe(stockNum(before, "r10"));
+    expect(stockNum(one, "kpv")).toBe(stockNum(before, "kpv") - 4);
     await sell.deleteSavedOrder("sale-2");
     await sell.deleteSavedOrder("sale-2"); // deleting twice is harmless
     expect((await ser.loadAll()).savedOrders).toHaveLength(0);
@@ -259,14 +276,18 @@ describe("saved orders", () => {
     // 6 Reta 10mg in stock. Someone else sells 5 while the order for 2 sits saved.
     await saveLikeTheSellScreen(cart());
     const s = (await ser.loadAll()).savedOrders[0];
-    const stockOf = async () => {
+    // Like the Sell screen: completing a saved order may use the units it holds itself.
+    const stockOf = async (forSaved?: typeof s) => {
       const l = money.computeLedger(await ser.loadAll());
-      return (pid: string) => l.stock.get(pid)?.stock ?? 0;
+      return (pid: string) => (l.stock.get(pid)?.stock ?? 0) + saved.heldBy(forSaved, pid);
     };
-    expect(saved.stockShortfalls(s.lines, await stockOf())).toEqual([]);
-    await completeLikeTheSellScreen(cart({ id: "other", customer: "", customerId: null, lines: [{ id: "o-1", productId: "r10", productName: "Reta 10mg", quantity: 5, unitPriceCents: 7000, unitCostCents: 0, cutPercent: 0 }] }));
-    // The saved order did not hold stock back, and now it would go below zero: the warning lists the size.
-    expect(saved.stockShortfalls(s.lines, await stockOf())).toEqual(["Reta 10mg"]);
+    expect(saved.stockShortfalls(s.lines, await stockOf(s))).toEqual([]);
+    const other = [{ id: "o-1", productId: "r10", productName: "Reta 10mg", quantity: 5, unitPriceCents: 7000, unitCostCents: 0, cutPercent: 0 }];
+    // The saved order holds 2 of the 6, so selling 5 more now warns (only 4 left).
+    expect(saved.stockShortfalls(other, await stockOf())).toEqual(["Reta 10mg"]);
+    await completeLikeTheSellScreen(cart({ id: "other", customer: "", customerId: null, lines: other }));
+    // Sold anyway: now the saved order would go below zero, and the warning lists the size.
+    expect(saved.stockShortfalls(s.lines, await stockOf(s))).toEqual(["Reta 10mg"]);
     // After "Complete anyway" it completes like any oversold sale.
     await completeLikeTheSellScreen(saved.savedToDraft(s, "Cash"), s.id);
     expect((await snapshot()).stock.r10.stock).toBe(-1);
@@ -285,13 +306,13 @@ describe("saved orders", () => {
     expect((await snapshot()).orders["sale-1"]).toMatchObject({ subtotal: 17500, discount: 1750, total: 16250 });
   });
 
-  it("completing a saved order sends the low stock alert like any sale", async () => {
+  it("holding stock in a saved order sends the low stock alert, once (completing it does not send it again)", async () => {
     await saveLikeTheSellScreen(cart({ lines: [{ id: "sl-1", productId: "r10", productName: "Reta 10mg", quantity: 4, unitPriceCents: 7000, unitCostCents: 0, cutPercent: 0 }] }));
-    expect(sent).toHaveLength(0);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].to).toEqual(["owner@buckshot.test"]);
     const s = (await ser.loadAll()).savedOrders[0];
     await completeLikeTheSellScreen(saved.savedToDraft(s, "Cash"), s.id);
     expect(sent).toHaveLength(1);
-    expect(sent[0].to).toEqual(["owner@buckshot.test"]);
   });
 
   it("renaming, merging or deleting a customer keeps saved orders consistent", async () => {
@@ -322,7 +343,10 @@ describe("saved orders", () => {
     const old = await ser.loadAll();
     expect(old.savedOrders).toEqual([]);
     expect(old.settings.sellButtons.discounts).toHaveLength(4);
-    expect(await snapshot()).toEqual(before);
+    // No saved orders in that backup, so nothing is held: same money, the held units are back in stock.
+    const restored = await snapshot();
+    expect(moneyOnly(restored)).toEqual(moneyOnly(before));
+    expect(stockNum(restored, "r10")).toBe(stockNum(before, "r10") + 2);
     await prisma.settings.update({ where: { id: 1 }, data: { sellButtonsJson: "" } });
   });
 });

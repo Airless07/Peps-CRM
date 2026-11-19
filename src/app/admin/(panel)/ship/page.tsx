@@ -9,6 +9,7 @@ import { Button, Card, Empty, PageHeader, PageSkeleton, cx } from "@/components/
 import { isReadyToShip } from "@/lib/admin/counts";
 import { orderTotal, shipToLines } from "@/lib/admin/orders-view";
 import { fmtMoney, plural } from "@/lib/format";
+import { lineName } from "@/lib/size";
 
 /** One paid, unshipped website order at a time: buy label, print label, print packing slip, mark shipped, next. */
 export default function ShipQueuePage() {
@@ -91,7 +92,7 @@ export default function ShipQueuePage() {
           {order.lines.map((l) => (
             <li key={l.id} className="flex items-center gap-3 py-2.5 text-[15px]">
               <span className="flex h-8 min-w-8 items-center justify-center rounded-lg bg-surface2 px-2 font-semibold tabular-nums">{l.quantity}×</span>
-              <span className="font-medium">{l.productName}</span>
+              <span className="font-medium">{lineName(l)}</span>
             </li>
           ))}
         </ul>

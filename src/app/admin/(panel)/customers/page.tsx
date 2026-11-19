@@ -10,6 +10,7 @@ import { deleteCustomerData, mergeCustomersData, searchCustomers, updateCustomer
 import { dayKey, fmtDay, fmtMoney, fmtTime, plural, uid } from "@/lib/format";
 import { customerStats, daysAgo, type CustomerStats } from "@/lib/insights";
 import type { CustomerRec } from "@/lib/types";
+import { lineName } from "@/lib/size";
 
 type Sort = "spent" | "recent" | "orders";
 
@@ -265,7 +266,7 @@ function CustomerSheet({ id, stats, onClose }: { id: string | null; stats: Custo
                 <div className="divide-y divide-line overflow-hidden rounded-2xl border border-line">
                   {orders.map((o) => {
                     const r = s.ledger.orders.get(o.id);
-                    const items = o.lines.map((l) => `${l.quantity > 1 ? l.quantity + "× " : ""}${l.productName}`).join(", ");
+                    const items = o.lines.map((l) => `${l.quantity > 1 ? l.quantity + "× " : ""}${lineName(l)}`).join(", ");
                     return (
                       <button
                         key={o.id}

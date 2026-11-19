@@ -87,6 +87,7 @@ const promo = (over: Partial<PromotionRec>): PromotionRec => ({
   oncePerEmail: false,
   listingIds: [],
   groupIds: [],
+  shippingTiers: over.kind === "free_shipping" ? ["standard"] : [],
   active: true,
   createdAt: day(1),
   uses: [],
@@ -124,7 +125,7 @@ describe("public catalog never exposes admin data", () => {
   });
 
   it("the public variant has exactly the public fields", () => {
-    expect(Object.keys(catalog.products[0].variants[0]).sort()).toEqual(["coa", "id", "label", "olderCoas", "priceCents", "purity", "stock", "testing", "testingLabel"]);
+    expect(Object.keys(catalog.products[0].variants[0]).sort()).toEqual(["coa", "id", "label", "olderCoas", "priceCents", "purity", "stock", "testing", "testingLabel", "volume"]);
   });
 
   it("only lists products switched on for the website, with stock as a label", () => {
@@ -266,25 +267,76 @@ describe("free shipping rules and shipping tiers", () => {
     expect(cart([rule]).freeShipping).toBe(false);
     expect(cart([rule], "", [{ variantId: "v5", quantity: 3 }]).freeShipping).toBe(true);
     expect(priceCart({ items: [{ variantId: "v5", quantity: 3 }], variants: NO_DEALS, promotions: [rule], now: new Date(day(20)) }).freeShipping).toBe(false);
-    expect(promoHeadlines([rule], NOW)[0].text).toBe("Free shipping on orders $100+");
+    expect(promoHeadlines([rule], NOW)[0].text).toBe("Free standard shipping on orders $100+");
   });
-  it("applies to Standard only unless the store says otherwise", () => {
-    const opts = shippingOptions(DEFAULT_STORE, true);
+  it("names exactly what is free in the announcement bar", () => {
+    expect(promoHeadlines([rule], NOW, DEFAULT_STORE.shippingTiers)[0].text).toBe("Free standard shipping on orders $100+");
+    expect(promoHeadlines([{ ...rule, shippingTiers: ["standard", "priority"] }], NOW, DEFAULT_STORE.shippingTiers)[0].text).toBe("Free standard and priority shipping on orders $100+");
+    expect(promoHeadlines([{ ...rule, shippingTiers: ["standard", "priority", "express"] }], NOW, DEFAULT_STORE.shippingTiers)[0].text).toBe("Free shipping on orders $100+");
+    // Uses the option names from Settings.
+    const renamed = DEFAULT_STORE.shippingTiers.map((t) => (t.id === "standard" ? { ...t, name: "Economy shipping" } : t));
+    expect(promoHeadlines([rule], NOW, renamed)[0].text).toBe("Free economy shipping on orders $100+");
+    // A rule with no option picked is never advertised and never applies.
+    expect(promoHeadlines([{ ...rule, shippingTiers: [] }], NOW, DEFAULT_STORE.shippingTiers)).toEqual([]);
+    expect(cart([{ ...rule, shippingTiers: [] }], "", [{ variantId: "v5", quantity: 3 }]).freeShipping).toBe(false);
+  });
+
+  // The owner's rule: "Free shipping on orders $100+", Standard only.
+  const owner = promo({ id: "fs100", kind: "free_shipping", code: "", name: "Free shipping on orders $100+", minSubtotalCents: 10000, shippingTiers: ["standard"] });
+  const quote = (items: { variantId: string; quantity: number }[]) => {
+    const p = priceCart({ items, variants: NO_DEALS, promotions: [owner], now: NOW, shippingTiers: DEFAULT_STORE.shippingTiers });
+    return { p, opts: shippingOptions(DEFAULT_STORE, p.freeTiers) };
+  };
+  it("Standard is free on orders of $100 or more", () => {
+    const { p, opts } = quote([{ variantId: "v5", quantity: 3 }]); // $120
+    expect(p.freeTiers).toEqual(["standard"]);
+    expect(p.freeShippingLabel).toBe("Free standard shipping");
+    expect(opts.find((o) => o.tier === "standard")).toMatchObject({ cents: 0, baseCents: 695, free: true });
+    // Exactly $100 counts.
+    expect(priceCart({ items: [{ variantId: "tb", quantity: 2 }], variants: NO_DEALS, promotions: [owner], now: NOW }).freeTiers).toEqual(["standard"]);
+  });
+  it("Priority and Express are still charged over $100", () => {
+    const { opts } = quote([{ variantId: "v5", quantity: 3 }]);
     expect(opts.map((o) => [o.tier, o.cents, o.free])).toEqual([
       ["standard", 0, true],
       ["priority", 1195, false],
       ["express", 3495, false],
     ]);
-    expect(shippingOptions({ ...DEFAULT_STORE, freeShippingTiers: ["standard", "priority"] }, true)[1].cents).toBe(0);
-    expect(shippingOptions(DEFAULT_STORE, false)[0].cents).toBe(695);
+    // Live carrier prices too: only the covered option drops to $0.
+    const live = shippingOptions(DEFAULT_STORE, ["standard"], { standard: { cents: 431, service: "", estimate: "" }, priority: { cents: 980, service: "", estimate: "" } });
+    expect(live.map((o) => [o.tier, o.cents, o.baseCents])).toEqual([
+      ["standard", 0, 431],
+      ["priority", 980, 980],
+      ["express", 3495, 3495],
+    ]);
+  });
+  it("everything is charged under $100", () => {
+    const { p, opts } = quote([{ variantId: "v5", quantity: 2 }]); // $80
+    expect(p.freeShipping).toBe(false);
+    expect(p.freeTiers).toEqual([]);
+    expect(p.freeShippingLabel).toBe("");
+    expect(opts.map((o) => [o.tier, o.cents, o.free])).toEqual([
+      ["standard", 695, false],
+      ["priority", 1195, false],
+      ["express", 3495, false],
+    ]);
+  });
+  it("two rules add up, each covering only its own options", () => {
+    const express = promo({ id: "fsx", kind: "free_shipping", code: "", minSubtotalCents: 30000, shippingTiers: ["express"] });
+    const mid = priceCart({ items: [{ variantId: "v5", quantity: 3 }], variants: NO_DEALS, promotions: [owner, express], now: NOW });
+    expect(mid.freeTiers).toEqual(["standard"]);
+    const big = priceCart({ items: [{ variantId: "v10", quantity: 5 }], variants: NO_DEALS, promotions: [owner, express], now: NOW, shippingTiers: DEFAULT_STORE.shippingTiers });
+    expect(big.freeTiers).toEqual(["standard", "express"]);
+    expect(big.freeShippingLabel).toBe("Free standard and express shipping");
+    expect(shippingOptions(DEFAULT_STORE, big.freeTiers).map((o) => o.cents)).toEqual([0, 1195, 0]);
   });
   it("tiers can be renamed or turned off, and live rates replace flat prices", () => {
     const store = parseStore(JSON.stringify({ shippingTiers: [{ id: "express", enabled: false }, { id: "standard", name: "Economy", flatCents: 500 }] }));
-    expect(shippingOptions(store, false).map((o) => [o.tier, o.name, o.cents])).toEqual([
+    expect(shippingOptions(store, []).map((o) => [o.tier, o.name, o.cents])).toEqual([
       ["standard", "Economy", 500],
       ["priority", "Priority", 1195],
     ]);
-    const live = shippingOptions(store, false, { standard: { cents: 431, service: "USPS Ground Advantage", estimate: "" } });
+    const live = shippingOptions(store, [], { standard: { cents: 431, service: "USPS Ground Advantage", estimate: "" } });
     expect(live[0]).toMatchObject({ cents: 431, service: "USPS Ground Advantage" });
     expect(live[1].cents).toBe(1195);
   });

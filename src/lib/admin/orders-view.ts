@@ -3,6 +3,7 @@ import type { Ledger } from "../money";
 import { orderTotals } from "../money";
 import type { AppData, OrderRec, OrderStatus } from "../types";
 import { STATUS_LABEL } from "../types";
+import { lineName } from "../size";
 
 export type NextStep = "mark-paid" | "buy-label" | "open-label" | "mark-shipped" | "mark-delivered" | null;
 
@@ -61,7 +62,7 @@ export function shipToLines(o: OrderRec): string[] {
   return [a.name, [a.street1, a.street2].filter(Boolean).join(", "), `${a.city}, ${a.state} ${a.zip}`].filter(Boolean);
 }
 
-export const itemsSummary = (o: OrderRec) => o.lines.map((l) => `${l.quantity > 1 ? `${l.quantity}× ` : ""}${l.productName}`).join(", ");
+export const itemsSummary = (o: OrderRec) => o.lines.map((l) => `${l.quantity > 1 ? `${l.quantity}× ` : ""}${lineName(l)}`).join(", ");
 
 const LABEL_OPENED_KEY = "peps-labels-opened";
 export function labelsOpened(): Set<string> {

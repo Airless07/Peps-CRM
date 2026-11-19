@@ -14,6 +14,7 @@ import { orderTotals } from "@/lib/money";
 import { payMethod } from "@/lib/store/payments";
 import { trackingUrl } from "@/lib/tracking";
 import type { OrderEventRec } from "@/lib/types";
+import { lineName } from "@/lib/size";
 
 export default function OrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -99,7 +100,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
               {order.lines.map((l) => (
                 <li key={l.id} className="flex items-baseline justify-between gap-3 py-2.5 text-[15px]">
                   <span className="min-w-0">
-                    <span className="font-medium">{l.productName || "Deleted product"}</span>
+                    <span className="font-medium">{lineName(l)}</span>
                     <span className="ml-2 tabular-nums text-muted">
                       {l.quantity} × {fmtMoney(l.unitPriceCents)}
                     </span>

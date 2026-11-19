@@ -19,7 +19,8 @@ import {
   type EmailOrder,
 } from "./email";
 import { computeLedger, orderTotals } from "./money";
-import { getSettingsRow, json, loadAll, toOrder } from "./serialize";
+import { LINE_SIZE, getSettingsRow, json, loadAll, toOrder } from "./serialize";
+import { lineName } from "./size";
 import { buyRate, parcelFor, pickRate, quoteRates, ratesByTier, registerTracking, trackPackage, trackingUrl, type RateOption, type TrackResult } from "./shippo";
 import { pricedVariants } from "./store/catalog";
 import { parseContent, parseStore, type ShippingTierId, type StoreSettings } from "./store/config";
@@ -63,7 +64,7 @@ export async function logEvent(db: Db, orderId: string, kind: "status" | "email"
   await db.orderEvent.create({ data: { id: randomUUID(), orderId, kind, message, detail } });
 }
 
-const orderInclude = { lines: { orderBy: { sortOrder: "asc" as const } } };
+const orderInclude = { lines: LINE_SIZE };
 
 async function loadOrder(id: string) {
   const row = await prisma.order.findUnique({ where: { id }, include: orderInclude });
@@ -80,7 +81,7 @@ export function emailOrder(o: OrderRec, base: string): EmailOrder {
     number: o.number ?? 0,
     name: o.web?.shipTo?.name || o.customer || "Customer",
     email: o.web?.email ?? "",
-    lines: o.lines.map((l) => ({ name: l.productName, quantity: l.quantity, totalCents: l.quantity * l.unitPriceCents })),
+    lines: o.lines.map((l) => ({ name: lineName(l), quantity: l.quantity, totalCents: l.quantity * l.unitPriceCents })),
     subtotalCents: t.subtotal,
     discountCents: t.discount,
     shippingCents: t.shipping,
@@ -122,7 +123,7 @@ export interface CheckoutInput {
 /** Price a cart exactly like the order will be saved. Shared by the quote API and placeOrder. */
 export async function quoteCheckout(data: AppData, input: { items: CartItemInput[]; code: string; email: string; shipTo?: Address | null }) {
   const variants = pricedVariants(data);
-  const pricing = priceCart({ items: input.items, variants, promotions: data.promotions, code: input.code, email: input.email });
+  const pricing = priceCart({ items: input.items, variants, promotions: data.promotions, code: input.code, email: input.email, shippingTiers: data.store.shippingTiers });
   let live: ReturnType<typeof ratesByTier> | undefined;
   let liveNote = "";
   const to = input.shipTo;
@@ -133,7 +134,7 @@ export async function quoteCheckout(data: AppData, input: { items: CartItemInput
     if (res.ok) live = ratesByTier(res.data.rates);
     else liveNote = res.error;
   }
-  const shipping = shippingOptions(data.store, pricing.freeShipping, live);
+  const shipping = shippingOptions(data.store, pricing.freeTiers, live);
   return { pricing, shipping, liveNote, variants };
 }
 

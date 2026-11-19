@@ -43,8 +43,17 @@ export async function recordSale(input: SaleInput, origin: string, fromSavedId?:
   );
 }
 
-/** Save the cart for later, or update a saved order that was opened and saved again. Never touches stock or money. */
-export async function saveOrderForLater(input: SavedOrderInput) {
+/**
+ * Save the cart for later, or update a saved order that was opened and saved again. Never touches money.
+ * Its items are held out of stock while it is saved (computed in the ledger, src/lib/money.ts): deleting
+ * it puts them back, completing it turns them into the sale. A hold can cross a low stock threshold, so
+ * it sends the low stock alert like a sale does.
+ */
+export async function saveOrderForLater(input: SavedOrderInput, origin?: string) {
+  return withLowStockAlert(() => saveNow(input), origin);
+}
+
+async function saveNow(input: SavedOrderInput) {
   const { id, lines, savedAt, ...rest } = input;
   // A sale with this id exists when a saved order was completed meanwhile: do not bring it back.
   if (await prisma.order.findUnique({ where: { id }, select: { id: true } })) throw new HttpError(409, "This order was already completed.");

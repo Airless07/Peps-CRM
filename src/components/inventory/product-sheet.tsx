@@ -11,6 +11,7 @@ import { emptyListing } from "@/lib/backup";
 import { PRODUCT_COLORS, fmtDate, fmtMoney, toLocalDateInput, uid } from "@/lib/format";
 import { INFO_FIELDS, nameWithoutSize, sizeInName, websiteInfo } from "@/lib/store/product-info";
 import { slugify } from "@/lib/store/slug";
+import { withSize } from "@/lib/size";
 import type { CoaRec, ListingRec, ProductRec, QtyDeal, TestingStatus } from "@/lib/types";
 import { PRODUCT_DEFAULTS, TESTING_LABEL } from "@/lib/types";
 import { PhotoManager, uploadFile } from "./media";
@@ -76,7 +77,7 @@ export function ProductSheet({ listingId, onClose }: { listingId: string | "new"
   const setField = <K extends keyof ListingRec>(k: K, v: ListingRec[K]) => setL((x) => (x ? { ...x, [k]: v } : x));
 
   /** Name on the Sell screen for a size: "BPC-157 10mg". */
-  const sellName = (v: Variant, productName = l?.name ?? "") => (v.variantLabel.trim() ? `${productName.trim()} ${v.variantLabel.trim()}`.trim() : productName.trim());
+  const sellName = (v: Variant, productName = l?.name ?? "") => withSize(productName, v.variantLabel);
 
   function rename(name: string) {
     if (!l) return;
@@ -98,6 +99,7 @@ export function ProductSheet({ listingId, onClose }: { listingId: string | "new"
     const variantBody = (v: Variant) => ({
       name: v.name.trim() || sellName(v, name),
       variantLabel: v.variantLabel.trim(),
+      vialVolume: v.vialVolume.trim(),
       defaultPriceCents: v.defaultPriceCents,
       costOverrideCents: v.costOverrideCents,
       lowStockThreshold: v.lowStockThreshold,
@@ -184,12 +186,13 @@ export function ProductSheet({ listingId, onClose }: { listingId: string | "new"
 
   // A size inside the product name ("Reta 10mg"): sizes belong in the size label.
   const nameSize = l ? sizeInName(l.name) : "";
-  const canMoveSize = !!l && !!nameSize && vs.length === 1 && !vs[0].variantLabel.trim() && !!nameWithoutSize(l.name);
+  // Also when the size was already filled in from the name: then only the name needs cleaning up.
+  const canMoveSize = !!l && !!nameSize && vs.length === 1 && (!vs[0].variantLabel.trim() || vs[0].variantLabel.trim().toLowerCase() === nameSize.toLowerCase()) && !!nameWithoutSize(l.name);
   function moveSizeToLabel() {
     if (!l || !canMoveSize) return;
     const clean = nameWithoutSize(l.name);
     // The Sell screen name stays what it was ("Reta 10mg"), so sales history reads the same.
-    setVs((list) => list.map((v) => ({ ...v, variantLabel: nameSize, name: v.name.trim() || l.name.trim() })));
+    setVs((list) => list.map((v) => ({ ...v, variantLabel: v.variantLabel.trim() || nameSize, name: v.name.trim() || l.name.trim() })));
     setL({ ...l, name: clean });
   }
   const info = l ? websiteInfo(l) : null;
@@ -252,27 +255,32 @@ export function ProductSheet({ listingId, onClose }: { listingId: string | "new"
                 const st = ledger.stock.get(v.id);
                 return (
                   <fieldset key={v.id} className="rounded-2xl border border-line p-4">
-                    <legend className="px-1.5 text-sm font-semibold">{multi ? `Size ${i + 1}${v.variantLabel ? `: ${v.variantLabel}` : ""}` : "Stock and pricing"}</legend>
+                    <legend className="px-1.5 text-sm font-semibold">{multi ? `Size ${i + 1}${v.variantLabel ? `: ${v.variantLabel}` : ""}` : `Stock and pricing${v.variantLabel.trim() ? ` · ${v.variantLabel.trim()}` : ""}`}</legend>
                     <div className="space-y-4">
-                      {(multi || v.variantLabel) && (
-                        <div className="grid gap-3 sm:grid-cols-2">
-                          <Field label="Size label" hint="For example 5mg or 10mg.">
-                            <Input
-                              value={v.variantLabel}
-                              maxLength={40}
-                              onChange={(e) => {
-                                const follows = v.name === sellName(v) || !v.name;
-                                const next = { ...v, variantLabel: e.target.value };
-                                setV(v.id, { variantLabel: e.target.value, ...(follows ? { name: sellName(next) } : {}) });
-                              }}
-                            />
-                          </Field>
-                          <Field label="Name on the Sell screen" hint="Also used in sales history.">
-                            <Input value={v.name} maxLength={120} onChange={(e) => setV(v.id, { name: e.target.value })} />
-                          </Field>
-                        </div>
-                      )}
+                      {/* Every variant has a size, also a product with only one size. */}
                       <div className="grid grid-cols-2 gap-3">
+                        <Field label="Size" hint={multi ? "Required. For example 5mg or 10mg." : "For example 10mg or 5mg / 5mg."}>
+                          <Input
+                            data-size-input
+                            value={v.variantLabel}
+                            maxLength={40}
+                            placeholder={nameSize && !multi ? nameSize : "10mg"}
+                            onChange={(e) => {
+                              const follows = v.name === sellName(v) || !v.name;
+                              const next = { ...v, variantLabel: e.target.value };
+                              setV(v.id, { variantLabel: e.target.value, ...(follows ? { name: sellName(next) } : {}) });
+                            }}
+                          />
+                        </Field>
+                        <Field label="Vial volume" hint="Optional. For example 3ml.">
+                          <Input data-volume-input value={v.vialVolume} maxLength={20} placeholder="3ml" onChange={(e) => setV(v.id, { vialVolume: e.target.value })} />
+                        </Field>
+                      </div>
+                      <Field label="Name on the Sell screen" hint="Also used in sales history.">
+                        <Input value={v.name} maxLength={120} placeholder={sellName(v) || "BPC-157 10mg"} onChange={(e) => setV(v.id, { name: e.target.value })} />
+                      </Field>
+                      {/* One column on phones: each field has - / + buttons and needs the width. */}
+                      <div className="grid gap-3 sm:grid-cols-2">
                         <Field label="Sell price">
                           <MoneyInput value={v.defaultPriceCents} onChange={(c) => setV(v.id, { defaultPriceCents: c ?? 0 })} />
                         </Field>
@@ -503,11 +511,11 @@ export function QtyDealsEditor({ value, onChange }: { value: QtyDeal[]; onChange
   return (
     <div className="space-y-2">
       {value.map((d, i) => (
-        <div key={i} className="flex items-center gap-2">
+        <div key={i} className="flex flex-wrap items-center gap-2">
           <span className="text-sm text-muted">Buy</span>
-          <NumberInput className="w-20" value={d.minQty} min={2} max={1000} onChange={(n) => onChange(value.map((x, k) => (k === i ? { ...x, minQty: n ?? 2 } : x)))} />
+          <NumberInput className="w-36" label="minimum quantity" value={d.minQty} min={2} max={1000} onChange={(n) => onChange(value.map((x, k) => (k === i ? { ...x, minQty: n ?? 2 } : x)))} />
           <span className="text-sm text-muted">or more, get</span>
-          <NumberInput className="w-24" value={d.percentOff} min={1} max={90} suffix="%" onChange={(n) => onChange(value.map((x, k) => (k === i ? { ...x, percentOff: n ?? 1 } : x)))} />
+          <NumberInput className="w-36" label="percent off" value={d.percentOff} min={1} max={90} suffix="%" onChange={(n) => onChange(value.map((x, k) => (k === i ? { ...x, percentOff: n ?? 1 } : x)))} />
           <span className="text-sm text-muted">off</span>
           <button type="button" aria-label="Remove tier" onClick={() => onChange(value.filter((_, k) => k !== i))} className="ml-auto flex h-10 w-10 items-center justify-center rounded-lg text-muted hover:bg-neg/10 hover:text-neg">
             <Trash2 size={16} />
