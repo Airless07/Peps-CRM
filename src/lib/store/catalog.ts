@@ -7,6 +7,7 @@ import type { AppData, CoaRec, ListingRec, ProductRec, QtyDeal, TestingStatus } 
 import { TESTING_LABEL } from "../types";
 import type { PricedVariant } from "./pricing";
 import { withSize } from "../size";
+import { dealText, getSide, inItems, liveDeals } from "../bogo";
 
 export type StockLevel = "in" | "low" | "out";
 export const STOCK_LABEL: Record<StockLevel, string> = { in: "In stock", low: "Low stock", out: "Sold out" };
@@ -53,6 +54,8 @@ export interface PublicProduct {
   priceToCents: number;
   stock: StockLevel;
   bestSeller: boolean;
+  /** Live online BOGO deals on this product, in the words customers see ("Buy 1 GHK-Cu, get 1 free"). */
+  deals: string[];
   /** The owner ticked "Best seller" on this product (a manual pick, whatever the best seller mode is). */
   featured: boolean;
   /** Position in the best selling order (0 = top). Not a sales figure. */
@@ -109,7 +112,8 @@ export function unitsSoldByVariant(data: Pick<AppData, "orders">, now: Date, day
   const since = now.getTime() - days * DAY;
   const out = new Map<string, number>();
   for (const o of data.orders) {
-    if (new Date(o.date).getTime() < since) continue;
+    // Owner purchases (partners buying at cost) are not sales.
+    if (o.owner || new Date(o.date).getTime() < since) continue;
     for (const l of o.lines) if (l.productId) out.set(l.productId, (out.get(l.productId) ?? 0) + l.quantity);
   }
   return out;
@@ -120,6 +124,8 @@ export function buildCatalog(data: AppData, ledger: Ledger, now = new Date()): P
   const coasByVariant = new Map<string, CoaRec[]>();
   for (const c of data.coas) coasByVariant.set(c.productId, [...(coasByVariant.get(c.productId) ?? []), c]);
 
+  const deals = liveDeals(data.promotions, now, "online");
+  const names = { listing: (id: string) => data.listings.find((l) => l.id === id)?.name, variant: (id: string) => { const v = data.products.find((p) => p.id === id); const l = v && data.listings.find((x) => x.id === v.listingId); return v ? (l ? variantDisplayName(l, v) : v.name) : undefined; } };
   const draft: (PublicProduct & { units: number })[] = [];
   for (const l of data.listings) {
     if (!l.showOnWebsite) continue;
@@ -168,6 +174,7 @@ export function buildCatalog(data: AppData, ledger: Ledger, now = new Date()): P
       priceToCents: Math.max(...prices),
       stock: variants.some((v) => v.stock === "in") ? "in" : variants.some((v) => v.stock === "low") ? "low" : "out",
       bestSeller: false,
+      deals: deals.filter((d) => vs.some((v) => inItems(d.bogo!.buy, v.id, l.id) || inItems(getSide(d.bogo!), v.id, l.id))).map((d) => dealText(d, names)),
       featured: l.bestSeller,
       sellRank: 0,
       createdAt: l.createdAt,
@@ -221,6 +228,7 @@ export function pricedVariants(data: AppData): PricedVariant[] {
         name: variantDisplayName(l, v),
         priceCents: v.defaultPriceCents,
         qtyDeals: resolveQtyDeals(l, data.store.qtyDeals),
+        listingName: l.name,
       });
     }
   }

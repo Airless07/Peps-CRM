@@ -73,6 +73,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
             <h1 className="text-2xl font-semibold tabular-nums tracking-tight">Order #{order.number ?? "—"}</h1>
             <Badge tone={STATUS_TONE[order.status]}>{statusLabel(order)}</Badge>
             {order.archived && <Badge>Archived</Badge>}
+            {order.owner && <Badge tone="accent">Owner purchase · {s.name(order.owner)}</Badge>}
           </div>
           <div className="mt-1 text-sm text-muted">
             {online ? "Online" : "In person"} · {fmtDateTime(orderPlaced(order))} · {customerName(order)}
@@ -100,10 +101,13 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
               {order.lines.map((l) => (
                 <li key={l.id} className="flex items-baseline justify-between gap-3 py-2.5 text-[15px]">
                   <span className="min-w-0">
+                    {l.dealId && <span className="mr-1.5 rounded-md bg-accent/15 px-1.5 py-0.5 text-xs font-semibold text-accent">BOGO</span>}
                     <span className="font-medium">{lineName(l)}</span>
                     <span className="ml-2 tabular-nums text-muted">
-                      {l.quantity} × {fmtMoney(l.unitPriceCents)}
+                      {l.quantity} × {l.fullPriceCents != null && l.fullPriceCents !== l.unitPriceCents && <s className="mr-1">{fmtMoney(l.fullPriceCents)}</s>}
+                      {fmtMoney(l.unitPriceCents)}
                     </span>
+                    {l.dealName && <span className="block text-xs text-muted">{l.dealName}</span>}
                   </span>
                   <span className="shrink-0 font-medium tabular-nums">{fmtMoney(l.quantity * l.unitPriceCents)}</span>
                 </li>
@@ -244,6 +248,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
             <Row label="Method">{online && order.status === "awaiting_payment" ? `${payMethod(w?.payChoice ?? "")?.name ?? order.paymentMethod} (chosen)` : order.paymentMethod}</Row>
             {w?.paidAt && <Row label="Paid">{fmtDateTime(w.paidAt)}</Row>}
             <Row label="Sold by">{s.name(order.soldBy)}</Row>
+            {order.cashTo && <Row label="Cash received by">{s.name(order.cashTo)}</Row>}
             {order.note && <p className="mt-2 text-sm text-muted">Note: {order.note}</p>}
             {w?.hasScreenshot && (
               <div className="mt-3">

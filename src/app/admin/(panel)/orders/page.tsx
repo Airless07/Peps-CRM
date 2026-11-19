@@ -14,7 +14,7 @@ import { trackingUrl } from "@/lib/tracking";
 import type { OrderRec } from "@/lib/types";
 import { lineName } from "@/lib/size";
 
-type Source = "all" | "online" | "inperson";
+type Source = "all" | "online" | "inperson" | "owner";
 type View = "open" | "all" | "archived";
 const PAGE = 60;
 
@@ -40,7 +40,7 @@ export default function OrdersPage() {
     return everything
       .filter((o) => (view === "archived" ? o.archived : !o.archived))
       .filter((o) => view !== "open" || (o.source === "online" && !["delivered", "canceled"].includes(o.status)))
-      .filter((o) => source === "all" || o.source === source)
+      .filter((o) => source === "all" || (source === "owner" ? !!o.owner : o.source === source))
       .filter((o) => status === "any" || o.status === status)
       .filter(
         (o) =>
@@ -107,13 +107,14 @@ export default function OrdersPage() {
       <div className="mb-5 flex flex-wrap items-center gap-2">
         <Segmented<Source>
           size="sm"
-          className="w-full sm:w-72"
+          className="w-full sm:w-[26rem]"
           value={source}
           onChange={(v) => (setSource(v), setLimit(PAGE))}
           options={[
             { value: "all", label: "All sources" },
             { value: "online", label: "Online" },
             { value: "inperson", label: "In person" },
+            { value: "owner", label: "Owner purchases" },
           ]}
         />
         <label className="sr-only" htmlFor="status-filter">
@@ -177,6 +178,7 @@ export default function OrdersPage() {
                           #{o.number ?? "—"}
                         </Link>
                         <div className="text-xs text-muted">{o.source === "online" ? "Online" : "In person"}</div>
+                        {o.owner && <Badge tone="accent">Owner</Badge>}
                       </td>
                       <td className="px-3 py-3.5 tabular-nums text-muted">
                         <div className="text-ink">{fmtDate(orderPlaced(o))}</div>
@@ -217,6 +219,7 @@ export default function OrdersPage() {
                         <div className="flex items-center gap-2">
                           <span className="text-base font-semibold tabular-nums">#{o.number ?? "—"}</span>
                           <span className="text-xs text-muted">{o.source === "online" ? "Online" : "In person"}</span>
+                          {o.owner && <Badge tone="accent">Owner</Badge>}
                         </div>
                         <div className="mt-0.5 truncate font-medium">{customerName(o)}</div>
                         {o.web?.email && <div className="truncate text-sm text-muted">{o.web.email}</div>}

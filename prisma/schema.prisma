@@ -215,6 +215,10 @@ model Order {
   adminNote        String          @default("")
   /// When the unpaid-order reminder email was sent (once per order)
   reminderSentAt   DateTime?
+  /// Owner purchase at cost: "A" | "B" (which partner). Null = a normal sale.
+  owner            String?
+  /// Cash sales: who received the cash, "A" | "B". Null = not recorded.
+  cashTo           String?
   lines            OrderLine[]
   splitItems       SplitItem[]
   labels           LabelPurchase[]
@@ -247,6 +251,10 @@ model SavedOrder {
   /// JSON array of { id, productId, productName, quantity, unitPriceCents, unitCostCents, cutPercent, listPriceCents }
   linesJson     String   @default("[]")
   savedAt       DateTime @default(now())
+  /// Owner purchase at cost: "A" | "B". Null = normal.
+  owner         String?
+  /// Cash: who will receive it, "A" | "B". Null = the seller.
+  cashTo        String?
 }
 
 model Customer {
@@ -278,6 +286,11 @@ model OrderLine {
   unitCostCents  Int
   cutPercent     Float
   sortOrder      Int      @default(0)
+  /// Set when a BOGO deal discounted this line: the deal (Promotion id) and its name at the time
+  dealId         String   @default("")
+  dealName       String   @default("")
+  /// Price each before a BOGO deal or owner price. Null = no special price.
+  fullPriceCents Int?
 
   @@index([orderId])
 }
@@ -316,7 +329,7 @@ model OrderEvent {
 
 model Promotion {
   id               String         @id
-  /// "code" | "auto" | "free_shipping"
+  /// "code" | "auto" | "free_shipping" | "bogo"
   kind             String
   name             String         @default("")
   /// Uppercase, only for kind "code"
@@ -335,6 +348,8 @@ model Promotion {
   groupIdsJson     String         @default("[]")
   /// Free shipping rules only: JSON array of the shipping option ids it makes free ("standard" | "priority" | "express"). At least one.
   shippingTiersJson String        @default("[]")
+  /// BOGO deals only (kind "bogo"): JSON { buy, get, online, inPerson, noCodes }. See src/lib/bogo.ts
+  bogoJson         String         @default("")
   active           Boolean        @default(true)
   createdAt        DateTime       @default(now())
   uses             PromotionUse[]
@@ -397,6 +412,17 @@ model DataMigration {
   ranAt  DateTime @default(now())
   /// JSON: what it changed, for the record
   detail String   @default("")
+}
+
+/// Cash moved between the partners and the bank ("A" | "B" | "bank"). Business money stays the same.
+model CashHandoff {
+  id          String   @id
+  date        DateTime
+  fromHolder  String
+  toHolder    String
+  amountCents Int
+  note        String   @default("")
+  createdAt   DateTime @default(now())
 }
 
 model Split {

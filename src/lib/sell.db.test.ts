@@ -372,3 +372,66 @@ describe("Sell cart quick buttons in the database", () => {
     await prisma.settings.update({ where: { id: 1 }, data: { sellButtonsJson: "" } });
   });
 });
+
+describe("owner price, BOGO and cash in the database", () => {
+  it("an owner purchase is saved at cost with no discount or tip, even if the screen sent other numbers", async () => {
+    const before = await snapshot();
+    // The screen (or an old tab) sends a price, a discount and a tip: the server keeps cost only.
+    const { fromSavedId: _f, ...sale } = schemas.saleInput.parse({
+      ...draftLib.draftPayload(cart({ id: "own-1", owner: "A", customer: "", customerId: null })),
+      lines: [{ id: "ol-1", productId: "r10", productName: "Reta 10mg", quantity: 2, unitPriceCents: 7000, unitCostCents: 2000, cutPercent: 10 }],
+    });
+    await sell.recordSale(sale, ORIGIN);
+    const row = await orderRow("own-1");
+    expect(row).toMatchObject({ owner: "A", discountValue: 0, tipCents: 0, cashTo: "B" });
+    expect(row!.lines[0]).toMatchObject({ unitPriceCents: 2000, unitCostCents: 2000, fullPriceCents: null });
+    const after = await snapshot();
+    expect(after.orders["own-1"]).toMatchObject({ revenue: 4000, cost: 4000, profit: 0, a: 0, b: 0 });
+    expect(after.business - before.business).toBe(4000);
+    expect(after.pending).toEqual(before.pending);
+    expect(stockNum(after, "r10")).toBe(stockNum(before, "r10") - 2);
+  });
+
+  it("a BOGO line is saved with its deal, counts one use, and keeps cost and stock", async () => {
+    await prisma.promotion.create({ data: { id: "deal-reta", kind: "bogo", name: "Buy 1 Reta, get 1 free", discountType: "%", discountValue: 100, bogoJson: JSON.stringify({ buy: { listingIds: ["l-reta"], variantIds: [], qty: 1 }, get: { same: true, listingIds: [], variantIds: [], qty: 1, percentOff: 100 }, online: true, inPerson: true, noCodes: false }) } });
+    const data = await ser.loadAll();
+    const bogoLib = await import("./bogo");
+    const withDeal = bogoLib.applySellDeals(cart({ id: "bogo-1", discountValue: 0, tipCents: 0 }), { promotions: data.promotions, products: data.products });
+    expect(withDeal.lines.filter((l) => l.dealId)).toHaveLength(1);
+    const before = await snapshot();
+    await completeLikeTheSellScreen(withDeal);
+    const row = await orderRow("bogo-1");
+    expect(row!.lines.map((l) => [l.quantity, l.unitPriceCents, l.dealId, l.fullPriceCents])).toEqual([
+      [1, 7000, "", null],
+      [1, 0, "deal-reta", 7000],
+      [1, 3500, "", null],
+    ]);
+    expect(await prisma.promotionUse.count({ where: { promotionId: "deal-reta", orderId: "bogo-1" } })).toBe(1);
+    const after = await snapshot();
+    expect(after.orders["bogo-1"]).toMatchObject({ revenue: 10500, units: 3 });
+    // The free Reta still costs its $20: 2 Reta + 1 KPV at cost.
+    expect(after.orders["bogo-1"]).toMatchObject({ cost: 2 * before.stock["r10"].unitCost + before.stock["kpv"].unitCost, profit: 10500 - (2 * before.stock["r10"].unitCost + before.stock["kpv"].unitCost) });
+    expect(stockNum(after, "r10")).toBe(stockNum(before, "r10") - 2);
+    // Undo (delete) gives the use back.
+    await prisma.$transaction([prisma.promotionUse.deleteMany({ where: { orderId: "bogo-1" } }), prisma.order.delete({ where: { id: "bogo-1" } })]);
+    expect(await prisma.promotionUse.count({ where: { promotionId: "deal-reta" } })).toBe(0);
+    await prisma.promotion.delete({ where: { id: "deal-reta" } });
+  });
+
+  it("cash hand-offs are saved, survive a backup and restore, and never change business money", async () => {
+    await completeLikeTheSellScreen(cart({ id: "cash-1", soldBy: "A", cashTo: "B" }));
+    const before = await snapshot();
+    await prisma.cashHandoff.create({ data: { id: "h-1", date: new Date(NOW), fromHolder: "B", toHolder: "bank", amountCents: 5000, note: "Deposit" } });
+    const data = await ser.loadAll();
+    expect(data.orders.find((o) => o.id === "cash-1")?.cashTo).toBe("B");
+    expect(data.cashHandoffs).toEqual([expect.objectContaining({ id: "h-1", from: "B", to: "bank", amountCents: 5000, note: "Deposit" })]);
+    expect(await snapshot()).toEqual(before);
+    const backup = JSON.parse(JSON.stringify(await ser.loadBackup()));
+    await restoreMod.restore(backup);
+    const back = await ser.loadAll();
+    expect(back.cashHandoffs).toEqual(data.cashHandoffs);
+    expect(back.orders.find((o) => o.id === "cash-1")).toMatchObject({ cashTo: "B", owner: null });
+    expect(moneyOnly(await snapshot())).toEqual(moneyOnly(before));
+    await prisma.cashHandoff.deleteMany();
+  });
+});

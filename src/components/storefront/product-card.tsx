@@ -87,9 +87,9 @@ export function ProductCard({ p, priority, index = 0 }: { p: PublicProduct; prio
             // eslint-disable-next-line @next/next/no-img-element
             <img src={`/media/${p.hoverGif}`} alt="" loading="lazy" className="pointer-events-none absolute inset-0 hidden h-full w-full object-cover opacity-0 transition duration-500 group-hover:opacity-100 [@media(hover:hover)_and_(pointer:fine)]:block" />
           )}
-          {(p.badges.length > 0 || p.bestSeller) && (
+          {(p.badges.length > 0 || p.bestSeller || p.deals.length > 0) && (
             <div className="pointer-events-none absolute left-3 top-3 flex flex-wrap gap-1.5">
-              {[...new Set([...(p.bestSeller ? ["Best seller"] : []), ...p.badges])].slice(0, 2).map((b) => (
+              {[...new Set([...(p.deals.length > 0 ? ["BOGO"] : []), ...(p.bestSeller ? ["Best seller"] : []), ...p.badges])].slice(0, 2).map((b) => (
                 <span key={b} className="rounded-full bg-brand px-2.5 py-1 text-[11px] font-semibold text-white">
                   {b}
                 </span>
@@ -103,6 +103,11 @@ export function ProductCard({ p, priority, index = 0 }: { p: PublicProduct; prio
             <h3 className="text-[1.0625rem] font-semibold leading-snug group-hover:text-brand">{p.name}</h3>
             <span className="shrink-0 text-[15px] font-medium tabular-nums sm:pt-px">{priceRange(p)}</span>
           </div>
+          {p.deals.length > 0 && (
+            <p data-card-deal className="mt-1 text-[13px] font-semibold text-brand">
+              {p.deals[0]}
+            </p>
+          )}
           {p.summary && <p className="mt-1 line-clamp-2 text-sm leading-relaxed text-stone">{p.summary}</p>}
           <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
             <TestingBadge v={lead} short link={false} />

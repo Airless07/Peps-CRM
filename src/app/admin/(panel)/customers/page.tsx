@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { GitMerge, Search, Trash2, UserPlus, Users } from "lucide-react";
+import { GitMerge, Repeat2, Search, Trash2, UserPlus, Users } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useCart } from "@/components/cart";
+import { repeatOrderDraft } from "@/lib/sell-tools";
 import { OrderEditSheet } from "@/components/order-edit";
 import { api, useLoaded } from "@/components/store";
 import { useToast } from "@/components/toast";
@@ -9,7 +12,7 @@ import { Button, Card, Empty, Field, Input, PageHeader, PageSkeleton, Segmented,
 import { deleteCustomerData, mergeCustomersData, searchCustomers, updateCustomerData } from "@/lib/customers";
 import { dayKey, fmtDay, fmtMoney, fmtTime, plural, uid } from "@/lib/format";
 import { customerStats, daysAgo, type CustomerStats } from "@/lib/insights";
-import type { CustomerRec } from "@/lib/types";
+import type { CustomerRec, OrderRec } from "@/lib/types";
 import { lineName } from "@/lib/size";
 
 type Sort = "spent" | "recent" | "orders";
@@ -134,6 +137,8 @@ function CustomerSheet({ id, stats, onClose }: { id: string | null; stats: Custo
   const [form, setForm] = useState({ name: "", phone: "", notes: "" });
   const [mergeInto, setMergeInto] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
+  const cart = useCart();
+  const router = useRouter();
   // Keep the last customer on screen while the sheet animates closed
   const [shown, setShown] = useState<CustomerStats | null>(null);
 
@@ -157,6 +162,20 @@ function CustomerSheet({ id, stats, onClose }: { id: string | null; stats: Custo
     ? data.orders.filter((o) => o.customerId === c.id).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
     : [];
   const others = c ? data.customers.filter((x) => x.id !== c.id).sort((a, b) => a.name.localeCompare(b.name)) : [];
+
+  /** Load an order's items into the Sell cart at today's prices (stock warnings show in the cart). */
+  async function repeat(o: OrderRec) {
+    const cur = cart.draft;
+    if (cur.lines.length > 0) {
+      const ok = await confirm({ title: "Replace the current order?", body: "The Sell cart already has items. Repeating this order replaces them. Save the cart for later first if you want to keep it.", confirmText: "Replace", danger: true });
+      if (!ok) return;
+    }
+    const { draft, skipped } = repeatOrderDraft(o, { products: data.products, costOf: (pid) => s!.ledger.stock.get(pid)?.unitCost, cutPercent: data.settings.businessCutPercent, base: cur });
+    if (draft.lines.length === 0) return toast.show({ message: "None of these items are sold anymore.", tone: "error" });
+    cart.setDraft(draft);
+    if (skipped.length) toast.show({ message: `Left out (no longer sold): ${skipped.join(", ")}`, duration: 6000 });
+    router.push("/admin/sell?cart=1");
+  }
 
   async function save() {
     if (!c) return;
@@ -230,6 +249,11 @@ function CustomerSheet({ id, stats, onClose }: { id: string | null; stats: Custo
               <Stat label="Avg order" value={st.orders ? fmtMoney(st.avgOrder) : "—"} />
               <Stat label="Last order" value={st.lastOrder ? daysAgo(st.lastOrder) : "—"} />
             </div>
+            {orders.length > 0 && (
+              <Button variant="primary" size="lg" block onClick={() => repeat(orders[0])} data-repeat-last>
+                <Repeat2 size={18} /> Repeat last order
+              </Button>
+            )}
             <div className="rounded-2xl bg-surface2/70 px-4 py-3 text-sm">
               <span className="text-muted">Favorite product: </span>
               <span className="font-medium">
@@ -268,21 +292,25 @@ function CustomerSheet({ id, stats, onClose }: { id: string | null; stats: Custo
                     const r = s.ledger.orders.get(o.id);
                     const items = o.lines.map((l) => `${l.quantity > 1 ? l.quantity + "× " : ""}${lineName(l)}`).join(", ");
                     return (
-                      <button
-                        key={o.id}
-                        type="button"
-                        onClick={() => setEditing(o.id)}
-                        className="flex w-full items-start gap-3 px-4 py-3 text-left text-sm transition hover:bg-surface2/60 active:bg-surface2"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <div className="font-medium">
-                            {fmtDay(dayKey(o.date))} · {fmtTime(o.date)}
+                      <div key={o.id} className="flex items-center gap-1 pr-2" data-customer-order={o.id}>
+                        <button
+                          type="button"
+                          onClick={() => setEditing(o.id)}
+                          className="flex min-w-0 flex-1 items-start gap-3 px-4 py-3 text-left text-sm transition hover:bg-surface2/60 active:bg-surface2"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="font-medium">
+                              {fmtDay(dayKey(o.date))} · {fmtTime(o.date)}
+                            </div>
+                            <div className="mt-0.5 truncate text-muted">{items}</div>
+                            <div className="mt-0.5 text-xs text-muted">{o.paymentMethod}</div>
                           </div>
-                          <div className="mt-0.5 truncate text-muted">{items}</div>
-                          <div className="mt-0.5 text-xs text-muted">{o.paymentMethod}</div>
-                        </div>
-                        <div className="shrink-0 font-semibold tabular-nums">{fmtMoney(r?.total ?? 0)}</div>
-                      </button>
+                          <div className="shrink-0 font-semibold tabular-nums">{fmtMoney(r?.total ?? 0)}</div>
+                        </button>
+                        <Button size="sm" className="h-11 shrink-0" onClick={() => repeat(o)} aria-label={`Repeat the order from ${fmtDay(dayKey(o.date))}`}>
+                          <Repeat2 size={16} /> Repeat
+                        </Button>
+                      </div>
                     );
                   })}
                 </div>

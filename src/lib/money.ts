@@ -310,6 +310,8 @@ export function computeLedger(data: AppData): Ledger {
   function processOrder(o: OrderRec): OrderResult {
     const lines = [...o.lines].sort((x, y) => x.sortOrder - y.sortOrder);
     const totals = orderTotals({ ...o, lines });
+    // Owner purchase (a partner buying at cost): nothing is ever splittable, all of it is business money.
+    const owner = !!o.owner;
     const results: LineResult[] = [];
     let a = 0;
     let b = 0;
@@ -318,7 +320,7 @@ export function computeLedger(data: AppData): Ledger {
       const cost = l.quantity * l.unitCostCents;
       const profit = revenue - cost;
       const { normalFraction, payback } = receive(revenue);
-      const full = splittableAfterCut(profit, l.cutPercent);
+      const full = owner ? 0 : splittableAfterCut(profit, l.cutPercent);
       const splittable = normalFraction >= 1 ? full : floorC(full * normalFraction);
       const sh = splitByRatio(splittable, s.partnerARatio);
       a += sh.a;
@@ -350,7 +352,7 @@ export function computeLedger(data: AppData): Ledger {
     if (tip > 0) {
       const { normalFraction } = receive(tip);
       const normalPart = normalFraction >= 1 ? tip : floorC(tip * normalFraction);
-      if (normalPart > 0) {
+      if (normalPart > 0 && !owner) {
         if (s.tipHandling === "profit") {
           const cut = lines.length ? lines[0].cutPercent : s.businessCutPercent;
           const sh = splitByRatio(splittableAfterCut(normalPart, cut), s.partnerARatio);

@@ -1,6 +1,7 @@
 // Cart pricing. Pure: catalog + promotions in, every number the checkout shows out.
 // The same function prices the cart drawer, the checkout page and the order that is saved,
 // so they can never disagree.
+import { dealHints, dealText, liveDeals, pickDeals, type DealPlan, type DealSource } from "../bogo";
 import { discountAmount } from "../money";
 import type { PromotionRec, QtyDeal } from "../types";
 import type { ShippingTier, ShippingTierId, StoreSettings } from "./config";
@@ -13,6 +14,8 @@ export interface PricedVariant {
   priceCents: number;
   /** Tiers that apply to this product (already resolved: product override or store default). */
   qtyDeals: QtyDeal[];
+  /** The parent product's name (for BOGO wording). */
+  listingName?: string;
 }
 
 export interface CartItemInput {
@@ -33,14 +36,36 @@ export interface PricedLine {
   lineTotalCents: number;
 }
 
+export interface BogoRow {
+  dealId: string;
+  dealName: string;
+  variantId: string;
+  /** "BOGO: GHK-Cu 100mg" */
+  label: string;
+  /** Discounted units. */
+  quantity: number;
+  /** Regular price each. */
+  fullPriceCents: number;
+  /** Price each of the discounted units. */
+  unitPriceCents: number;
+  /** Total taken off. */
+  cents: number;
+}
+
 export interface CartPricing {
   lines: PricedLine[];
   /** Sum of regular prices. */
   listSubtotalCents: number;
   /** Saved through buy more, save more. */
   qtySavingsCents: number;
-  /** Subtotal after quantity savings: the order's subtotal. */
+  /** Subtotal after quantity savings and BOGO deals: the order's subtotal. */
   subtotalCents: number;
+  /** BOGO deals used, one row per discounted size: "BOGO: GHK-Cu 100mg", -$55.00. */
+  bogo: BogoRow[];
+  /** Taken off by BOGO deals (already inside subtotalCents). */
+  bogoCents: number;
+  /** "Add 1 more GHK-Cu to get it free". */
+  dealHints: { dealId: string; text: string }[];
   /** Discount from a code and/or an automatic deal (an order-level "$" discount). */
   discountCents: number;
   /** Promotions that were applied (code, automatic deal, free shipping rule). */
@@ -158,17 +183,47 @@ export function priceCart(input: {
     perListing.set(v.listingId, (perListing.get(v.listingId) ?? 0) + q);
   }
 
+  // BOGO deals. A product uses either its BOGO deal or buy-more savings, never both on the same units:
+  // a deal is only used when it makes the cart cheaper than the quantity tiers would.
+  const deals = liveDeals(input.promotions, now, "online");
+  const sources: DealSource[] = [...qty].map(([id, q]) => ({ key: id, variantId: id, listingId: byId.get(id)!.listingId, unitCents: byId.get(id)!.priceCents, qty: q }));
+  const cartPrice = (plans: DealPlan[]) => {
+    const onDeal = new Set(plans.flatMap((p) => [...p.listings]));
+    let sum = 0;
+    for (const [id, q] of qty) {
+      const v = byId.get(id)!;
+      sum += (onDeal.has(v.listingId) ? v.priceCents : discountedUnit(v.priceCents, qtyPercentOff(v.qtyDeals, perListing.get(v.listingId) ?? q))) * q;
+    }
+    return sum - plans.reduce((x, p) => x + p.cents, 0);
+  };
+  const plans = deals.length ? pickDeals(deals, sources, (p, chosen) => cartPrice([...chosen, p]) < cartPrice(chosen)) : [];
+  const dealListings = new Set(plans.flatMap((p) => [...p.listings]));
+
   const lines: PricedLine[] = [];
   for (const [id, q] of qty) {
     const v = byId.get(id)!;
-    const percentOff = qtyPercentOff(v.qtyDeals, perListing.get(v.listingId) ?? q);
+    const percentOff = dealListings.has(v.listingId) ? 0 : qtyPercentOff(v.qtyDeals, perListing.get(v.listingId) ?? q);
     const unit = discountedUnit(v.priceCents, percentOff);
     lines.push({ variantId: id, listingId: v.listingId, name: v.name, quantity: q, listPriceCents: v.priceCents, unitPriceCents: unit, percentOff, lineTotalCents: unit * q });
   }
+  const bogo: BogoRow[] = [];
+  for (const p of plans) {
+    for (const [vid, g] of p.gets) {
+      const v = byId.get(vid)!;
+      bogo.push({ dealId: p.deal.id, dealName: p.deal.name.trim() || "BOGO", variantId: vid, label: `BOGO: ${v.name}`, quantity: g.qty, fullPriceCents: v.priceCents, unitPriceCents: v.priceCents - g.offEachCents, cents: g.qty * g.offEachCents });
+    }
+  }
+  const bogoCents = bogo.reduce((s, b) => s + b.cents, 0);
+  const bogoOn = (vid: string) => bogo.filter((b) => b.variantId === vid).reduce((s, b) => s + b.cents, 0);
+  /** Lines after their BOGO discount: what codes and automatic deals apply to. */
+  const netLines = lines.map((l) => ({ ...l, lineTotalCents: l.lineTotalCents - bogoOn(l.variantId) }));
   const listSubtotalCents = lines.reduce((s, l) => s + l.listPriceCents * l.quantity, 0);
-  const subtotalCents = lines.reduce((s, l) => s + l.lineTotalCents, 0);
+  const subtotalCents = lines.reduce((s, l) => s + l.lineTotalCents, 0) - bogoCents;
+  const names = { listing: (lid: string) => input.variants.find((v) => v.listingId === lid)?.listingName, variant: (vid: string) => byId.get(vid)?.name };
+  const hints = dealHints(deals, sources, names, plans);
+  const noCodeDeal = plans.find((p) => p.rule.noCodes);
 
-  const applied: CartPricing["applied"] = [];
+  const applied: CartPricing["applied"] = plans.map((p) => ({ id: p.deal.id, kind: "bogo" as const, label: dealText(p.deal, names), cents: p.cents }));
   let remaining = subtotalCents;
   let codeError = "";
   let usedCode = "";
@@ -178,8 +233,9 @@ export function priceCart(input: {
   if (typed) {
     const p = input.promotions.find((x) => x.kind === "code" && x.code.toUpperCase() === typed);
     if (!p) codeError = "That code was not found. Check the spelling and try again.";
+    else if (noCodeDeal) codeError = `Discount codes can’t be used with the “${dealText(noCodeDeal.deal, names)}” deal.`;
     else {
-      const eligible = eligibleSubtotal(p, lines, byId);
+      const eligible = eligibleSubtotal(p, netLines, byId);
       codeError = promoBlock(p, eligible, now, email);
       if (!codeError) {
         const cents = Math.min(remaining, discountAmount(p.discountType, p.discountValue, eligible));
@@ -196,7 +252,7 @@ export function priceCart(input: {
   let bestAuto: { p: PromotionRec; cents: number } | null = null;
   for (const p of input.promotions) {
     if (p.kind !== "auto") continue;
-    const eligible = eligibleSubtotal(p, lines, byId);
+    const eligible = eligibleSubtotal(p, netLines, byId);
     if (promoBlock(p, eligible, now, email)) continue;
     const cents = Math.min(remaining, discountAmount(p.discountType, p.discountValue, eligible));
     if (cents > 0 && (!bestAuto || cents > bestAuto.cents)) bestAuto = { p, cents };
@@ -224,8 +280,11 @@ export function priceCart(input: {
   return {
     lines,
     listSubtotalCents,
-    qtySavingsCents: listSubtotalCents - subtotalCents,
+    qtySavingsCents: listSubtotalCents - subtotalCents - bogoCents,
     subtotalCents,
+    bogo,
+    bogoCents,
+    dealHints: hints,
     discountCents: subtotalCents - remaining,
     applied,
     codeError,
@@ -234,6 +293,21 @@ export function priceCart(input: {
     freeTiers,
     freeShippingLabel,
   };
+}
+
+/**
+ * The order lines a priced cart is saved as. A size with BOGO units gets two lines: the units at their
+ * normal price, and the discounted units on their own line (with the deal and the price before it).
+ */
+export function orderLinesOf(p: Pick<CartPricing, "lines" | "bogo">): { variantId: string; name: string; quantity: number; unitPriceCents: number; dealId: string; dealName: string; fullPriceCents: number | null }[] {
+  const out: ReturnType<typeof orderLinesOf> = [];
+  for (const l of p.lines) {
+    const rows = p.bogo.filter((b) => b.variantId === l.variantId);
+    const rest = l.quantity - rows.reduce((s, b) => s + b.quantity, 0);
+    if (rest > 0) out.push({ variantId: l.variantId, name: l.name, quantity: rest, unitPriceCents: l.unitPriceCents, dealId: "", dealName: "", fullPriceCents: null });
+    for (const b of rows) out.push({ variantId: l.variantId, name: l.name, quantity: b.quantity, unitPriceCents: b.unitPriceCents, dealId: b.dealId, dealName: b.dealName, fullPriceCents: b.fullPriceCents });
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------- Shipping
@@ -281,7 +355,9 @@ export function promoHeadlines(promotions: PromotionRec[], now = new Date(), shi
     if (p.kind === "free_shipping") {
       if (p.shippingTiers.length > 0) out.push({ text: `${freeShippingText(p.shippingTiers, shippingTiers)}${min}`, code: "" });
     }
-    else if (p.kind === "auto") out.push({ text: `${promoValueLabel(p)}${min}${left !== null ? `: ${left} left` : ""}`, code: "" });
+    else if (p.kind === "bogo") {
+      if (p.bogo?.online && p.name.trim()) out.push({ text: p.name.trim(), code: "" });
+    } else if (p.kind === "auto") out.push({ text: `${promoValueLabel(p)}${min}${left !== null ? `: ${left} left` : ""}`, code: "" });
     else if (p.kind === "code" && p.listingIds.length === 0 && p.groupIds.length === 0 && !p.oncePerEmail && left === null) {
       // Only open, unlimited codes are advertised automatically.
       out.push({ text: `${promoValueLabel(p)}${min} with code`, code: p.code });

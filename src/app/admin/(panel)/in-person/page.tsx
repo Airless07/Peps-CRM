@@ -20,6 +20,7 @@ export default function OrdersPage() {
   const [to, setTo] = useState("");
   const [seller, setSeller] = useState<"all" | Partner>("all");
   const [payment, setPayment] = useState<string>("all");
+  const [kind, setKind] = useState<"all" | "sales" | "owner">("all");
   const [showFilters, setShowFilters] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [tab, setTab] = useState<"done" | "saved">("done");
@@ -40,6 +41,7 @@ export default function OrdersPage() {
       .filter((o) => !needle || o.customer.toLowerCase().includes(needle) || o.note.toLowerCase().includes(needle))
       .filter((o) => seller === "all" || o.soldBy === seller)
       .filter((o) => payment === "all" || o.paymentMethod === payment)
+      .filter((o) => kind === "all" || (kind === "owner" ? !!o.owner : !o.owner))
       .filter((o) => !from || dayKey(o.date) >= from)
       .filter((o) => !to || dayKey(o.date) <= to)
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -49,13 +51,13 @@ export default function OrdersPage() {
       map.set(k, [...(map.get(k) ?? []), o]);
     }
     return [...map.entries()];
-  }, [s, q, from, to, seller, payment]);
+  }, [s, q, from, to, seller, payment, kind]);
 
   if (!s) return <PageSkeleton />;
   const { data, ledger, name } = s;
   const split = splitOrderIds(data);
   const inPerson = data.orders.filter((o) => o.source === "inperson");
-  const filtersOn = !!from || !!to || seller !== "all" || payment !== "all";
+  const filtersOn = !!from || !!to || seller !== "all" || payment !== "all" || kind !== "all";
   // Methods offered now, plus any older names still on orders (e.g. "Unknown" or a removed method)
   const used = new Set(inPerson.map((o) => o.paymentMethod));
   const paymentOptions = [
@@ -119,6 +121,17 @@ export default function OrdersPage() {
               ]}
             />
           </Field>
+          <Field label="Type">
+            <Segmented
+              value={kind}
+              onChange={setKind}
+              options={[
+                { value: "all", label: "All" },
+                { value: "sales", label: "Sales" },
+                { value: "owner", label: "Owner purchases" },
+              ]}
+            />
+          </Field>
           <Field label="Payment method">
             <Select value={payment} onChange={(e) => setPayment(e.target.value)}>
               <option value="all">All payment methods</option>
@@ -137,6 +150,7 @@ export default function OrdersPage() {
                 setTo("");
                 setSeller("all");
                 setPayment("all");
+                setKind("all");
               }}
             >
               Clear filters
@@ -185,11 +199,13 @@ export default function OrdersPage() {
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
                             <span className="truncate font-medium">{o.customer || "Walk-in"}</span>
+                            {o.owner && <Badge tone="accent">Owner · {name(o.owner)}</Badge>}
                             {split.has(o.id) && <Badge>Split</Badge>}
                           </div>
                           <div className="mt-0.5 truncate text-sm text-muted">{items}</div>
                           <div className="mt-0.5 text-xs text-muted">
                             {fmtTime(o.date)} · {name(o.soldBy)} · {o.paymentMethod}
+                            {o.cashTo ? ` (cash with ${name(o.cashTo)})` : ""}
                             {o.note ? ` · ${o.note}` : ""}
                           </div>
                         </div>

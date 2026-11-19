@@ -38,6 +38,8 @@ export default defineConfig({
     { name: "sell", testMatch: /sell\.spec\.ts/, dependencies: ["pages"] },
     // Phones: product cards open on the first touch tap (iPhone 14, WebKit, touch). Stands on its own: npx playwright test --project=mobile --no-deps
     { name: "mobile", testMatch: /mobile\.spec\.ts/, use: { ...devices["iPhone 14"], hasTouch: true }, dependencies: ["sell"] },
+    // Owner price, receipts, Today, cash held. Stands on its own: npx playwright test --project=owner --no-deps
+    { name: "owner", testMatch: /owner\.spec\.ts/, dependencies: ["mobile"] },
   ],
   webServer: {
     command: `npx next start -p ${PORT}`,

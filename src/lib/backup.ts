@@ -9,6 +9,7 @@ import { uniqueSlug } from "./store/slug";
 import { cleanSellButtons } from "./sell-buttons";
 import type {
   AppData,
+  CashHandoffRec,
   CoaRec,
   CustomerRec,
   GroupRec,
@@ -171,13 +172,15 @@ export function normalizeBackup(raw: Loose & { orders: Loose[] }, makeId: () => 
     listings,
     groups: arr<GroupRec>(data.groups),
     coas: arr<CoaRec>(data.coas),
-    promotions: arr<PromotionRec>(data.promotions).map((p) => ({ ...p, uses: arr(p.uses) })),
+    promotions: arr<PromotionRec>(data.promotions).map((p) => ({ ...p, uses: arr(p.uses), bogo: p.kind === "bogo" ? p.bogo ?? null : null })),
     reviews: arr<ReviewRec>(data.reviews),
     messages: arr<MessageRec>(data.messages),
     // Saved (open) orders: missing in older backups. Kept apart from orders, so they never count in money.
     savedOrders: arr<SavedOrderRec>(data.savedOrders)
       .filter((s) => s && typeof s.id === "string" && Array.isArray(s.lines) && s.lines.length > 0)
       .map((s) => ({ ...s, lines: s.lines.map((l) => ({ ...l, listPriceCents: typeof l.listPriceCents === "number" ? l.listPriceCents : null })) })),
+    // Cash hand-offs: missing in older backups.
+    cashHandoffs: arr<CashHandoffRec>(data.cashHandoffs).filter((h) => h && typeof h.id === "string" && typeof h.amountCents === "number"),
     events: arr<OrderEventRec>(data.events),
     store,
     content,

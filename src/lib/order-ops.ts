@@ -25,7 +25,7 @@ import { buyRate, parcelFor, pickRate, quoteRates, ratesByTier, registerTracking
 import { pricedVariants } from "./store/catalog";
 import { parseContent, parseStore, type ShippingTierId, type StoreSettings } from "./store/config";
 import { checkoutMethods, payInstructions, payMethod } from "./store/payments";
-import { priceCart, shippingOptions, type CartItemInput } from "./store/pricing";
+import { orderLinesOf, priceCart, shippingOptions, type CartItemInput } from "./store/pricing";
 import type { Address, AppData, OrderRec, PromoSnapshot } from "./types";
 import { track } from "./analytics";
 
@@ -189,12 +189,16 @@ export async function placeOrder(input: CheckoutInput): Promise<{ id: string; to
         promoJson: JSON.stringify(promo),
         token,
         lines: {
-          create: pricing.lines.map((l, i) => ({
+          // BOGO units are their own lines at the lower price, so their cost still counts once paid.
+          create: orderLinesOf(pricing).map((l, i) => ({
             id: randomUUID(),
             productId: l.variantId,
             productName: l.name,
             quantity: l.quantity,
             unitPriceCents: l.unitPriceCents,
+            dealId: l.dealId,
+            dealName: l.dealName,
+            fullPriceCents: l.fullPriceCents,
             // Cost and cut are snapshotted when the order is marked paid (that is when it becomes a sale).
             unitCostCents: 0,
             cutPercent: data.settings.businessCutPercent,

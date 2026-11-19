@@ -158,7 +158,7 @@ export const groupInput = z.object({ id: idStr, name: text(60).min(1, "The group
 
 export const promotionInput = z.object({
   id: idStr,
-  kind: z.enum(["code", "auto", "free_shipping"]),
+  kind: z.enum(["code", "auto", "free_shipping", "bogo"]),
   name: text(80).default(""),
   code: z
     .string()
@@ -178,6 +178,23 @@ export const promotionInput = z.object({
   groupIds: z.array(idStr).max(50).default([]),
   /** Free shipping rules: which shipping options it makes free (at least one, checked in the route). */
   shippingTiers: z.array(z.enum(["standard", "priority", "express"])).max(3).default([]),
+  /** BOGO deals: the buy / get rule (checked in the route). */
+  bogo: z
+    .object({
+      buy: z.object({ listingIds: z.array(idStr).max(200).default([]), variantIds: z.array(idStr).max(500).default([]), qty: z.number().int().min(1).max(99).default(1) }),
+      get: z.object({
+        same: z.boolean().default(true),
+        listingIds: z.array(idStr).max(200).default([]),
+        variantIds: z.array(idStr).max(500).default([]),
+        qty: z.number().int().min(1).max(99).default(1),
+        percentOff: z.number().int().min(1).max(100).default(100),
+      }),
+      online: z.boolean().default(true),
+      inPerson: z.boolean().default(true),
+      noCodes: z.boolean().default(false),
+    })
+    .nullable()
+    .optional(),
   active: z.boolean().default(true),
 });
 

@@ -1,14 +1,19 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, X } from "lucide-react";
+import { ChevronDown, Crown, X } from "lucide-react";
 import { orderTotals } from "@/lib/money";
 import type { Draft, DraftLine } from "@/lib/draft";
 import { colorHex, fmtMoney, fromLocalInput, toLocalDateTimeInput, uid } from "@/lib/format";
 import { withSize } from "@/lib/size";
 import { discountButtonLabel, isDiscountButtonOn, tapDiscountButton, tapTipButton, tipButtonLabel } from "@/lib/sell-buttons";
-import type { DiscountType } from "@/lib/types";
-import { Field, Input, MoneyInput, NumberInput, Row, Segmented, Select, Stepper, cx } from "./ui";
+import { dealLineOff, isDealLine, sellDealHints } from "@/lib/bogo";
+import { isCash } from "@/lib/cash";
+import { ownerLine, setOwnerPrice, zeroCostLines } from "@/lib/owner";
+import { heldBy } from "@/lib/saved-orders";
+import { recentCustomers } from "@/lib/sell-tools";
+import type { DiscountType, Partner } from "@/lib/types";
+import { Button, Field, Input, MoneyInput, NumberInput, Row, Segmented, Select, Sheet, Stepper, cx, useConfirm } from "./ui";
 import { useLoaded } from "./store";
 import { CustomerPicker } from "./customer-picker";
 
@@ -19,11 +24,16 @@ const chipOff = "border-line bg-surface text-ink hover:bg-surface2";
 
 export function OrderForm({ draft, onChange, mode }: { draft: Draft; onChange: (d: Draft) => void; mode: "cart" | "edit" }) {
   const s = useLoaded();
+  const confirm = useConfirm();
   const [customTip, setCustomTip] = useState(false);
+  const [askOwner, setAskOwner] = useState(false);
   if (!s) return null;
   const { data, ledger, name } = s;
   const totals = orderTotals(draft);
+  const owner = draft.owner ?? null;
   const productColor = (pid: string | null) => colorHex(data.products.find((p) => p.id === pid)?.color ?? "slate");
+  const costOf = (pid: string) => ledger.stock.get(pid)?.unitCost;
+  const priceOf = (pid: string) => data.products.find((p) => p.id === pid)?.defaultPriceCents;
 
   const setLine = (id: string, patch: Partial<DraftLine>) =>
     onChange({ ...draft, lines: draft.lines.map((l) => (l.id === id ? { ...l, ...patch } : l)) });
@@ -31,22 +41,33 @@ export function OrderForm({ draft, onChange, mode }: { draft: Draft; onChange: (
   const addLine = (pid: string) => {
     const p = data.products.find((x) => x.id === pid);
     if (!p) return;
-    onChange({
-      ...draft,
-      lines: [
-        ...draft.lines,
-        {
-          id: uid(),
-          productId: p.id,
-          productName: withSize(p.name, p.variantLabel),
-          quantity: 1,
-          unitPriceCents: p.defaultPriceCents,
-          unitCostCents: ledger.stock.get(p.id)?.unitCost ?? 0,
-          cutPercent: data.settings.businessCutPercent,
-        },
-      ],
-    });
+    const line: DraftLine = {
+      id: uid(),
+      productId: p.id,
+      productName: withSize(p.name, p.variantLabel),
+      quantity: 1,
+      unitPriceCents: p.defaultPriceCents,
+      unitCostCents: ledger.stock.get(p.id)?.unitCost ?? 0,
+      cutPercent: data.settings.businessCutPercent,
+    };
+    onChange({ ...draft, lines: [...draft.lines, owner ? ownerLine(line, costOf) : line] });
   };
+
+  /** Owner price on for a partner, after a warning when an item has no cost set. */
+  async function ownerOn(p: Partner) {
+    setAskOwner(false);
+    const free = zeroCostLines(draft.lines, costOf);
+    if (free.length > 0) {
+      const ok = await confirm({
+        title: "No cost set",
+        body: `${free.join(", ")} ${free.length === 1 ? "has" : "have"} no cost per unit ($0), so owner price would charge $0 for ${free.length === 1 ? "it" : "them"}. Set the cost in Inventory first, or continue anyway.`,
+        confirmText: "Use owner price anyway",
+      });
+      if (!ok) return;
+    }
+    setCustomTip(false);
+    onChange(setOwnerPrice(draft, p, { costOf, priceOf }));
+  }
 
   const setDiscount = (type: DiscountType, value: number) => onChange({ ...draft, discountType: type, discountValue: value });
   // Quick buttons: exactly the ones set in Settings, in that order.
@@ -57,8 +78,46 @@ export function OrderForm({ draft, onChange, mode }: { draft: Draft; onChange: (
     ? data.settings.paymentMethods
     : [...data.settings.paymentMethods, draft.paymentMethod];
 
+  // Stock left for each product after this order (a saved order's own held units count as available).
+  const saved = data.savedOrders.find((o) => o.id === draft.id) ?? null;
+  const editingOrder = mode === "edit" ? data.orders.find((o) => o.id === draft.id) : undefined;
+  const inDraft = (pid: string) => draft.lines.filter((l) => l.productId === pid).reduce((x, l) => x + l.quantity, 0);
+  const stockLeft = (pid: string) => {
+    const already = editingOrder ? editingOrder.lines.filter((l) => l.productId === pid).reduce((x, l) => x + l.quantity, 0) : 0;
+    return (ledger.stock.get(pid)?.stock ?? 0) + heldBy(saved, pid) + already - inDraft(pid);
+  };
+
+  const names = {
+    listing: (id: string) => data.listings.find((l) => l.id === id)?.name,
+    variant: (id: string) => {
+      const p = data.products.find((x) => x.id === id);
+      return p ? withSize(p.name, p.variantLabel) : undefined;
+    },
+  };
+  const hints = mode === "cart" ? sellDealHints(draft, { promotions: data.promotions, products: data.products, names }) : [];
+  const recent = mode === "cart" && !draft.customer.trim() ? recentCustomers(data, 5) : [];
+  const cash = isCash(draft.paymentMethod);
+  const cashTo: Partner = draft.cashTo ?? (draft.soldBy === "B" ? "B" : "A");
+  const dealOff = draft.lines.reduce((x, l) => x + dealLineOff(l), 0);
+  const ownerFull = owner ? draft.lines.reduce((x, l) => x + (l.fullPriceCents ?? l.unitPriceCents) * l.quantity, 0) : 0;
+
   return (
     <div className="space-y-6">
+      {owner && (
+        <div data-owner-tag className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-accent/40 bg-accent/10 px-3.5 py-2.5">
+          <Crown size={18} className="shrink-0 text-accent" />
+          <div className="min-w-0 flex-1 text-sm">
+            <div className="font-semibold text-accent">Owner price: {name(owner)}</div>
+            <div className="text-muted">Charged at cost. $0 profit, nothing to split. Discounts, tips and deals are off.</div>
+          </div>
+          {mode === "cart" && (
+            <Button size="sm" className="h-10" onClick={() => onChange(setOwnerPrice(draft, null, { costOf, priceOf }))}>
+              Turn off
+            </Button>
+          )}
+        </div>
+      )}
+
       {mode === "edit" && (
         <Field label="Date & time">
           <Input
@@ -72,18 +131,33 @@ export function OrderForm({ draft, onChange, mode }: { draft: Draft; onChange: (
       {/* Lines */}
       <div>
         <div className="divide-y divide-line">
-          {draft.lines.map((l) => (
-            <LineRow
-              key={l.id}
-              line={l}
-              color={productColor(l.productId)}
-              mode={mode}
-              onChange={(patch) => setLine(l.id, patch)}
-              onRemove={() => removeLine(l.id)}
-            />
-          ))}
+          {draft.lines.map((l) =>
+            isDealLine(l) ? (
+              <DealRow key={l.id} line={l} color={productColor(l.productId)} onRemove={() => removeLine(l.id)} />
+            ) : (
+              <LineRow
+                key={l.id}
+                line={l}
+                color={productColor(l.productId)}
+                mode={mode}
+                owner={!!owner}
+                stockNote={mode === "cart" && l.productId && stockLeft(l.productId) < 0 ? `Only ${Math.max(0, stockLeft(l.productId) + inDraft(l.productId))} in stock` : null}
+                onChange={(patch) => setLine(l.id, patch)}
+                onRemove={() => removeLine(l.id)}
+              />
+            ),
+          )}
         </div>
         {draft.lines.length === 0 && <p className="py-4 text-center text-sm text-muted">No items yet.</p>}
+        {hints.length > 0 && (
+          <ul className="mt-2 space-y-1.5">
+            {hints.map((h) => (
+              <li key={h.dealId} data-deal-hint className="rounded-xl bg-accent/10 px-3.5 py-2 text-sm font-medium text-accent">
+                {h.text}
+              </li>
+            ))}
+          </ul>
+        )}
         <div className="mt-2">
           <Select value="" onChange={(e) => e.target.value && addLine(e.target.value)} aria-label="Add item" className="h-11 text-[15px] text-muted">
             <option value="">+ Add item…</option>
@@ -98,72 +172,81 @@ export function OrderForm({ draft, onChange, mode }: { draft: Draft; onChange: (
         </div>
       </div>
 
-      {/* Discount */}
-      <div>
-        <div className="mb-2 flex items-center justify-between">
-          <span className="text-sm font-medium text-muted">Discount</span>
-          <Segmented
-            size="sm"
-            className="w-28"
-            value={draft.discountType}
-            onChange={(t) => setDiscount(t, 0)}
-            options={[
-              { value: "$", label: "$" },
-              { value: "%", label: "%" },
-            ]}
-          />
+      {/* Discount (hidden with owner price) */}
+      {!owner && (
+        <div>
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-sm font-medium text-muted">Discount</span>
+            <Segmented
+              size="sm"
+              className="w-28"
+              value={draft.discountType}
+              onChange={(t) => setDiscount(t, 0)}
+              options={[
+                { value: "$", label: "$" },
+                { value: "%", label: "%" },
+              ]}
+            />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {draft.discountType === "$" ? (
+              <MoneyInput className="w-44" label="discount" value={draft.discountValue} onChange={(c) => setDiscount("$", c ?? 0)} />
+            ) : (
+              <NumberInput className="w-44" label="discount" value={draft.discountValue} min={0} max={100} step={0.5} suffix="%" onChange={(n) => setDiscount("%", n ?? 0)} />
+            )}
+            {discountButtons.map((b) => (
+              <button
+                key={b.type + b.value}
+                type="button"
+                data-quick-discount
+                aria-pressed={isDiscountButtonOn(draft, b)}
+                className={cx(chip, "h-12", isDiscountButtonOn(draft, b) ? chipOn : chipOff)}
+                onClick={() => onChange(tapDiscountButton(draft, b))}
+              >
+                {discountButtonLabel(b)}
+              </button>
+            ))}
+            {mode === "cart" && (
+              <button type="button" data-owner-price className={cx(chip, "h-12 inline-flex items-center gap-1.5", chipOff)} onClick={() => setAskOwner(true)}>
+                <Crown size={16} /> Owner price
+              </button>
+            )}
+          </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {draft.discountType === "$" ? (
-            <MoneyInput className="w-44" label="discount" value={draft.discountValue} onChange={(c) => setDiscount("$", c ?? 0)} />
-          ) : (
-            <NumberInput className="w-44" label="discount" value={draft.discountValue} min={0} max={100} step={0.5} suffix="%" onChange={(n) => setDiscount("%", n ?? 0)} />
-          )}
-          {discountButtons.map((b) => (
-            <button
-              key={b.type + b.value}
-              type="button"
-              data-quick-discount
-              aria-pressed={isDiscountButtonOn(draft, b)}
-              className={cx(chip, "h-12", isDiscountButtonOn(draft, b) ? chipOn : chipOff)}
-              onClick={() => onChange(tapDiscountButton(draft, b))}
-            >
-              {discountButtonLabel(b)}
-            </button>
-          ))}
-        </div>
-      </div>
+      )}
 
-      {/* Tip */}
-      <div>
-        <span className="mb-2 block text-sm font-medium text-muted">Tip</span>
-        <div className="flex flex-wrap gap-2">
-          <button type="button" className={cx(chip, "h-12", draft.tipCents === 0 && !customTip ? chipOn : chipOff)} onClick={() => { setCustomTip(false); onChange({ ...draft, tipCents: 0 }); }}>
-            None
-          </button>
-          {tipPresets.map((c) => (
-            <button
-              key={c}
-              type="button"
-              data-quick-tip
-              className={cx(chip, "h-12", draft.tipCents === c && !customTip ? chipOn : chipOff)}
-              onClick={() => {
-                setCustomTip(false);
-                onChange(tapTipButton(draft, c));
-              }}
-            >
-              {tipButtonLabel(c)}
+      {/* Tip (hidden with owner price) */}
+      {!owner && (
+        <div>
+          <span className="mb-2 block text-sm font-medium text-muted">Tip</span>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className={cx(chip, "h-12", draft.tipCents === 0 && !customTip ? chipOn : chipOff)} onClick={() => { setCustomTip(false); onChange({ ...draft, tipCents: 0 }); }}>
+              None
             </button>
-          ))}
-          {customTip || (!tipIsPreset && draft.tipCents > 0) ? (
-            <MoneyInput className="w-44" label="tip" autoFocus={customTip} value={draft.tipCents} onChange={(c) => onChange({ ...draft, tipCents: c ?? 0 })} />
-          ) : (
-            <button type="button" className={cx(chip, "h-12", chipOff)} onClick={() => setCustomTip(true)}>
-              Custom
-            </button>
-          )}
+            {tipPresets.map((c) => (
+              <button
+                key={c}
+                type="button"
+                data-quick-tip
+                className={cx(chip, "h-12", draft.tipCents === c && !customTip ? chipOn : chipOff)}
+                onClick={() => {
+                  setCustomTip(false);
+                  onChange(tapTipButton(draft, c));
+                }}
+              >
+                {tipButtonLabel(c)}
+              </button>
+            ))}
+            {customTip || (!tipIsPreset && draft.tipCents > 0) ? (
+              <MoneyInput className="w-44" label="tip" autoFocus={customTip} value={draft.tipCents} onChange={(c) => onChange({ ...draft, tipCents: c ?? 0 })} />
+            ) : (
+              <button type="button" className={cx(chip, "h-12", chipOff)} onClick={() => setCustomTip(true)}>
+                Custom
+              </button>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Seller, payment, customer, note */}
       <div className="space-y-4">
@@ -196,6 +279,18 @@ export function OrderForm({ draft, onChange, mode }: { draft: Draft; onChange: (
             </div>
           </Field>
         </div>
+        {cash && draft.soldBy !== "W" && (
+          <Field label="Cash received by" hint="Who is holding this cash now. Shows on the Money page under Cash held.">
+            <Segmented<Partner>
+              value={cashTo}
+              onChange={(v) => onChange({ ...draft, cashTo: v })}
+              options={[
+                { value: "A", label: name("A") },
+                { value: "B", label: name("B") },
+              ]}
+            />
+          </Field>
+        )}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Customer (optional)">
             <CustomerPicker
@@ -204,6 +299,15 @@ export function OrderForm({ draft, onChange, mode }: { draft: Draft; onChange: (
               customers={data.customers}
               onChange={(v) => onChange({ ...draft, ...v })}
             />
+            {recent.length > 0 && (
+              <div data-recent-customers className="mt-2 flex flex-wrap gap-1.5">
+                {recent.map((c) => (
+                  <button key={c.id} type="button" className="h-10 max-w-[12rem] truncate rounded-full border border-line px-3 text-sm font-medium text-ink transition hover:bg-surface2 active:scale-95" onClick={() => onChange({ ...draft, customer: c.name, customerId: c.id })}>
+                    {c.name}
+                  </button>
+                ))}
+              </div>
+            )}
           </Field>
           <Field label="Note (optional)">
             <Input value={draft.note} onChange={(e) => onChange({ ...draft, note: e.target.value })} placeholder="Anything to remember" />
@@ -213,7 +317,21 @@ export function OrderForm({ draft, onChange, mode }: { draft: Draft; onChange: (
 
       {/* Breakdown */}
       <div className="rounded-2xl bg-surface2/70 px-4 py-3">
-        <Row label="Subtotal">{fmtMoney(totals.subtotal)}</Row>
+        {owner ? (
+          <>
+            <Row label="Normal price">
+              <s className="text-muted">{fmtMoney(ownerFull)}</s>
+            </Row>
+            <Row label={<span className="text-accent">Owner price (at cost)</span>}>{fmtMoney(totals.subtotal)}</Row>
+          </>
+        ) : (
+          <Row label="Subtotal">{fmtMoney(totals.subtotal + dealOff)}</Row>
+        )}
+        {dealOff > 0 && (
+          <Row label={<span className="text-neg">BOGO deals</span>}>
+            <span className="text-neg">-{fmtMoney(dealOff)}</span>
+          </Row>
+        )}
         {totals.discount > 0 && (
           <Row label={<span className="text-neg">Discount{draft.discountType === "%" ? ` (${draft.discountValue}%)` : ""}</span>}>
             <span className="text-neg">-{fmtMoney(totals.discount)}</span>
@@ -225,6 +343,41 @@ export function OrderForm({ draft, onChange, mode }: { draft: Draft; onChange: (
           {fmtMoney(totals.total)}
         </Row>
       </div>
+
+      <Sheet open={askOwner} onClose={() => setAskOwner(false)} title="Who is this for?">
+        <p className="mb-4 text-sm text-muted">Owner price charges every item at its cost per unit. Profit is $0, nothing goes to the split, and all of it stays in business money. Stock goes down like a normal sale.</p>
+        <div className="grid grid-cols-2 gap-3" data-owner-pick>
+          {(["A", "B"] as const).map((p) => (
+            <Button key={p} size="lg" variant="soft" onClick={() => ownerOn(p)}>
+              {name(p)}
+            </Button>
+          ))}
+        </div>
+      </Sheet>
+    </div>
+  );
+}
+
+/** A BOGO line: the discounted units of an item, read-only (the deal decides them). */
+function DealRow({ line, color, onRemove }: { line: DraftLine; color: string; onRemove: () => void }) {
+  const off = dealLineOff(line);
+  return (
+    <div className="py-3" data-deal-line>
+      <div className="flex items-center gap-2.5">
+        <span className="h-8 w-1.5 shrink-0 rounded-full" style={{ background: color }} />
+        <div className="min-w-0 flex-1">
+          <div className="truncate font-medium">
+            <span className="mr-1.5 rounded-md bg-accent/15 px-1.5 py-0.5 text-xs font-semibold text-accent">BOGO</span>
+            {line.quantity > 1 ? `${line.quantity}× ` : ""}
+            {line.productName || "Deleted product"}
+          </div>
+          <div className="truncate text-xs text-muted">{line.dealName}</div>
+        </div>
+        <div className="text-right text-sm font-medium tabular-nums text-neg">-{fmtMoney(off)}</div>
+        <button type="button" aria-label="Remove the BOGO item" onClick={onRemove} className="-mr-2 flex h-10 w-8 items-center justify-center text-muted transition hover:text-neg">
+          <X size={18} />
+        </button>
+      </div>
     </div>
   );
 }
@@ -233,12 +386,17 @@ function LineRow({
   line,
   color,
   mode,
+  owner,
+  stockNote,
   onChange,
   onRemove,
 }: {
   line: DraftLine;
   color: string;
   mode: "cart" | "edit";
+  owner: boolean;
+  /** "Only 2 in stock" when the order needs more than there is (cart only). */
+  stockNote: string | null;
   onChange: (p: Partial<DraftLine>) => void;
   onRemove: () => void;
 }) {
@@ -250,7 +408,12 @@ function LineRow({
         <span className="h-8 w-1.5 shrink-0 rounded-full" style={{ background: color }} />
         <div className="min-w-0 flex-1">
           <div className="truncate font-medium">{line.productName || "Deleted product"}</div>
-          {editPrice ? (
+          {owner ? (
+            <div className="whitespace-nowrap text-sm text-muted" data-owner-line>
+              {line.fullPriceCents != null && line.fullPriceCents !== line.unitPriceCents && <s className="mr-1.5">{fmtMoney(line.fullPriceCents)}</s>}
+              <span className="font-medium text-accent">{fmtMoney(line.unitPriceCents)}</span> each
+            </div>
+          ) : editPrice ? (
             <MoneyInput
               className="mt-1 w-full max-w-[11rem]"
               autoFocus
@@ -262,6 +425,11 @@ function LineRow({
               {fmtMoney(line.unitPriceCents)} each
             </button>
           )}
+          {stockNote && (
+            <div data-stock-warning className="text-xs font-medium text-warn">
+              {stockNote}
+            </div>
+          )}
         </div>
         <Stepper value={line.quantity} onChange={(q) => onChange({ quantity: q })} />
         <div className="w-[68px] text-right font-medium tabular-nums">{fmtMoney(line.quantity * line.unitPriceCents)}</div>
@@ -269,7 +437,7 @@ function LineRow({
           <X size={18} />
         </button>
       </div>
-      {editPrice && (
+      {editPrice && !owner && (
         <button type="button" className="ml-[18px] mt-1 text-xs font-medium text-accent" onClick={() => setEditPrice(false)}>
           Done
         </button>
@@ -283,7 +451,7 @@ function LineRow({
           {advanced && (
             <div className="mt-2 grid grid-cols-2 gap-3">
               <Field label="Unit cost">
-                <MoneyInput value={line.unitCostCents} onChange={(c) => onChange({ unitCostCents: c ?? 0 })} />
+                <MoneyInput value={line.unitCostCents} onChange={(c) => onChange(owner ? { unitCostCents: c ?? 0, unitPriceCents: c ?? 0 } : { unitCostCents: c ?? 0 })} />
               </Field>
               <Field label="Business cut">
                 <NumberInput value={line.cutPercent} min={0} max={100} step={0.5} suffix="%" onChange={(n) => onChange({ cutPercent: n ?? 0 })} />

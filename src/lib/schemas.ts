@@ -72,7 +72,13 @@ export const orderLineInput = z.object({
   unitPriceCents: posCents,
   unitCostCents: posCents,
   cutPercent: percent,
+  /** BOGO deal line: the deal id and name, and the price each before the deal. */
+  dealId: text(64).default(""),
+  dealName: text(120).default(""),
+  fullPriceCents: posCents.nullable().default(null),
 });
+
+const ownerField = partner.nullable().default(null);
 
 export const orderInput = z.object({
   id: idStr,
@@ -87,6 +93,10 @@ export const orderInput = z.object({
   discountValue: z.number().min(0).max(1_000_000_000).default(0),
   tipCents: posCents.default(0),
   lines: z.array(orderLineInput).min(1, "Add at least one item").max(200),
+  /** Owner purchase at cost for this partner. */
+  owner: ownerField,
+  /** Cash sales: who received the cash. */
+  cashTo: ownerField,
 });
 
 /** POST /api/orders: a sale, optionally completing a saved order (removed in the same transaction). */
@@ -107,7 +117,21 @@ export const savedOrderInput = z.object({
     .array(orderLineInput.extend({ listPriceCents: posCents.nullable().default(null) }))
     .min(1, "Add at least one item")
     .max(200),
+  owner: ownerField,
+  cashTo: ownerField,
 });
+
+const holder = z.enum(["A", "B", "bank"]);
+export const cashHandoffCreate = z
+  .object({
+    id: idStr,
+    date: dateStr,
+    from: holder,
+    to: holder,
+    amountCents: posCents.refine((n) => n > 0, "Enter how much cash moved"),
+    note: text().default(""),
+  })
+  .refine((h) => h.from !== h.to, "Pick two different places");
 
 const sellButtonList = <T extends z.ZodType>(item: T, what: string) =>
   z.array(item).min(MIN_SELL_BUTTONS, `Keep at least ${MIN_SELL_BUTTONS} ${what} button`).max(MAX_SELL_BUTTONS, `No more than ${MAX_SELL_BUTTONS} ${what} buttons`);

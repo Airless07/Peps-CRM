@@ -1,16 +1,18 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Scale, TrendingUp } from "lucide-react";
+import { ArrowRightLeft, Crown, Scale, Trash2, TrendingUp } from "lucide-react";
 import { BarChart, type Bucket } from "@/components/bar-chart";
 import { OrderEditSheet } from "@/components/order-edit";
 import { api, useLoaded } from "@/components/store";
 import { useToast } from "@/components/toast";
-import { Badge, Button, Card, Empty, Field, Input, Money, PageHeader, PageSkeleton, Row, SectionTitle, Segmented, Sheet, cx } from "@/components/ui";
-import { addDays, dayKey, fmtDay, fmtMoney, fmtTime, startOfDay, uid } from "@/lib/format";
+import { Badge, Button, Card, Empty, Field, Input, Money, MoneyInput, PageHeader, PageSkeleton, Row, SectionTitle, Segmented, Select, Sheet, cx, useConfirm } from "@/components/ui";
+import { addDays, dayKey, fmtDateTime, fmtDay, fmtMoney, fmtTime, fromLocalInput, startOfDay, toLocalDateTimeInput, uid } from "@/lib/format";
+import { cashPosition, handoffError } from "@/lib/cash";
+import { ownerSummary } from "@/lib/owner";
 import { paymentBreakdown } from "@/lib/insights";
 import { planSplit } from "@/lib/money";
-import type { SplitRec } from "@/lib/types";
+import type { CashHandoffRec, CashHolder, SplitRec } from "@/lib/types";
 
 type Period = "today" | "week" | "month" | "all" | "custom";
 
@@ -20,6 +22,7 @@ export default function MoneyPage() {
   const [from, setFrom] = useState(dayKey(addDays(new Date(), -29)));
   const [to, setTo] = useState(dayKey(new Date()));
   const [splitOpen, setSplitOpen] = useState(false);
+  const [handoffOpen, setHandoffOpen] = useState(false);
 
   const range = useMemo((): [string, string] | null => {
     const today = dayKey(new Date());
@@ -36,11 +39,14 @@ export default function MoneyPage() {
   const stats = useMemo(() => {
     if (!s) return null;
     const { data, ledger } = s;
-    const inRange = data.orders.filter((o) => {
+    const inPeriod = data.orders.filter((o) => {
       if (!range) return true;
       const k = dayKey(o.date);
       return k >= range[0] && k <= range[1];
     });
+    // Owner purchases (a partner buying at cost) are not sales: they stay out of every sales number and get their own section.
+    const inRange = inPeriod.filter((o) => !o.owner);
+    const owner = ownerSummary(inPeriod, ledger);
     const t = { revenue: 0, discount: 0, tip: 0, cost: 0, profit: 0, orders: inRange.length, units: 0 };
     const byProduct = new Map<string, { name: string; units: number; revenue: number; cost: number }>();
     const bySeller = new Map<string, { orders: number; revenue: number; tips: number; units: number }>();
@@ -132,6 +138,7 @@ export default function MoneyPage() {
         .filter((l) => !l.voided && (!range || (dayKey(l.date) >= range[0] && dayKey(l.date) <= range[1])))
         .reduce((x, l) => x + l.costCents, 0),
       payments: paymentBreakdown(inRange, data.settings.paymentMethods),
+      owner,
     };
   }, [s, range, period]);
 
@@ -197,6 +204,8 @@ export default function MoneyPage() {
           </Card>
         ))}
       </div>
+
+      <CashHeld onHandoff={() => setHandoffOpen(true)} />
 
       {/* Period */}
       <SectionTitle>Performance</SectionTitle>
@@ -374,7 +383,41 @@ export default function MoneyPage() {
         </Card>
       )}
 
+      <SectionTitle>Owner purchases</SectionTitle>
+      <Card className="p-4" data-owner-purchases>
+        {stats.owner.count === 0 ? (
+          <div className="flex items-center gap-3 text-sm text-muted">
+            <Crown size={18} className="shrink-0" />
+            None in this period. Owner price on the Sell screen charges a partner the cost per unit.
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div>
+                <div className="text-xs text-muted">Purchases</div>
+                <div className="text-lg font-semibold tabular-nums" data-owner-count>{stats.owner.count}</div>
+              </div>
+              <div>
+                <div className="text-xs text-muted">Total cost</div>
+                <div className="text-lg font-semibold tabular-nums" data-owner-cost>{fmtMoney(stats.owner.costCents)}</div>
+              </div>
+              {(["A", "B"] as const).map((p) => (
+                <div key={p} data-owner-by={p}>
+                  <div className="text-xs text-muted">{name(p)}</div>
+                  <div className="text-lg font-semibold tabular-nums">{fmtMoney(stats.owner.byOwner[p].costCents)}</div>
+                  <div className="text-[11px] text-muted">
+                    {stats.owner.byOwner[p].count} {stats.owner.byOwner[p].count === 1 ? "purchase" : "purchases"} · {stats.owner.byOwner[p].units} units
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+        <p className="mt-3 text-xs text-muted">Charged at cost: $0 profit and nothing to split. The money goes to business money and stock goes down, but these are left out of revenue, profit, orders, average order and sales by product above.</p>
+      </Card>
+
       <SplitSheet open={splitOpen} onClose={() => setSplitOpen(false)} />
+      <HandoffSheet open={handoffOpen} onClose={() => setHandoffOpen(false)} />
     </div>
   );
 }
@@ -496,5 +539,148 @@ function SplitSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
       </Sheet>
       <OrderEditSheet orderId={viewOrder} onClose={() => setViewOrder(null)} />
     </>
+  );
+}
+
+// ---------------------------------------------------------------- Cash held
+const HOLDERS: CashHolder[] = ["A", "B", "bank"];
+
+/** Where business money sits: cash with each partner, the rest in the bank. Plus the hand-off history. */
+function CashHeld({ onHandoff }: { onHandoff: () => void }) {
+  const s = useLoaded();
+  const confirm = useConfirm();
+  if (!s) return null;
+  const { data, ledger, name, mutate } = s;
+  const pos = cashPosition(data, ledger);
+  const label = (h: CashHolder) => (h === "bank" ? "Bank" : name(h));
+  const history = data.cashHandoffs ?? [];
+
+  async function remove(h: CashHandoffRec) {
+    if (!(await confirm({ title: "Delete this hand-off?", body: `${label(h.from)} to ${label(h.to)}, ${fmtMoney(h.amountCents)}. Cash held goes back to how it was before it.`, confirmText: "Delete", danger: true }))) return;
+    await mutate((d) => ({ ...d, cashHandoffs: (d.cashHandoffs ?? []).filter((x) => x.id !== h.id) }), () => api("/api/cash-handoffs", "DELETE", { id: h.id }));
+  }
+
+  return (
+    <>
+      <SectionTitle
+        right={
+          <Button size="sm" variant="soft" className="h-10" onClick={onHandoff} data-handoff-button>
+            <ArrowRightLeft size={16} /> Hand off cash
+          </Button>
+        }
+      >
+        Cash held
+      </SectionTitle>
+      <div className="grid grid-cols-3 gap-3" data-cash-held>
+        {HOLDERS.map((h) => (
+          <Card key={h} className="p-4" data-cash-holder={h}>
+            <div className="text-sm text-muted">{label(h)}</div>
+            <div className={cx("mt-0.5 text-xl font-semibold tabular-nums", pos[h] < 0 && "text-neg")}>{fmtMoney(pos[h])}</div>
+          </Card>
+        ))}
+      </div>
+      <p className="mt-2 text-xs text-muted">
+        Cash sales count with whoever received the cash. Bank is the rest of business money ({fmtMoney(pos.total)}). Hand-offs only move money between them, so business money stays the same. If a partner keeps cash as their payout, hand it off from them to Bank.
+      </p>
+      {history.length > 0 && (
+        <details className="mt-3 rounded-2xl border border-line bg-surface" data-handoff-history>
+          <summary className="flex min-h-12 cursor-pointer items-center px-4 text-sm font-medium">Hand-off history ({history.length})</summary>
+          <ul className="divide-y divide-line border-t border-line">
+            {history.map((h) => (
+              <li key={h.id} className="flex items-center gap-3 px-4 py-2.5 text-sm">
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium">
+                    {label(h.from)} → {label(h.to)}
+                  </div>
+                  <div className="truncate text-xs text-muted">
+                    {fmtDateTime(h.date)}
+                    {h.note ? ` · ${h.note}` : ""}
+                  </div>
+                </div>
+                <span className="font-semibold tabular-nums">{fmtMoney(h.amountCents)}</span>
+                <button type="button" aria-label="Delete hand-off" onClick={() => remove(h)} className="flex h-10 w-10 items-center justify-center rounded-xl text-muted hover:bg-surface2 hover:text-neg">
+                  <Trash2 size={16} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </>
+  );
+}
+
+function HandoffSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const s = useLoaded();
+  const toast = useToast();
+  const [from, setFrom] = useState<CashHolder>("A");
+  const [to, setTo] = useState<CashHolder>("bank");
+  const [amount, setAmount] = useState(0);
+  const [note, setNote] = useState("");
+  const [date, setDate] = useState(() => new Date().toISOString());
+  if (!s) return null;
+  const { data, ledger, name, mutate } = s;
+  const pos = cashPosition(data, ledger);
+  const label = (h: CashHolder) => (h === "bank" ? "Bank" : name(h));
+  const error = amount > 0 ? handoffError({ from, to, amountCents: amount }, pos) : "";
+
+  async function save() {
+    const err = handoffError({ from, to, amountCents: amount }, pos);
+    if (err) return toast.show({ message: err, tone: "error" });
+    const rec: CashHandoffRec = { id: uid(), date, from, to, amountCents: amount, note: note.trim(), createdAt: new Date().toISOString() };
+    onClose();
+    const ok = await mutate((d) => ({ ...d, cashHandoffs: [rec, ...(d.cashHandoffs ?? [])] }), () => api("/api/cash-handoffs", "POST", { id: rec.id, date: rec.date, from, to, amountCents: amount, note: rec.note }));
+    if (ok) {
+      toast.show({ message: `${label(from)} handed ${fmtMoney(amount)} to ${label(to)}`, tone: "success" });
+      setAmount(0);
+      setNote("");
+    }
+  }
+
+  return (
+    <Sheet
+      open={open}
+      onClose={onClose}
+      title="Hand off cash"
+      footer={
+        <Button variant="primary" size="lg" block disabled={amount <= 0 || !!error} onClick={save}>
+          Save hand-off
+        </Button>
+      }
+    >
+      <div className="space-y-4" data-handoff-sheet>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="From">
+            <Select value={from} onChange={(e) => setFrom(e.target.value as CashHolder)} aria-label="From">
+              {HOLDERS.map((h) => (
+                <option key={h} value={h}>
+                  {label(h)} ({fmtMoney(pos[h])})
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="To">
+            <Select value={to} onChange={(e) => setTo(e.target.value as CashHolder)} aria-label="To">
+              {HOLDERS.map((h) => (
+                <option key={h} value={h}>
+                  {label(h)}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
+        <Field label="Amount">
+          <MoneyInput label="amount" value={amount} min={0} onChange={(c) => setAmount(c ?? 0)} />
+        </Field>
+        {error && <p className="text-sm font-medium text-neg">{error}</p>}
+        <Field label="Date">
+          <Input type="datetime-local" value={toLocalDateTimeInput(date)} onChange={(e) => e.target.value && setDate(fromLocalInput(e.target.value))} />
+        </Field>
+        <Field label="Note (optional)">
+          <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Bank deposit, change for the float…" />
+        </Field>
+        <p className="text-xs text-muted">Business money stays {fmtMoney(pos.total)}. Only where it sits changes.</p>
+      </div>
+    </Sheet>
   );
 }

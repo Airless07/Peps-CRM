@@ -60,10 +60,11 @@ export default function DashboardPage() {
 
     const today = dayKey(startOfDay());
     const month = today.slice(0, 7);
-    const sum = (orders: OrderRec[]) => ({
-      orders: orders.length,
-      revenue: orders.reduce((x, o) => x + (ledger.orders.get(o.id)?.total ?? 0), 0),
-    });
+    // Owner purchases (partners buying at cost) are not sales.
+    const sum = (all: OrderRec[]) => {
+      const orders = all.filter((o) => !o.owner);
+      return { orders: orders.length, revenue: orders.reduce((x, o) => x + (ledger.orders.get(o.id)?.total ?? 0), 0) };
+    };
     const inDay = data.orders.filter((o) => dayKey(o.date) === today);
     const inMonth = data.orders.filter((o) => dayKey(o.date).startsWith(month));
     const split = (list: OrderRec[]) => ({ all: sum(list), online: sum(list.filter((o) => o.source === "online")), inperson: sum(list.filter((o) => o.source === "inperson")) });

@@ -53,9 +53,9 @@ export function ProductView({ p }: { p: PublicProduct }) {
           ) : (
             <Vial name={p.name} size={v.label} className="h-full w-full p-[16%]" />
           )}
-          {p.badges.length > 0 && (
+          {(p.badges.length > 0 || p.deals.length > 0) && (
             <div className="absolute left-4 top-4 flex flex-wrap gap-1.5">
-              {p.badges.slice(0, 3).map((b) => (
+              {[...(p.deals.length > 0 ? ["BOGO"] : []), ...p.badges].slice(0, 3).map((b) => (
                 <span key={b} className="rounded-full bg-brand px-3 py-1 text-xs font-semibold text-white">
                   {b}
                 </span>
@@ -134,6 +134,13 @@ export function ProductView({ p }: { p: PublicProduct }) {
           {percent > 0 && <s className="text-lg tabular-nums text-stone">{money(v.priceCents)}</s>}
           <span className="text-sm text-stone">per vial</span>
         </div>
+        {p.deals.length > 0 && (
+          <div data-product-deal className="mt-4 flex flex-wrap items-center gap-2 rounded-xl bg-brand/10 px-4 py-3 text-[15px] font-semibold text-brand">
+            <span className="rounded-full bg-brand px-2.5 py-0.5 text-xs text-white">BOGO</span>
+            {p.deals.join(" · ")}
+            <span className="w-full text-[13px] font-normal text-coal/70">Applied in the cart. It never stacks with buy-more savings on the same product: you get whichever saves more.</span>
+          </div>
+        )}
 
         {p.qtyDeals.length > 0 && (
           <div className="mt-6">

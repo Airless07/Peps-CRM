@@ -8,7 +8,7 @@ import { Bookmark } from "lucide-react";
 import { useCart } from "@/components/cart";
 import { api, useLoaded } from "@/components/store";
 import { useToast } from "@/components/toast";
-import { Button, Empty, Row, Sheet, cx, useConfirm } from "@/components/ui";
+import { Badge, Button, Empty, Row, Sheet, cx, useConfirm } from "@/components/ui";
 import { draftPayload, draftToOrder, lineCount, type Draft } from "@/lib/draft";
 import { fmtDateTime, fmtMoney, plural } from "@/lib/format";
 import { orderTotals } from "@/lib/money";
@@ -36,15 +36,16 @@ export function useSellActions() {
     });
   }
 
-  /** Record the sale. When the draft is a saved order, that saved order is removed with it. */
-  async function submitSale(draft: Draft): Promise<boolean> {
-    if (!s || draft.lines.length === 0) return false;
+  /** Record the sale. When the draft is a saved order, that saved order is removed with it. Returns the sale, or null. */
+  async function submitSale(draft: Draft): Promise<Draft | null> {
+    if (!s || draft.lines.length === 0) return null;
     const { data, ledger, mutate } = s;
     const saved = data.savedOrders.find((o) => o.id === draft.id) ?? null;
     const { final, created } = finalizeSale(draft, {
       customers: data.customers,
       unitCost: (pid) => ledger.stock.get(pid)?.unitCost,
       cutPercent: data.settings.businessCutPercent,
+      fromSaved: !!saved,
     });
     if (final.soldBy !== "W") cart.rememberSeller(final.soldBy);
     cart.rememberPayment(final.paymentMethod);
@@ -57,9 +58,9 @@ export function useSellActions() {
       }),
       () => api("/api/orders", "POST", { ...draftPayload(final), fromSavedId: saved ? saved.id : null }),
     );
-    if (!ok) return false;
+    if (!ok) return null;
     toast.show({
-      message: `Order saved · ${fmtMoney(orderTotals(final).total)}`,
+      message: `${final.owner ? "Owner purchase" : "Order"} saved · ${fmtMoney(orderTotals(final).total)}`,
       action: {
         label: "Undo",
         onClick: () =>
@@ -74,7 +75,7 @@ export function useSellActions() {
       },
       duration: 5000,
     });
-    return true;
+    return final;
   }
 
   /** Put the cart aside. Stock and money do not change. */
@@ -86,7 +87,7 @@ export function useSellActions() {
       (d) => ({ ...d, savedOrders: [rec, ...d.savedOrders.filter((o) => o.id !== rec.id)] }),
       () => api("/api/saved-orders", "POST", rec),
     );
-    if (ok) toast.show({ message: "Saved for later. Stock and money are unchanged." });
+    if (ok) toast.show({ message: "Saved for later. Its items are held out of stock; money is unchanged." });
     return ok;
   }
 
@@ -111,7 +112,7 @@ export function useSellActions() {
 }
 
 /** Small note for each line whose product has a different regular price now. The saved price is what gets charged. */
-export function PriceChangeNotes({ order, className }: { order: Pick<SavedOrderRec, "lines">; className?: string }) {
+export function PriceChangeNotes({ order, className }: { order: Pick<SavedOrderRec, "lines" | "owner">; className?: string }) {
   const s = useLoaded();
   if (!s) return null;
   const changes = priceChanges(order, s.data.products);
@@ -222,6 +223,11 @@ export function SavedOrdersList({ onOpened }: { onOpened?: () => void }) {
                 <div className="min-w-0 flex-1">
                   <div className="font-semibold">{o.customer || "No customer"}</div>
                   <div className="mt-0.5 text-sm text-muted">{savedItemsText(o)}</div>
+                  {o.owner && (
+                    <div className="mt-1">
+                      <Badge tone="accent">Owner price: {name(o.owner)}</Badge>
+                    </div>
+                  )}
                   <div className="mt-0.5 text-xs text-muted">
                     Saved {fmtDateTime(o.savedAt)} · {name(o.soldBy)}
                     {o.note ? ` · ${o.note}` : ""}

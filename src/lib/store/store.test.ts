@@ -140,7 +140,7 @@ describe("public catalog never exposes admin data", () => {
   });
 
   it("pricedVariants carries prices only", () => {
-    expect(Object.keys(pricedVariants(data)[0]).sort()).toEqual(["groupIds", "listingId", "name", "priceCents", "qtyDeals", "variantId"]);
+    expect(Object.keys(pricedVariants(data)[0]).sort()).toEqual(["groupIds", "listingId", "listingName", "name", "priceCents", "qtyDeals", "variantId"]);
   });
 
   it("best sellers: automatic from the last 30 days, or manual picks", () => {

@@ -2,6 +2,7 @@
 // A saved order is not an order: it is never part of AppData.orders, so the money and stock
 // math cannot see it. Completing one goes through the same steps as a normal sale (finalizeSale).
 import { resolveDraftCustomer, type Draft, type DraftLine } from "./draft";
+import { isCash } from "./cash";
 import { orderTotals } from "./money";
 import type { CustomerRec, ProductRec, SavedLineRec, SavedOrderRec } from "./types";
 
@@ -24,10 +25,23 @@ export function toSavedOrder(draft: Draft, products: Pick<ProductRec, "id" | "de
     discountType: draft.discountType,
     discountValue: draft.discountValue,
     tipCents: draft.tipCents,
+    owner: draft.owner ?? null,
+    cashTo: draft.cashTo ?? null,
     lines: draft.lines.map((l): SavedLineRec => {
       const old = before.get(l.id);
       const listPriceCents = old && old.productId === l.productId ? old.listPriceCents : l.productId ? price.get(l.productId) ?? null : null;
-      return { id: l.id, productId: l.productId, productName: l.productName, quantity: l.quantity, unitPriceCents: l.unitPriceCents, unitCostCents: l.unitCostCents, cutPercent: l.cutPercent, listPriceCents };
+      return {
+        id: l.id,
+        productId: l.productId,
+        productName: l.productName,
+        quantity: l.quantity,
+        unitPriceCents: l.unitPriceCents,
+        unitCostCents: l.unitCostCents,
+        cutPercent: l.cutPercent,
+        listPriceCents,
+        ...(l.dealId ? { dealId: l.dealId, dealName: l.dealName ?? "" } : {}),
+        ...(l.fullPriceCents != null ? { fullPriceCents: l.fullPriceCents } : {}),
+      };
     }),
   };
 }
@@ -47,6 +61,8 @@ export function savedToDraft(s: SavedOrderRec, fallbackPayment: string, now = ne
     discountType: s.discountType,
     discountValue: s.discountValue,
     tipCents: s.tipCents,
+    owner: s.owner ?? null,
+    cashTo: s.cashTo ?? null,
     lines: s.lines.map(toDraftLine),
   };
 }
@@ -101,11 +117,13 @@ export interface PriceChange {
 }
 
 /** Lines whose product has a different regular price now than when the order was saved. The saved price stays. */
-export function priceChanges(s: Pick<SavedOrderRec, "lines">, products: Pick<ProductRec, "id" | "defaultPriceCents">[]): PriceChange[] {
+export function priceChanges(s: Pick<SavedOrderRec, "lines" | "owner">, products: Pick<ProductRec, "id" | "defaultPriceCents">[]): PriceChange[] {
   const price = new Map(products.map((p) => [p.id, p.defaultPriceCents]));
   const out: PriceChange[] = [];
+  // Owner price charges the saved cost, and deal lines follow the deal: a new regular price changes neither.
+  if (s.owner) return out;
   for (const l of s.lines) {
-    if (!l.productId || l.listPriceCents === null) continue;
+    if (!l.productId || l.listPriceCents === null || l.dealId) continue;
     const now = price.get(l.productId);
     if (now === undefined || now === l.listPriceCents) continue;
     out.push({ lineId: l.id, productName: l.productName, wasCents: l.listPriceCents, nowCents: now, savedCents: l.unitPriceCents });
@@ -138,19 +156,28 @@ export function stockShortfalls(lines: Pick<DraftLine, "productId" | "productNam
  */
 export function finalizeSale(
   draft: Draft,
-  ctx: { customers: CustomerRec[]; unitCost: (productId: string) => number | undefined; cutPercent: number; now?: string },
+  ctx: { customers: CustomerRec[]; unitCost: (productId: string) => number | undefined; cutPercent: number; now?: string; fromSaved?: boolean },
 ): { final: Draft; created: CustomerRec | null } {
   const now = ctx.now ?? new Date().toISOString();
   const { draft: linked, created } = resolveDraftCustomer(draft, ctx.customers, now);
+  const owner = draft.owner ?? null;
+  const cashTo = isCash(draft.paymentMethod) ? draft.cashTo ?? (draft.soldBy === "A" || draft.soldBy === "B" ? draft.soldBy : null) : null;
   return {
     final: {
       ...linked,
       date: now,
-      lines: draft.lines.map((l) => ({
-        ...l,
-        unitCostCents: l.productId ? ctx.unitCost(l.productId) ?? l.unitCostCents : l.unitCostCents,
-        cutPercent: ctx.cutPercent,
-      })),
+      owner,
+      cashTo,
+      // Owner price: no discount, no tip (the server enforces the same).
+      ...(owner ? { discountType: "$" as const, discountValue: 0, tipCents: 0 } : {}),
+      lines: draft.lines.map((l) => {
+        if (owner) {
+          // A saved owner order keeps the cost prices it was saved with; a fresh one is charged today's cost.
+          const cost = ctx.fromSaved ? l.unitPriceCents : (l.productId ? ctx.unitCost(l.productId) : undefined) ?? l.unitCostCents;
+          return { ...l, unitCostCents: cost, unitPriceCents: cost, cutPercent: ctx.cutPercent };
+        }
+        return { ...l, unitCostCents: l.productId ? ctx.unitCost(l.productId) ?? l.unitCostCents : l.unitCostCents, cutPercent: ctx.cutPercent };
+      }),
     },
     created,
   };

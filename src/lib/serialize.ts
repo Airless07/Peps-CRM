@@ -3,6 +3,8 @@ import type {
   Address,
   AdjustmentRec,
   AppData,
+  BogoRule,
+  CashHandoffRec,
   CoaRec,
   CustomerRec,
   GroupRec,
@@ -64,6 +66,8 @@ export function toSettings(s: SettingsRow): SettingsRec {
   };
 }
 
+const partnerOrNull = (v: string | null | undefined) => (v === "A" || v === "B" ? v : null);
+
 type SavedOrderRow = Prisma.SavedOrderGetPayload<object>;
 export function toSavedOrder(o: SavedOrderRow): SavedOrderRec {
   return {
@@ -78,6 +82,8 @@ export function toSavedOrder(o: SavedOrderRow): SavedOrderRec {
     discountValue: o.discountValue,
     tipCents: o.tipCents,
     lines: json<SavedLineRec[]>(o.linesJson, []),
+    owner: partnerOrNull(o.owner),
+    cashTo: partnerOrNull(o.cashTo),
   };
 }
 
@@ -111,6 +117,8 @@ export function toOrder(o: OrderWithLines): OrderRec {
     archived: o.archived,
     shippingCents: o.shippingCents,
     adminNote: o.adminNote,
+    owner: partnerOrNull(o.owner),
+    cashTo: partnerOrNull(o.cashTo),
     web: online
       ? {
           email: o.email,
@@ -183,9 +191,25 @@ export function toPromotion(p: PromotionRow): PromotionRec {
     listingIds: json<string[]>(p.listingIdsJson, []),
     groupIds: json<string[]>(p.groupIdsJson, []),
     shippingTiers: json<PromotionRec["shippingTiers"]>(p.shippingTiersJson, []).filter((t) => t === "standard" || t === "priority" || t === "express"),
+    bogo: p.kind === "bogo" ? cleanBogo(json<Partial<BogoRule> | null>(p.bogoJson, null)) : null,
     active: p.active,
     createdAt: iso(p.createdAt),
     uses: p.uses.map((u) => ({ id: u.id, promotionId: u.promotionId, orderId: u.orderId, email: u.email, createdAt: iso(u.createdAt) })),
+  };
+}
+
+/** A BOGO rule from JSON, with every field present. */
+export function cleanBogo(v: Partial<BogoRule> | null | undefined): BogoRule {
+  const ids = (x: unknown) => (Array.isArray(x) ? x.filter((i): i is string => typeof i === "string") : []);
+  const n = (x: unknown, d: number, lo: number, hi: number) => (typeof x === "number" && Number.isFinite(x) ? Math.max(lo, Math.min(hi, Math.round(x))) : d);
+  const buy = (v?.buy ?? {}) as Partial<BogoRule["buy"]>;
+  const get = (v?.get ?? {}) as Partial<BogoRule["get"]>;
+  return {
+    buy: { listingIds: ids(buy.listingIds), variantIds: ids(buy.variantIds), qty: n(buy.qty, 1, 1, 99) },
+    get: { same: get.same !== false, listingIds: ids(get.listingIds), variantIds: ids(get.variantIds), qty: n(get.qty, 1, 1, 99), percentOff: n(get.percentOff, 100, 1, 100) },
+    online: v?.online !== false,
+    inPerson: v?.inPerson !== false,
+    noCodes: !!v?.noCodes,
   };
 }
 
@@ -204,8 +228,19 @@ export function toCustomer(c: CustomerRow): CustomerRec {
   };
 }
 
+const holder = (v: string): CashHandoffRec["from"] => (v === "A" || v === "B" ? v : "bank");
+export const toHandoff = (h: Prisma.CashHandoffGetPayload<object>): CashHandoffRec => ({
+  id: h.id,
+  date: iso(h.date),
+  from: holder(h.fromHolder),
+  to: holder(h.toHolder),
+  amountCents: h.amountCents,
+  note: h.note,
+  createdAt: iso(h.createdAt),
+});
+
 export async function loadAll(): Promise<AppData> {
-  const [settings, products, customers, purchases, adjustments, orders, splits, payouts, labels, listings, groups, coas, promotions, reviews, messages, savedOrders] =
+  const [settings, products, customers, purchases, adjustments, orders, splits, payouts, labels, listings, groups, coas, promotions, reviews, messages, savedOrders, handoffs] =
     await Promise.all([
       getSettingsRow(),
       prisma.product.findMany({ orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] }),
@@ -223,6 +258,7 @@ export async function loadAll(): Promise<AppData> {
       prisma.review.findMany({ orderBy: { createdAt: "desc" } }),
       prisma.contactMessage.findMany({ orderBy: { createdAt: "desc" } }),
       prisma.savedOrder.findMany({ orderBy: { savedAt: "desc" } }),
+      prisma.cashHandoff.findMany({ orderBy: { date: "desc" } }),
     ]);
   const allOrders = orders.map(toOrder);
   const backfill = await prisma.dataMigration.findUnique({ where: { id: "sizes-from-names" } }).catch(() => null);
@@ -258,6 +294,7 @@ export async function loadAll(): Promise<AppData> {
     reviews: reviews.map((r): ReviewRec => ({ ...r, status: r.status as ReviewRec["status"], createdAt: iso(r.createdAt) })),
     messages: messages.map((m): MessageRec => ({ ...m, createdAt: iso(m.createdAt) })),
     savedOrders: savedOrders.map(toSavedOrder),
+    cashHandoffs: handoffs.map(toHandoff),
     store: parseStore(settings.storeJson),
     content: parseContent(settings.contentJson),
     sizeBackfill: backfill ? { ranAt: iso(backfill.ranAt), items: json<{ productId: string; product: string; size: string }[]>(backfill.detail, []) } : null,

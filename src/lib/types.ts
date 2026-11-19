@@ -91,6 +91,11 @@ export interface OrderLineRec {
   sortOrder: number;
   /** The product's current size label, for display next to the name (not stored on the line). */
   size?: string;
+  /** BOGO deal that discounted this line (Promotion id), and its name when sold. Empty = none. */
+  dealId?: string;
+  dealName?: string;
+  /** Price each before a BOGO deal or owner price. Null/absent = no special price. */
+  fullPriceCents?: number | null;
 }
 
 export interface CustomerRec {
@@ -133,6 +138,10 @@ export interface OrderRec {
   adminNote: string;
   /** Website order details. Null for in-person sales. */
   web: WebOrderRec | null;
+  /** Owner purchase at cost: which partner bought. Null/absent = a normal sale. */
+  owner?: Partner | null;
+  /** Cash sales: who received the cash. Null/absent = not recorded. */
+  cashTo?: Partner | null;
 }
 
 /** A line of a saved order: an order line plus the product's regular price when it was saved. */
@@ -146,6 +155,10 @@ export interface SavedLineRec {
   cutPercent: number;
   /** Regular price of the product when the line was first saved. Null when unknown. */
   listPriceCents: number | null;
+  dealId?: string;
+  dealName?: string;
+  /** Price each before a BOGO deal or owner price. */
+  fullPriceCents?: number | null;
 }
 
 /** An in-person order saved for later on the Sell screen. Not an order: no stock or money effect. */
@@ -161,6 +174,9 @@ export interface SavedOrderRec {
   discountValue: number;
   tipCents: number;
   lines: SavedLineRec[];
+  /** Owner purchase at cost (prices are the saved costs). */
+  owner?: Partner | null;
+  cashTo?: Partner | null;
 }
 
 export interface Address {
@@ -283,7 +299,37 @@ export interface LabelRec {
   createdAt: string;
 }
 
-export type PromotionKind = "code" | "auto" | "free_shipping";
+export type PromotionKind = "code" | "auto" | "free_shipping" | "bogo";
+
+/** Which products a BOGO deal side covers: whole products (every size) and/or single sizes. */
+export interface DealItems {
+  listingIds: string[];
+  variantIds: string[];
+}
+
+/** A BOGO deal: buy `buy.qty` of the buy items, get `get.qty` of the get items at `percentOff` off. */
+export interface BogoRule {
+  buy: DealItems & { qty: number };
+  /** `same`: the free item is the same item bought (its items are the buy items). */
+  get: DealItems & { same: boolean; qty: number; percentOff: number };
+  online: boolean;
+  inPerson: boolean;
+  /** Discount codes can't be used with this deal. */
+  noCodes: boolean;
+}
+
+/** Cash can sit with a partner or in the bank. */
+export type CashHolder = Partner | "bank";
+
+export interface CashHandoffRec {
+  id: string;
+  date: string;
+  from: CashHolder;
+  to: CashHolder;
+  amountCents: number;
+  note: string;
+  createdAt: string;
+}
 
 export interface PromotionUseRec {
   id: string;
@@ -309,6 +355,8 @@ export interface PromotionRec {
   groupIds: string[];
   /** Free shipping rules only: the shipping options it makes free. */
   shippingTiers: ("standard" | "priority" | "express")[];
+  /** BOGO deals only. */
+  bogo?: BogoRule | null;
   active: boolean;
   createdAt: string;
   uses: PromotionUseRec[];
@@ -398,6 +446,8 @@ export interface AppData {
   messages: MessageRec[];
   /** Sell carts saved for later. NOT orders: the money and stock math never reads this list. */
   savedOrders: SavedOrderRec[];
+  /** Cash moved between partners and the bank. Never changes business money. */
+  cashHandoffs?: CashHandoffRec[];
   store: StoreSettings;
   content: SiteContent;
   /** The one-time "sizes from product names" fill-in: when it ran and what it filled. Null before it ran. */
@@ -418,7 +468,7 @@ export const STATUS_LABEL: Record<OrderStatus, string> = {
 };
 
 /** Defaults for the fields added with the store, for code that builds records by hand (tests, old backups). */
-export const ORDER_DEFAULTS = { number: null, source: "inperson", status: "completed", archived: false, shippingCents: 0, adminNote: "", web: null } as const satisfies Partial<OrderRec>;
+export const ORDER_DEFAULTS = { number: null, source: "inperson", status: "completed", archived: false, shippingCents: 0, adminNote: "", web: null, owner: null, cashTo: null } as const satisfies Partial<OrderRec>;
 export const PRODUCT_DEFAULTS = { listingId: null, variantLabel: "", vialVolume: "", variantSort: 0, weightOz: null, testingStatus: "coming_soon" } as const satisfies Partial<ProductRec>;
 export const CUSTOMER_DEFAULTS = { email: "", hasAccount: false, addresses: [] as Address[] } satisfies Partial<CustomerRec>;
 export const emptyStoreData = () => ({
@@ -431,6 +481,7 @@ export const emptyStoreData = () => ({
   reviews: [] as ReviewRec[],
   messages: [] as MessageRec[],
   savedOrders: [] as SavedOrderRec[],
+  cashHandoffs: [] as CashHandoffRec[],
   store: structuredClone(DEFAULT_STORE),
   content: structuredClone(DEFAULT_CONTENT),
 });

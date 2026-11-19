@@ -2,13 +2,15 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Bookmark, ChevronUp, PackagePlus, Plus } from "lucide-react";
+import { Bookmark, CalendarDays, ChevronDown, ChevronUp, Copy, PackagePlus, Plus, X } from "lucide-react";
 import { useCart } from "@/components/cart";
 import { NumpadSheet } from "@/components/numpad";
 import { OrderForm } from "@/components/order-form";
 import { PriceChangeNotes, SavedOrdersList, SavedOrdersSummary, useSellActions } from "@/components/saved-orders";
 import { useLoaded } from "@/components/store";
+import { useToast } from "@/components/toast";
 import { Button, Empty, PageHeader, PageSkeleton, Sheet, cx, useConfirm } from "@/components/ui";
+import { receiptText, todaySummary } from "@/lib/sell-tools";
 import { lineCount } from "@/lib/draft";
 import { orderTotals } from "@/lib/money";
 import { sellGroups, sellVariantLabel } from "@/lib/admin/sell-groups";
@@ -25,6 +27,9 @@ export default function SellPage() {
   const [savedOpen, setSavedOpen] = useState(false);
   const [customFor, setCustomFor] = useState<ProductRec | null>(null);
   const [busy, setBusy] = useState(false);
+  /** The sale just completed (its id), for "Copy receipt". */
+  const [lastSale, setLastSale] = useState<string | null>(null);
+  const toast = useToast();
 
   // Links from the Dashboard and the In-person orders page: ?saved=1 opens the saved list, ?cart=1 the cart.
   useEffect(() => {
@@ -69,9 +74,30 @@ export default function SellPage() {
     setBusy(true);
     setCartOpen(false);
     cart.reset();
-    const ok = await submitSale(draft);
+    const final = await submitSale(draft);
     setBusy(false);
-    if (!ok) cart.setDraft(draft); // give the order back so nothing is lost
+    if (!final) cart.setDraft(draft); // give the order back so nothing is lost
+    else setLastSale(final.id);
+  }
+
+  async function copyReceipt(id: string) {
+    const o = data.orders.find((x) => x.id === id);
+    if (!o) return;
+    const text = receiptText(o, { storeName: data.store.storeName, ownerName: o.owner ? s!.name(o.owner) : undefined });
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // Older browsers: copy through a hidden text box.
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      ta.remove();
+    }
+    toast.show({ message: "Receipt copied. Paste it into a text message.", tone: "success" });
   }
 
   /** Put the cart aside as a saved order. No stock or money change. */
@@ -104,6 +130,8 @@ export default function SellPage() {
 
       {/* On phones the two header buttons need the row, so the hint sits on its own line. */}
       {products.length > 0 && <p className="-mt-3 mb-4 text-sm text-muted sm:hidden">Tap a size to add it to the order</p>}
+
+      <TodayCard />
 
       {products.length === 0 ? (
         <Empty
@@ -192,6 +220,29 @@ export default function SellPage() {
       {/* Room so the last product card is never hidden behind the order bar */}
       {count > 0 && <div aria-hidden className="h-24" />}
 
+      {/* Just completed: copy a receipt to paste into a text message */}
+      {count === 0 && lastSale && data.orders.some((o) => o.id === lastSale) && (
+        <div className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+4.5rem)] z-30 animate-toast-in px-3 md:bottom-24 md:left-60 md:px-8" data-last-sale>
+          <div className="mx-auto flex min-h-16 w-full max-w-2xl items-center gap-3 rounded-2xl border border-line bg-surface px-4 py-2 shadow-xl">
+            <div className="min-w-0 flex-1 text-sm">
+              <div className="font-semibold">
+                Sale complete{(() => {
+                  const o = data.orders.find((x) => x.id === lastSale);
+                  return o?.number ? ` · #${o.number}` : "";
+                })()}
+              </div>
+              <div className="text-muted">{fmtMoney(ledger.orders.get(lastSale)?.total ?? 0)}</div>
+            </div>
+            <Button variant="primary" className="h-11" onClick={() => copyReceipt(lastSale)} data-copy-receipt>
+              <Copy size={17} /> Copy receipt
+            </Button>
+            <button type="button" aria-label="Close" onClick={() => setLastSale(null)} className="flex h-11 w-11 items-center justify-center rounded-xl text-muted hover:bg-surface2">
+              <X size={18} />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Sticky current-order bar */}
       {count > 0 && (
         <div className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+4.5rem)] z-30 animate-toast-in px-3 md:bottom-6 md:left-60 md:px-8">
@@ -211,14 +262,14 @@ export default function SellPage() {
       <Sheet
         open={cartOpen}
         onClose={() => setCartOpen(false)}
-        title={editingSaved ? "Saved order" : "Current order"}
+        title={draft.owner ? `Owner purchase · ${s.name(draft.owner)}` : editingSaved ? "Saved order" : "Current order"}
         footer={
           <div className="flex flex-col-reverse gap-2 sm:flex-row">
             <Button size="lg" className="sm:flex-1" disabled={draft.lines.length === 0 || busy} onClick={saveLater}>
               Save for later
             </Button>
             <Button variant="primary" size="lg" className="sm:flex-[1.7]" disabled={draft.lines.length === 0 || busy} onClick={complete}>
-              Complete order · {fmtMoney(totals.total)}
+              {draft.owner ? "Complete at cost" : "Complete order"} · {fmtMoney(totals.total)}
             </Button>
           </div>
         }
@@ -249,5 +300,89 @@ export default function SellPage() {
         onSubmit={(c) => customFor && cart.addProduct(customFor, c)}
       />
     </div>
+  );
+}
+
+/** Today on the Sell screen: in-person sales, revenue and profit by seller and by payment method, cash per person. */
+function TodayCard() {
+  const s = useLoaded();
+  const [open, setOpen] = useState(false);
+  if (!s) return null;
+  const { data, ledger, name } = s;
+  const t = todaySummary(data, ledger);
+  if (t.count === 0 && t.owner.count === 0) return null;
+  const cell = "px-2 py-2 text-right tabular-nums";
+  return (
+    <section data-today className="mb-4 rounded-2xl border border-line bg-surface">
+      <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="flex min-h-14 w-full items-center gap-3 px-4 py-2.5 text-left">
+        <CalendarDays size={18} className="shrink-0 text-muted" />
+        <span className="min-w-0 flex-1 text-sm">
+          <span className="font-semibold">Today</span>
+          <span className="text-muted">
+            {" "}
+            · {plural(t.count, "sale")} · <span className="font-medium text-ink">{fmtMoney(t.revenue)}</span> revenue · <span className="font-medium text-pos">{fmtMoney(t.profit)}</span> profit
+          </span>
+        </span>
+        <ChevronDown size={18} className={cx("shrink-0 text-muted transition", open && "rotate-180")} />
+      </button>
+      {open && (
+        <div className="space-y-4 border-t border-line px-4 pb-4 pt-3 text-sm">
+          <table className="w-full">
+            <thead>
+              <tr className="text-left text-xs uppercase tracking-wider text-muted">
+                <th className="py-1.5 font-medium">By seller</th>
+                <th className="px-2 py-1.5 text-right font-medium">Sales</th>
+                <th className="px-2 py-1.5 text-right font-medium">Revenue</th>
+                <th className="py-1.5 pl-2 text-right font-medium">Profit</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-line">
+              {(["A", "B"] as const).map((p) => (
+                <tr key={p} data-today-seller={p}>
+                  <td className="py-2 font-medium">{name(p)}</td>
+                  <td className={cell}>{t.bySeller[p].count}</td>
+                  <td className={cell}>{fmtMoney(t.bySeller[p].revenue)}</td>
+                  <td className="py-2 pl-2 text-right tabular-nums text-pos">{fmtMoney(t.bySeller[p].profit)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {t.byMethod.length > 0 && (
+            <table className="w-full">
+              <thead>
+                <tr className="text-left text-xs uppercase tracking-wider text-muted">
+                  <th className="py-1.5 font-medium">By payment</th>
+                  <th className="px-2 py-1.5 text-right font-medium">Sales</th>
+                  <th className="px-2 py-1.5 text-right font-medium">Revenue</th>
+                  <th className="py-1.5 pl-2 text-right font-medium">Profit</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {t.byMethod.map((m) => (
+                  <tr key={m.method}>
+                    <td className="py-2 font-medium">{m.method}</td>
+                    <td className={cell}>{m.count}</td>
+                    <td className={cell}>{fmtMoney(m.revenue)}</td>
+                    <td className="py-2 pl-2 text-right tabular-nums text-pos">{fmtMoney(m.profit)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          <div className="flex flex-wrap gap-2" data-today-cash>
+            <span className="text-xs font-semibold uppercase tracking-wider text-muted">Cash received</span>
+            {(["A", "B"] as const).map((p) => (
+              <span key={p} className="rounded-full bg-surface2 px-3 py-1 font-medium tabular-nums">
+                {name(p)} {fmtMoney(t.cash[p])}
+              </span>
+            ))}
+          </div>
+          <p className="text-xs text-muted">
+            Revenue is after discounts, before tips. Profit includes tips.
+            {t.owner.count > 0 ? ` Not included: ${plural(t.owner.count, "owner purchase")} (${fmtMoney(t.owner.costCents)} at cost).` : ""}
+          </p>
+        </div>
+      )}
+    </section>
   );
 }

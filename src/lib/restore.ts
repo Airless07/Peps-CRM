@@ -26,6 +26,7 @@ export async function wipe(tx: Tx) {
   await tx.productGroup.deleteMany();
   await tx.contactMessage.deleteMany();
   await tx.savedOrder.deleteMany();
+  await tx.cashHandoff.deleteMany();
 }
 
 const d = (s: string) => new Date(s);
@@ -131,8 +132,9 @@ export async function restore(input: AppData | Parameters<typeof normalizeBackup
         data: data.labels.map((l) => ({ ...l, orderId: l.orderId && orderIds.has(l.orderId) ? l.orderId : null, date: d(l.date), createdAt: d(l.createdAt) })),
       });
       await tx.promotion.createMany({
-        data: data.promotions.map(({ uses: _u, listingIds, groupIds, shippingTiers, ...p }) => ({
+        data: data.promotions.map(({ uses: _u, listingIds, groupIds, shippingTiers, bogo, ...p }) => ({
           ...p,
+          bogoJson: p.kind === "bogo" && bogo ? JSON.stringify(bogo) : "",
           listingIdsJson: JSON.stringify(listingIds ?? []),
           groupIdsJson: JSON.stringify(groupIds ?? []),
           // Backups from before shipping options per rule: the rule covered Standard.
@@ -149,6 +151,9 @@ export async function restore(input: AppData | Parameters<typeof normalizeBackup
       await tx.contactMessage.createMany({ data: data.messages.map((m) => ({ ...m, createdAt: d(m.createdAt) })) });
       await tx.savedOrder.createMany({
         data: data.savedOrders.map(({ lines, ...s }) => ({ ...s, savedAt: d(s.savedAt), linesJson: JSON.stringify(lines) })),
+      });
+      await tx.cashHandoff.createMany({
+        data: (data.cashHandoffs ?? []).map(({ from, to, ...h }) => ({ ...h, fromHolder: from, toHolder: to, date: d(h.date), createdAt: d(h.createdAt) })),
       });
       await tx.split.createMany({
         data: data.splits.map(({ items: _i, ...s }) => ({ ...s, date: d(s.date), createdAt: d(s.createdAt) })),

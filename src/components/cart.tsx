@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useMemo } from "react";
 import { uid } from "@/lib/format";
 import { withSize } from "@/lib/size";
 import { upgradeDraft, type Draft } from "@/lib/draft";
+import { applySellDeals } from "@/lib/bogo";
 import type { Partner, ProductRec } from "@/lib/types";
 import { usePersistentState, useStore } from "./store";
 
@@ -44,7 +45,10 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   const methods = data?.settings.paymentMethods ?? [];
   // Last choice if it is still offered, else the first method in Settings
   const payment = lastPayment && methods.includes(lastPayment) ? lastPayment : methods[0] ?? "Cash";
-  const draft = useMemo(() => upgradeDraft(stored, payment), [stored, payment]);
+  // Live in-person BOGO deals are applied to the cart as it changes (their units get their own line).
+  const promotions = data?.promotions;
+  const products = data?.products;
+  const draft = useMemo(() => applySellDeals(upgradeDraft(stored, payment), { promotions: promotions ?? [], products: products ?? [] }), [stored, payment, promotions, products]);
 
   const addProduct = useCallback(
     (p: ProductRec, priceCents: number) => {
@@ -53,7 +57,15 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       setDraft((d) => {
         const cur = upgradeDraft(d, payment);
         const base = cur.lines.length === 0 ? { ...cur, soldBy: seller } : cur;
-        const i = base.lines.findIndex((l) => l.productId === p.id && l.unitPriceCents === priceCents);
+        // Owner price: every item is charged its cost; the normal price is kept to show struck through.
+        if (base.owner) {
+          const i = base.lines.findIndex((l) => l.productId === p.id && !l.dealId);
+          const lines = [...base.lines];
+          if (i >= 0) lines[i] = { ...lines[i], quantity: lines[i].quantity + 1 };
+          else lines.push({ id: uid(), productId: p.id, productName: withSize(p.name, p.variantLabel), quantity: 1, unitPriceCents: cost, fullPriceCents: priceCents, unitCostCents: cost, cutPercent: cut });
+          return { ...base, lines };
+        }
+        const i = base.lines.findIndex((l) => l.productId === p.id && l.unitPriceCents === priceCents && !l.dealId);
         if (i >= 0) {
           const lines = [...base.lines];
           lines[i] = { ...lines[i], quantity: lines[i].quantity + 1 };

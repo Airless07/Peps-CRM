@@ -50,6 +50,9 @@ export interface Quote {
   freeShipping: boolean;
   freeTiers: string[];
   freeShippingLabel: string;
+  bogo: { dealId: string; variantId: string; label: string; quantity: number; cents: number }[];
+  bogoCents: number;
+  dealHints: { dealId: string; text: string }[];
   missing: string[];
   shipping: ShipOption[];
   shippingEstimated: boolean;
@@ -384,7 +387,7 @@ export function ShippingNote() {
 export function CartTotals({ shippingCents, shippingLabel }: { shippingCents?: number | null; shippingLabel?: string }) {
   const { quote } = useCart();
   if (!quote) return null;
-  const saved = quote.qtySavingsCents + quote.discountCents;
+  const saved = quote.qtySavingsCents + quote.discountCents + (quote.bogoCents ?? 0);
   const total = quote.subtotalCents - quote.discountCents + (shippingCents ?? 0);
   return (
     <dl className="space-y-2 text-[15px]">
@@ -398,8 +401,14 @@ export function CartTotals({ shippingCents, shippingLabel }: { shippingCents?: n
           <dd className="tabular-nums">-{money(quote.qtySavingsCents)}</dd>
         </div>
       )}
+      {(quote.bogo ?? []).map((b) => (
+        <div key={b.dealId + b.variantId} data-bogo-row className="flex justify-between gap-4 text-brand">
+          <dt className="min-w-0 truncate">{b.label}</dt>
+          <dd className="shrink-0 tabular-nums">-{money(b.cents)}</dd>
+        </div>
+      ))}
       {quote.applied
-        .filter((a) => a.cents > 0)
+        .filter((a) => a.cents > 0 && a.kind !== "bogo")
         .map((a) => (
           <div key={a.id} className="flex justify-between gap-4 text-brand">
             <dt className="min-w-0 truncate">{a.label}</dt>
@@ -417,6 +426,11 @@ export function CartTotals({ shippingCents, shippingLabel }: { shippingCents?: n
         <dd className="text-xl tabular-nums">{money(total)}</dd>
       </div>
       {saved > 0 && <div className="text-right text-[13px] font-medium text-brand">You save {money(saved)}</div>}
+      {(quote.dealHints ?? []).map((h) => (
+        <p key={h.dealId} data-deal-hint className="rounded-lg bg-brand/10 px-3 py-2 text-[13px] font-medium text-brand">
+          {h.text}
+        </p>
+      ))}
     </dl>
   );
 }

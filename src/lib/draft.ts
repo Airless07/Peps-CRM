@@ -1,6 +1,6 @@
 import { customerKey } from "./customers";
 import { uid } from "./format";
-import type { CustomerRec, DiscountType, OrderRec, Seller } from "./types";
+import type { CustomerRec, DiscountType, OrderRec, Partner, Seller } from "./types";
 import { ORDER_DEFAULTS, UNKNOWN_PAYMENT } from "./types";
 
 export interface DraftLine {
@@ -11,6 +11,11 @@ export interface DraftLine {
   unitPriceCents: number;
   unitCostCents: number;
   cutPercent: number;
+  /** BOGO deal line: the deal and its name. */
+  dealId?: string;
+  dealName?: string;
+  /** Price each before a BOGO deal or owner price (shown struck through). */
+  fullPriceCents?: number | null;
 }
 
 export interface Draft {
@@ -27,6 +32,10 @@ export interface Draft {
   discountValue: number;
   tipCents: number;
   lines: DraftLine[];
+  /** Owner price: every line at cost for this partner. Null/absent = a normal sale. */
+  owner?: Partner | null;
+  /** Cash: who received it. Absent = the seller. */
+  cashTo?: Partner | null;
 }
 
 export function orderToDraft(o: OrderRec): Draft {
@@ -41,6 +50,8 @@ export function orderToDraft(o: OrderRec): Draft {
     discountType: o.discountType,
     discountValue: o.discountValue,
     tipCents: o.tipCents,
+    owner: o.owner ?? null,
+    cashTo: o.cashTo ?? null,
     lines: [...o.lines]
       .sort((a, b) => a.sortOrder - b.sortOrder)
       .map((l) => ({
@@ -51,6 +62,8 @@ export function orderToDraft(o: OrderRec): Draft {
         unitPriceCents: l.unitPriceCents,
         unitCostCents: l.unitCostCents,
         cutPercent: l.cutPercent,
+        ...(l.dealId ? { dealId: l.dealId, dealName: l.dealName ?? "" } : {}),
+        ...(l.fullPriceCents != null ? { fullPriceCents: l.fullPriceCents } : {}),
       })),
   };
 }
@@ -64,6 +77,8 @@ export function draftToOrder(d: Draft, createdAt = new Date().toISOString(), bas
     ...keep,
     ...d,
     customer: d.customer.trim(),
+    owner: d.owner ?? null,
+    cashTo: d.cashTo ?? null,
     createdAt,
     lines: d.lines.map((l, i) => ({ ...l, orderId: d.id, sortOrder: i })),
   };

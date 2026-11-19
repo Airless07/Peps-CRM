@@ -1,20 +1,35 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { BadgePercent, Pencil, Plus, Truck, Zap } from "lucide-react";
+import { BadgePercent, Gift, Pencil, Plus, Truck, Zap } from "lucide-react";
+import { dealText, percentText } from "@/lib/bogo";
+import { withSize } from "@/lib/size";
 import { QtyDealsEditor } from "@/components/inventory/product-sheet";
 import { api, useLoaded } from "@/components/store";
 import { useToast } from "@/components/toast";
 import { Badge, Button, Card, Empty, Field, Input, MoneyInput, NumberInput, PageHeader, PageSkeleton, SectionTitle, Segmented, Sheet, Toggle, cx, useConfirm } from "@/components/ui";
 import { fmtDate, fmtMoney, fromLocalInput, toLocalDateTimeInput, uid } from "@/lib/format";
 import { freeShippingText, isLive, promoHeadlines, promoValueLabel, usesLeft } from "@/lib/store/pricing";
-import type { PromotionKind, PromotionRec } from "@/lib/types";
+import type { AppData, BogoRule, DealItems, PromotionKind, PromotionRec } from "@/lib/types";
 
 const KIND: Record<PromotionKind, { title: string; one: string; icon: typeof Zap; blurb: string }> = {
   code: { title: "Discount codes", one: "discount code", icon: BadgePercent, blurb: "Customers type the code in the cart or at checkout." },
   auto: { title: "Automatic deals", one: "automatic deal", icon: Zap, blurb: "Applied with no code. Can count down, like “$20 off the next 10 orders”, and stop on their own." },
   free_shipping: { title: "Free shipping rules", one: "free shipping rule", icon: Truck, blurb: "Makes the shipping options you pick free, with an optional minimum subtotal and date range." },
+  bogo: { title: "BOGO deals", one: "BOGO deal", icon: Gift, blurb: "Buy one, get one free (or a % off). Applied by itself in the website cart and the Sell cart when the items qualify." },
 };
+
+const blankBogo = (): BogoRule => ({ buy: { listingIds: [], variantIds: [], qty: 1 }, get: { same: true, listingIds: [], variantIds: [], qty: 1, percentOff: 100 }, online: true, inPerson: true, noCodes: false });
+
+/** Names for deal wording: products by listing, sizes as "GHK-Cu 100mg". */
+const dealNames = (data: AppData) => ({
+  listing: (id: string) => data.listings.find((l) => l.id === id)?.name,
+  variant: (id: string) => {
+    const p = data.products.find((x) => x.id === id);
+    return p ? withSize(p.name, p.variantLabel) : undefined;
+  },
+});
+const whereText = (r: BogoRule) => (r.online && r.inPerson ? "Online and in person" : r.online ? "Online only" : "In person only");
 
 const blank = (kind: PromotionKind): PromotionRec => ({
   id: uid(),
@@ -31,6 +46,7 @@ const blank = (kind: PromotionKind): PromotionRec => ({
   listingIds: [],
   groupIds: [],
   shippingTiers: kind === "free_shipping" ? ["standard"] : [],
+  bogo: kind === "bogo" ? blankBogo() : null,
   active: true,
   createdAt: new Date().toISOString(),
   uses: [],
@@ -96,12 +112,18 @@ export default function PromotionsPage() {
                   <button type="button" onClick={() => setEdit({ p: { ...p }, isNew: false })} className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition hover:bg-surface2/60 sm:px-5">
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className={cx("font-semibold", kind === "code" && "font-mono tracking-wide")}>{kind === "code" ? p.code : p.name || (kind === "free_shipping" ? "Free shipping" : "Deal")}</span>
+                        <span className={cx("font-semibold", kind === "code" && "font-mono tracking-wide")}>{kind === "code" ? p.code : p.name || (kind === "free_shipping" ? "Free shipping" : kind === "bogo" ? dealText(p, dealNames(data)) : "Deal")}</span>
                         <Badge tone={st.tone}>{st.label}</Badge>
                       </div>
                       <div className="mt-0.5 text-sm text-muted">
                         {[
-                          kind === "free_shipping" ? (p.shippingTiers.length ? `Free: ${p.shippingTiers.map(tierName).join(", ")}` : "No shipping option picked") : promoValueLabel(p),
+                          kind === "bogo" && p.bogo
+                            ? `${p.name ? `${dealText({ name: "", bogo: p.bogo }, dealNames(data))} · ` : ""}${whereText(p.bogo)}${p.bogo.noCodes ? " · no codes" : ""}`
+                            : kind === "free_shipping"
+                              ? p.shippingTiers.length
+                                ? `Free: ${p.shippingTiers.map(tierName).join(", ")}`
+                                : "No shipping option picked"
+                              : promoValueLabel(p),
                           p.minSubtotalCents > 0 ? `orders ${fmtMoney(p.minSubtotalCents)}+` : "",
                           p.listingIds.length || p.groupIds.length ? "selected products" : "",
                           p.oncePerEmail ? "once per email" : "",
@@ -130,7 +152,7 @@ export default function PromotionsPage() {
     <div className="max-w-3xl pb-10">
       <PageHeader title="Promotions" sub="Discount codes, automatic deals, free shipping and the announcement bar." />
 
-      {(["code", "auto", "free_shipping"] as const).map(section)}
+      {(["code", "auto", "free_shipping", "bogo"] as const).map(section)}
 
       <SectionTitle>Buy more, save more</SectionTitle>
       <Card className="space-y-3 p-4">
@@ -156,7 +178,8 @@ export default function PromotionsPage() {
       <SectionTitle>Announcement bar</SectionTitle>
       <AnnouncementEditor key={JSON.stringify(bar)} value={bar} headlines={headlines} onSave={async (v) => (await saveContent(v)) && toast.show({ message: "Announcement bar saved", tone: "success" })} />
 
-      <PromotionSheet value={edit} onClose={() => setEdit(null)} />
+      <PromotionSheet value={edit && edit.p.kind !== "bogo" ? edit : null} onClose={() => setEdit(null)} />
+      <BogoSheet value={edit && edit.p.kind === "bogo" ? edit : null} onClose={() => setEdit(null)} />
     </div>
   );
 }
@@ -413,5 +436,180 @@ function PromotionSheet({ value, onClose }: { value: { p: PromotionRec; isNew: b
         </div>
       )}
     </Sheet>
+  );
+}
+
+// ---------------------------------------------------------------- BOGO deal sheet
+function BogoSheet({ value, onClose }: { value: { p: PromotionRec; isNew: boolean } | null; onClose: () => void }) {
+  const s = useLoaded();
+  const toast = useToast();
+  const confirm = useConfirm();
+  const [p, setP] = useState<PromotionRec | null>(null);
+  useEffect(() => setP(value ? { ...value.p, bogo: value.p.bogo ?? blankBogo() } : null), [value]);
+  if (!s) return null;
+  const { data, mutate } = s;
+  const r = p?.bogo ?? null;
+  const set = <T extends keyof PromotionRec>(k: T, v: PromotionRec[T]) => setP((x) => (x ? { ...x, [k]: v } : x));
+  const setRule = (patch: Partial<BogoRule>) => setP((x) => (x && x.bogo ? { ...x, bogo: { ...x.bogo, ...patch } } : x));
+  const names = dealNames(data);
+
+  async function save() {
+    if (!p || !value || !r) return;
+    const { uses: _u, createdAt: _c, ...rest } = p;
+    try {
+      await api("/api/promotions", value.isNew ? "POST" : "PUT", { ...rest, listingIds: [], groupIds: [], shippingTiers: [], discountType: "%", discountValue: r.get.percentOff });
+      await s!.refresh();
+      toast.show({ message: "BOGO deal saved", tone: "success" });
+      onClose();
+    } catch (e) {
+      toast.show({ message: (e as Error).message, tone: "error", duration: 7000 });
+    }
+  }
+
+  async function remove() {
+    if (!p) return;
+    if (!(await confirm({ title: "Delete this BOGO deal?", body: "Orders that already got it keep their prices. To pause it instead, turn it off.", confirmText: "Delete", danger: true }))) return;
+    onClose();
+    await mutate((d) => ({ ...d, promotions: d.promotions.filter((x) => x.id !== p.id) }), () => api("/api/promotions", "DELETE", { id: p.id }));
+  }
+
+  const preview = p && r ? dealText({ name: "", bogo: r }, names) : "";
+  const where = r ? (r.online && r.inPerson ? "both" : r.online ? "online" : "inperson") : "both";
+  const left = p ? usesLeft(p) : null;
+
+  return (
+    <Sheet
+      open={!!value}
+      onClose={onClose}
+      wide
+      title={value ? `${value.isNew ? "New" : "Edit"} BOGO deal` : ""}
+      footer={
+        <div className="flex gap-2">
+          {value && !value.isNew && (
+            <Button variant="ghost" className="text-neg" onClick={remove}>
+              Delete
+            </Button>
+          )}
+          <Button block onClick={onClose}>
+            Cancel
+          </Button>
+          <Button block variant="primary" onClick={save}>
+            Save
+          </Button>
+        </div>
+      }
+    >
+      {p && r && (
+        <div className="space-y-5" data-bogo-sheet>
+          <p className="text-sm text-muted">{KIND.bogo.blurb} The free (or discounted) item still counts its cost and leaves stock, so profit stays right.</p>
+          <Field label="Name" hint={`Shown to customers on the product, in the cart and in the promo bar. For example: ${preview || "Buy 1 GHK-Cu, get 1 free"}.`}>
+            <Input value={p.name} maxLength={80} autoFocus={value?.isNew} placeholder={preview} onChange={(e) => set("name", e.target.value)} />
+          </Field>
+
+          <fieldset className="space-y-3 rounded-2xl border border-line p-3.5" data-bogo-buy>
+            <legend className="px-1 text-sm font-semibold">Buy</legend>
+            <Field label="How many">
+              <NumberInput className="w-40" label="buy quantity" value={r.buy.qty} min={1} max={99} onChange={(n) => setRule({ buy: { ...r.buy, qty: Math.max(1, n ?? 1) } })} />
+            </Field>
+            <ItemPicker data={data} value={r.buy} onChange={(v) => setRule({ buy: { ...r.buy, ...v } })} />
+          </fieldset>
+
+          <fieldset className="space-y-3 rounded-2xl border border-line p-3.5" data-bogo-get>
+            <legend className="px-1 text-sm font-semibold">Get</legend>
+            <Segmented<"same" | "other">
+              value={r.get.same ? "same" : "other"}
+              onChange={(v) => setRule({ get: { ...r.get, same: v === "same" } })}
+              options={[
+                { value: "same", label: "The same item" },
+                { value: "other", label: "A different item" },
+              ]}
+            />
+            {!r.get.same && <ItemPicker data={data} value={r.get} onChange={(v) => setRule({ get: { ...r.get, ...v } })} />}
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="How many">
+                <NumberInput className="w-40" label="get quantity" value={r.get.qty} min={1} max={99} onChange={(n) => setRule({ get: { ...r.get, qty: Math.max(1, n ?? 1) } })} />
+              </Field>
+              <Field label="Discount on it">
+                <div className="flex flex-wrap gap-2">
+                  <Segmented<"free" | "pct">
+                    className="w-44"
+                    value={r.get.percentOff >= 100 ? "free" : "pct"}
+                    onChange={(v) => setRule({ get: { ...r.get, percentOff: v === "free" ? 100 : 50 } })}
+                    options={[
+                      { value: "free", label: "Free" },
+                      { value: "pct", label: "% off" },
+                    ]}
+                  />
+                  {r.get.percentOff < 100 && <NumberInput className="w-36" label="percent off" value={r.get.percentOff} min={1} max={99} suffix="%" onChange={(n) => setRule({ get: { ...r.get, percentOff: Math.max(1, Math.min(99, n ?? 50)) } })} />}
+                </div>
+              </Field>
+            </div>
+            <p className="text-xs text-muted">
+              For every {r.buy.qty} bought, the customer gets {r.get.qty} {r.get.same ? "of the same item" : "of the item picked here"} {percentText(r.get.percentOff)}.
+            </p>
+          </fieldset>
+
+          <Field label="Where it applies">
+            <Segmented<"both" | "online" | "inperson">
+              value={where}
+              onChange={(v) => setRule({ online: v !== "inperson", inPerson: v !== "online" })}
+              options={[
+                { value: "online", label: "Online" },
+                { value: "inperson", label: "In person" },
+                { value: "both", label: "Both" },
+              ]}
+            />
+          </Field>
+
+          <Toggle checked={r.noCodes} onChange={(v) => setRule({ noCodes: v })} label="No codes with this deal" hint="When the deal applies, discount codes can't be used on the same order. Off = codes stack on top." />
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Starts (optional)" hint="Empty = right away.">
+              <Input type="datetime-local" value={p.startsAt ? toLocalDateTimeInput(p.startsAt) : ""} onChange={(e) => set("startsAt", e.target.value ? fromLocalInput(e.target.value) : null)} />
+            </Field>
+            <Field label="Ends (optional)" hint="Empty = no end date.">
+              <Input type="datetime-local" value={p.endsAt ? toLocalDateTimeInput(p.endsAt) : ""} onChange={(e) => set("endsAt", e.target.value ? fromLocalInput(e.target.value) : null)} />
+            </Field>
+          </div>
+          <Field label="Total use limit (optional)" hint={`${p.uses.length} used so far${left !== null ? `, ${left} left` : ""}. Each order that gets the deal is one use. Empty = no limit.`}>
+            <NumberInput nullable className="w-48" value={p.maxUses} min={1} placeholder="no limit" onChange={(n) => set("maxUses", n)} />
+          </Field>
+          <p className="text-xs text-muted">Buy more, save more never applies to the same units as this deal. On the website the cart uses whichever gives the customer the better price.</p>
+          <Toggle checked={p.active} onChange={(v) => set("active", v)} label="Active" hint="Turn off to pause it without deleting." />
+          {isLive(p, new Date()) && usesLeft(p) !== 0 && <p className="rounded-xl bg-pos/10 px-4 py-2.5 text-sm text-pos">This will be live as soon as you save.</p>}
+        </div>
+      )}
+    </Sheet>
+  );
+}
+
+/** Pick whole products (every size) or single sizes. */
+function ItemPicker({ data, value, onChange }: { data: AppData; value: DealItems; onChange: (v: DealItems) => void }) {
+  const toggle = (key: "listingIds" | "variantIds", id: string) => onChange({ ...value, [key]: value[key].includes(id) ? value[key].filter((x) => x !== id) : [...value[key], id] });
+  const listings = data.listings.filter((l) => data.products.some((p) => p.listingId === l.id && !p.archived));
+  const btn = (on: boolean) => cx("min-h-10 rounded-xl border px-3 text-sm font-medium transition", on ? "border-accent bg-accent/10 text-accent" : "border-line text-muted hover:bg-surface2");
+  return (
+    <div className="space-y-2.5">
+      {listings.length === 0 && <p className="text-sm text-muted">Add products in Inventory first.</p>}
+      {listings.map((l) => {
+        const sizes = data.products.filter((p) => p.listingId === l.id && !p.archived);
+        const whole = value.listingIds.includes(l.id);
+        return (
+          <div key={l.id} className="flex flex-wrap items-center gap-1.5" data-pick-product={l.name}>
+            <button type="button" aria-pressed={whole} className={btn(whole)} onClick={() => toggle("listingIds", l.id)}>
+              {l.name}
+              {sizes.length > 1 ? " (any size)" : ""}
+            </button>
+            {sizes.length > 1 &&
+              !whole &&
+              sizes.map((v) => (
+                <button key={v.id} type="button" aria-pressed={value.variantIds.includes(v.id)} className={btn(value.variantIds.includes(v.id))} onClick={() => toggle("variantIds", v.id)}>
+                  {v.variantLabel || v.name}
+                </button>
+              ))}
+          </div>
+        );
+      })}
+    </div>
   );
 }
