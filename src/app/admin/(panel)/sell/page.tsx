@@ -6,7 +6,7 @@ import { Bookmark, ChevronUp, PackagePlus, Plus } from "lucide-react";
 import { useCart } from "@/components/cart";
 import { NumpadSheet } from "@/components/numpad";
 import { OrderForm } from "@/components/order-form";
-import { PriceChangeNotes, SavedOrdersList, useSellActions } from "@/components/saved-orders";
+import { PriceChangeNotes, SavedOrdersList, SavedOrdersSummary, useSellActions } from "@/components/saved-orders";
 import { useLoaded } from "@/components/store";
 import { Button, Empty, PageHeader, PageSkeleton, Sheet, cx, useConfirm } from "@/components/ui";
 import { lineCount } from "@/lib/draft";
@@ -232,7 +232,7 @@ export default function SellPage() {
         <OrderForm mode="cart" draft={draft} onChange={cart.setDraft} />
       </Sheet>
 
-      <Sheet open={savedOpen} onClose={() => setSavedOpen(false)} title={`Saved orders (${savedCount})`} wide>
+      <Sheet open={savedOpen} onClose={() => setSavedOpen(false)} title={`Saved orders (${savedCount})`} aside={<SavedOrdersSummary />} wide>
         <SavedOrdersList
           onOpened={() => {
             setSavedOpen(false);

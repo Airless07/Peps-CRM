@@ -12,7 +12,7 @@ import { Button, Empty, Row, Sheet, cx, useConfirm } from "@/components/ui";
 import { draftPayload, draftToOrder, lineCount, type Draft } from "@/lib/draft";
 import { fmtDateTime, fmtMoney, plural } from "@/lib/format";
 import { orderTotals } from "@/lib/money";
-import { finalizeSale, heldBy, priceChanges, savedItemsText, savedToDraft, savedTotals, stockShortfalls, toSavedOrder } from "@/lib/saved-orders";
+import { finalizeSale, heldBy, priceChanges, savedItemsText, savedProfit, savedSummary, savedToDraft, savedTotals, stockShortfalls, toSavedOrder } from "@/lib/saved-orders";
 import type { SavedOrderRec } from "@/lib/types";
 
 /** Actions shared by the Sell cart and the saved orders list. */
@@ -127,6 +127,34 @@ export function PriceChangeNotes({ order, className }: { order: Pick<SavedOrderR
   );
 }
 
+const pill = "inline-flex h-8 items-center gap-1 whitespace-nowrap rounded-full px-3 text-sm font-semibold tabular-nums";
+
+/**
+ * Totals of every saved order, for the header of the saved orders sheet: revenue after discounts
+ * (tips included), profit at each variant's current cost, and the discounts given. Display only:
+ * Money never reads saved orders. Recomputed on every render, so it follows completes, deletes and saves.
+ */
+export function SavedOrdersSummary() {
+  const s = useLoaded();
+  if (!s || s.data.savedOrders.length === 0) return null;
+  const sum = savedSummary(s.data.savedOrders, (pid) => s.ledger.stock.get(pid)?.unitCost);
+  return (
+    <div data-saved-summary>
+      <div className="flex flex-wrap items-center gap-1.5 md:justify-end">
+        <span data-summary-revenue className={cx(pill, "bg-surface2 text-ink")} title={sum.tipCents > 0 ? `Includes ${fmtMoney(sum.tipCents)} in tips` : undefined}>
+          Revenue {fmtMoney(sum.revenueCents)}
+        </span>
+        <span data-summary-profit className={cx(pill, "bg-pos/12 text-pos")}>Profit {fmtMoney(sum.profitCents)}</span>
+        <span data-summary-discounts className={cx(pill, "bg-neg/12 text-neg")}>Discounts -{fmtMoney(sum.discountCents)}</span>
+      </div>
+      <p className="mt-1 text-xs text-muted md:text-right">
+        {sum.tipCents > 0 && <span data-summary-tips>Includes {fmtMoney(sum.tipCents)} in tips. </span>}
+        Not counted in Money until completed.
+      </p>
+    </div>
+  );
+}
+
 const chip = "h-11 rounded-xl border px-3.5 text-sm font-medium transition active:scale-95";
 
 /** Every saved order with Open, Complete and Delete. `onOpened` runs after one is loaded into the cart. */
@@ -142,6 +170,7 @@ export function SavedOrdersList({ onOpened }: { onOpened?: () => void }) {
   const { data, name } = s;
   const saved = data.savedOrders;
   const methods = data.settings.paymentMethods;
+  const costOf = (pid: string) => s.ledger.stock.get(pid)?.unitCost;
 
   async function open(o: SavedOrderRec) {
     const { draft } = cart;
@@ -177,7 +206,7 @@ export function SavedOrdersList({ onOpened }: { onOpened?: () => void }) {
   }
 
   if (saved.length === 0) {
-    return <Empty icon={<Bookmark size={32} />} title="No saved orders" body="On the Sell screen, tap “Save for later” in the cart to put an order aside. It changes no stock or money until you complete it." />;
+    return <Empty icon={<Bookmark size={32} />} title="No saved orders" body="On the Sell screen, tap “Save for later” in the cart to put an order aside. It holds its items out of stock and changes no money until you complete it." />;
   }
 
   const total = completing ? savedTotals(completing) : null;
@@ -203,6 +232,7 @@ export function SavedOrdersList({ onOpened }: { onOpened?: () => void }) {
                   <div className="text-base font-semibold">{fmtMoney(t.total)}</div>
                   {t.discount > 0 && <div className="text-neg">-{fmtMoney(t.discount)}</div>}
                   {t.tip > 0 && <div className="text-pos">+{fmtMoney(t.tip)} tip</div>}
+                  <div data-saved-profit className="text-xs font-medium text-pos">Profit {fmtMoney(savedProfit(o, costOf))}</div>
                 </div>
               </div>
               <PriceChangeNotes order={o} className="mt-2" />

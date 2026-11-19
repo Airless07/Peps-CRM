@@ -447,6 +447,7 @@ export function Sheet({
   children,
   footer,
   wide,
+  aside,
 }: {
   open: boolean;
   onClose: () => void;
@@ -454,6 +455,8 @@ export function Sheet({
   children: React.ReactNode;
   footer?: React.ReactNode;
   wide?: boolean;
+  /** Extra content in the header, next to the title (wraps under it on phones). */
+  aside?: React.ReactNode;
 }) {
   const [mounted, setMounted] = useState(open);
   const [closing, setClosing] = useState(false);
@@ -508,8 +511,10 @@ export function Sheet({
       >
         <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-line md:hidden" />
         {title && (
-          <div className="flex shrink-0 items-center justify-between gap-2 px-5 pb-2 pt-3 md:pt-5">
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 px-5 pb-2 pt-3 md:flex-nowrap md:pt-5">
             <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
+            {/* Next to the title on wide screens; its own full-width line under it on phones. */}
+            {aside && <div className="order-last w-full min-w-0 md:order-none md:ml-auto md:w-auto">{aside}</div>}
             <IconButton label="Close" onClick={onClose} className="-mr-2">
               <X size={20} />
             </IconButton>

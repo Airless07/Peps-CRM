@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import type { Draft } from "./draft";
 import { computeLedger, orderTotals } from "./money";
-import { finalizeSale, priceChanges, savedToDraft, savedTotals, stockShortfalls, toSavedOrder } from "./saved-orders";
+import { finalizeSale, priceChanges, savedProfit, savedSummary, savedToDraft, savedTotals, stockShortfalls, toSavedOrder } from "./saved-orders";
 import { saleInput, savedOrderInput, settingsUpdate } from "./schemas";
 import {
   DEFAULT_SELL_BUTTONS,
@@ -221,6 +221,33 @@ describe("saved orders: pure helpers", () => {
     expect(final.lines.map((l) => [l.unitPriceCents, l.quantity, l.unitCostCents, l.cutPercent])).toEqual([[5000, 2, 1234, 15], [2500, 1, 1000, 15]]);
     expect(orderTotals(final)).toEqual(orderTotals(cart));
     expect(created).toMatchObject({ id: "c9", name: "Sam Lee" });
+  });
+
+  it("the saved orders summary is exactly the sum of the saved orders", () => {
+    // Current cost per unit: p1 $12.00, p2 $9.00 (the cost noted on the lines, $10.00, is ignored).
+    const cost = new Map([["p1", 1200], ["p2", 900]]);
+    const costOf = (pid: string) => cost.get(pid);
+    const list = [
+      toSavedOrder(draft({ id: "a", discountType: "%", discountValue: 10, tipCents: 500 }), products), // $130 - $13 + $5 tip
+      toSavedOrder(draft({ id: "b", discountType: "$", discountValue: 2000, lines: [line("l3", "p2", 4, 3000)] }), products), // $120 - $20
+      toSavedOrder(draft({ id: "c", lines: [line("l4", "gone", 1, 2500)] }), products), // deleted product: uses its noted cost
+    ];
+    // Each order on its own.
+    expect(list.map((o) => savedTotals(o).total)).toEqual([12200, 10000, 2500]);
+    expect(list.map((o) => savedProfit(o, costOf))).toEqual([12200 - (2 * 1200 + 900), 10000 - 4 * 900, 2500 - 1000]);
+    // The summary = the sums.
+    const sum = savedSummary(list, costOf);
+    expect(sum).toEqual({
+      count: 3,
+      revenueCents: list.reduce((x, o) => x + savedTotals(o).total, 0),
+      tipCents: 500,
+      profitCents: list.reduce((x, o) => x + savedProfit(o, costOf), 0),
+      discountCents: list.reduce((x, o) => x + savedTotals(o).discount, 0),
+    });
+    expect(sum).toMatchObject({ revenueCents: 24700, profitCents: 24700 - 3300 - 3600 - 1000, discountCents: 3300 });
+    // Removing one (completed or deleted) takes it out of every number at once.
+    expect(savedSummary(list.slice(1), costOf)).toMatchObject({ count: 2, revenueCents: 12500, tipCents: 0, discountCents: 2000 });
+    expect(savedSummary([], costOf)).toEqual({ count: 0, revenueCents: 0, tipCents: 0, profitCents: 0, discountCents: 0 });
   });
 
   it("saved orders hold their items out of stock but never touch money", () => {

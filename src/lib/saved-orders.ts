@@ -53,6 +53,40 @@ export function savedToDraft(s: SavedOrderRec, fallbackPayment: string, now = ne
 
 export const savedTotals = (s: Pick<SavedOrderRec, "lines" | "discountType" | "discountValue" | "tipCents">) => orderTotals(s);
 
+/** Cost of a saved line: the variant's CURRENT cost per unit, or the cost noted on the line when the product is gone. */
+const lineCost = (l: Pick<SavedLineRec, "productId" | "quantity" | "unitCostCents">, costOf: (productId: string) => number | undefined) =>
+  l.quantity * ((l.productId ? costOf(l.productId) : undefined) ?? l.unitCostCents);
+
+/** Profit of one saved order if it were completed now: total after discounts (with tip) minus each item's current cost. Display only. */
+export function savedProfit(s: Pick<SavedOrderRec, "lines" | "discountType" | "discountValue" | "tipCents">, costOf: (productId: string) => number | undefined): number {
+  return savedTotals(s).total - s.lines.reduce((x, l) => x + lineCost(l, costOf), 0);
+}
+
+export interface SavedSummary {
+  count: number;
+  /** All saved orders after discounts, tips included. */
+  revenueCents: number;
+  /** The tips inside revenueCents. */
+  tipCents: number;
+  /** revenueCents minus every item's current cost. */
+  profitCents: number;
+  /** Discounts given across all saved orders (a positive number). */
+  discountCents: number;
+}
+
+/** The header of the saved orders list. Display only: Money never reads saved orders. */
+export function savedSummary(list: Pick<SavedOrderRec, "lines" | "discountType" | "discountValue" | "tipCents">[], costOf: (productId: string) => number | undefined): SavedSummary {
+  const out: SavedSummary = { count: list.length, revenueCents: 0, tipCents: 0, profitCents: 0, discountCents: 0 };
+  for (const o of list) {
+    const t = savedTotals(o);
+    out.revenueCents += t.total;
+    out.tipCents += t.tip;
+    out.discountCents += t.discount;
+    out.profitCents += savedProfit(o, costOf);
+  }
+  return out;
+}
+
 export const savedItemsText = (s: Pick<SavedOrderRec, "lines">) => s.lines.map((l) => `${l.quantity > 1 ? l.quantity + "× " : ""}${l.productName || "Deleted product"}`).join(", ");
 
 export interface PriceChange {

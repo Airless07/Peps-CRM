@@ -140,6 +140,16 @@ test("4. a later price change is noted, and the saved price stays", async () => 
   await expect(card.locator("[data-price-note]")).toContainText(`This order keeps $${(price20 / 100).toFixed(2)}`);
   const total = 2 * price20 - Math.round(2 * price20 * 0.1) + 500;
   await expect(card).toContainText(`$${(total / 100).toFixed(2)}`);
+  // The header summary: revenue after discounts (tip included), profit at the current cost, discounts.
+  const unitCost = (await adminState(admin.request)).ledger.stock.get(v20)!.unitCost;
+  const usd2 = (c: number) => `$${(c / 100).toFixed(2)}`;
+  const sheet = adm.getByRole("dialog");
+  await expect(sheet.locator("[data-summary-revenue]")).toHaveText(`Revenue ${usd2(total)}`);
+  await expect(sheet.locator("[data-summary-profit]")).toHaveText(`Profit ${usd2(total - 2 * unitCost)}`);
+  await expect(sheet.locator("[data-summary-discounts]")).toHaveText(`Discounts -${usd2(Math.round(2 * price20 * 0.1))}`);
+  await expect(sheet.locator("[data-summary-tips]")).toContainText("Includes $5.00 in tips");
+  await expect(sheet.locator("[data-saved-summary]")).toContainText("Not counted in Money until completed.");
+  await expect(card.locator("[data-saved-profit]")).toHaveText(`Profit ${usd2(total - 2 * unitCost)}`);
   await shot("04-saved-list-price-note");
   await adm.setViewportSize({ width: 390, height: 844 });
   await checkPhoneLayout('[role="dialog"]');
