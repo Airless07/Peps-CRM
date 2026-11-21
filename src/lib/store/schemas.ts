@@ -78,7 +78,9 @@ export const accountAction = z.discriminatedUnion("action", [
   z.object({ action: z.literal("addresses"), addresses: z.array(address).max(5) }),
   z.object({ action: z.literal("profile"), name: text(100).min(2, "Enter your name"), phone: text(30).default("") }),
   /** Use an invite / claim link: choose a password and sign in. */
-  z.object({ action: z.literal("claim"), token: z.string().min(20).max(200), password }),
+  z
+    .object({ action: z.literal("claim"), token: z.string().min(20).max(200), password, email: email.optional(), confirm: z.string().max(200).optional() })
+    .refine((v) => v.confirm === undefined || v.confirm === v.password, { message: "The two passwords don't match", path: ["confirm"] }),
   /** Choose a new password while signed in (required after a temporary password). */
   z.object({ action: z.literal("change-password"), password }),
 ]);

@@ -280,6 +280,11 @@ model Customer {
   /// Invite / claim link (sha256 of the secret token). Single use; a new link replaces it.
   inviteTokenHash String?
   inviteExpiresAt DateTime?
+  /// When the current (or last) invite link was made.
+  inviteCreatedAt DateTime?
+  /// When an invite link was used, and the email it was claimed with.
+  inviteClaimedAt DateTime?
+  inviteClaimedEmail String?
   /// Set by "Set temporary password": the customer must choose a new one at next sign in.
   mustChangePassword Boolean  @default(false)
   lastLoginAt    DateTime?

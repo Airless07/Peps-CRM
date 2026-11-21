@@ -18,13 +18,13 @@ export default async function InvitePage({ searchParams }: { searchParams: Promi
         {info ? (
           <>
             <h1 className="text-4xl font-semibold" style={{ letterSpacing: "-0.03em" }} data-invite-welcome>
-              Welcome, {info.name.split(" ")[0]}.
+              Welcome, {info.name.trim()}.
             </h1>
             <p className="mt-3 text-[1.0625rem] leading-relaxed text-stone" data-invite-credit>
-              You have {money(info.creditCents)} store credit. Choose a password to finish setting up your account.
+              You have {money(info.creditCents)} store credit waiting. {info.needsEmail ? "Add your email and choose a password to finish setting up your account." : "Choose a password to finish setting up your account."}
             </p>
             <div className="mt-7">
-              <InviteForm token={token!} />
+              <InviteForm token={token!} needsEmail={info.needsEmail} />
             </div>
           </>
         ) : (

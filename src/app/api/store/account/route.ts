@@ -23,7 +23,7 @@ export const POST = route(
       }
       case "claim":
         rateLimit(req, "claim", 10, 30 * 60_000);
-        return { account: await claimInvite(input.token, input.password) };
+        return { account: await claimInvite(input.token, input.password, input.email) };
       case "change-password": {
         const a = await requireAccount({ allowTemporary: true });
         await changePassword(a.id, input.password);

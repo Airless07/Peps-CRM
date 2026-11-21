@@ -53,8 +53,12 @@ export function AccountSection({ c }: { c: CustomerRec }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [tempOpen, setTempOpen] = useState(false);
   const [temp, setTemp] = useState("");
+  /** The link just made. Only its hash is stored, so it can be shown only now (make a new one to see it again). */
+  const [link, setLink] = useState<{ customerId: string; url: string } | null>(null);
   if (!s) return null;
   const status = c.accountStatus ?? (c.hasAccount ? "active" : c.email ? "invited" : "none");
+  const inv = c.invite;
+  const shownLink = link && link.customerId === c.id && inv?.state === "open" ? link.url : null;
 
   async function run(action: "invite-link" | "invite-email" | "reset-email" | "temp-password", extra: Record<string, unknown> = {}) {
     setBusy(action);
@@ -63,8 +67,8 @@ export function AccountSection({ c }: { c: CustomerRec }) {
     await s!.mutate(null, async () => {
       const r = await api<{ url?: string; message: string; ok?: boolean }>(`/api/customers/${c.id}/account`, "POST", { action, ...extra });
       if (r.url) {
-        const copied = await copyText(r.url);
-        message = copied ? r.message : `Copy this invite link: ${r.url}`;
+        setLink({ customerId: c.id, url: r.url });
+        message = "New invite link made. Copy it below. It works once, and any older link stopped working.";
       } else message = r.message;
       tone = r.ok === false ? "error" : "success";
     });
@@ -83,7 +87,7 @@ export function AccountSection({ c }: { c: CustomerRec }) {
         </Badge>
       </div>
       <p className="mt-1 text-sm text-muted">
-        {status === "none" && "Add an email above to give this customer a store account. They choose their own password from the invite link."}
+        {status === "none" && "No email yet. Create an invite link and send it to them: they add their own email and password, and keep their store credit and orders."}
         {status === "invited" && `Has an account with ${c.email}, but no password yet. Send them the invite link so they can set one and see their store credit.`}
         {status === "active" && `Signs in with ${c.email}.`}
       </p>
@@ -91,25 +95,51 @@ export function AccountSection({ c }: { c: CustomerRec }) {
         Last login: <span className="font-medium text-ink">{c.lastLoginAt ? fmtDateTime(c.lastLoginAt) : "Never"}</span>
         {c.mustChangePassword && <span className="ml-2 text-warn">Temporary password set (must change it)</span>}
       </div>
-      {status !== "none" && (
-        <div className="mt-3 flex flex-wrap gap-2">
-          {status === "invited" && (
+      {inv && inv.state !== "none" && (
+        <div className="mt-2 text-sm" data-invite-status={inv.state}>
+          {inv.state === "open" && (
             <>
-              <Button size="sm" className="h-11" disabled={!!busy} onClick={() => run("invite-link")} data-copy-invite>
-                <Copy size={16} /> {busy === "invite-link" ? "Making link…" : "Copy invite link"}
-              </Button>
-              {resend && (
-                <Button size="sm" className="h-11" disabled={!!busy} onClick={() => run("invite-email")} data-email-invite>
-                  <Send size={16} /> {busy === "invite-email" ? "Sending…" : "Email invite"}
-                </Button>
-              )}
+              Link created <span className="font-medium">{fmtDateTime(inv.createdAt!)}</span>, expires <span className="font-medium">{fmtDateTime(inv.expiresAt!)}</span>
             </>
           )}
-          {status === "active" && (
-            <Button size="sm" className="h-11" disabled={!!busy || resend === false} onClick={() => run("reset-email")} title={resend === false ? "Email is not set up (RESEND_API_KEY)" : undefined}>
-              <Mail size={16} /> {busy === "reset-email" ? "Sending…" : "Send password reset"}
+          {inv.state === "expired" && <span className="font-medium text-warn">Expired {inv.expiresAt ? fmtDateTime(inv.expiresAt) : ""}</span>}
+          {inv.state === "claimed" && (
+            <span className="text-pos">
+              Claimed <span className="font-medium">{fmtDateTime(inv.claimedAt!)}</span> with <span className="font-medium">{inv.claimedEmail}</span>
+            </span>
+          )}
+        </div>
+      )}
+      {shownLink && (
+        <div className="mt-2 flex items-center gap-2 rounded-xl border border-line bg-surface2/60 p-2" data-invite-link>
+          <input readOnly value={shownLink} onFocus={(e) => e.target.select()} className="min-w-0 flex-1 bg-transparent px-1.5 font-mono text-xs text-ink outline-none" aria-label="Invite link" />
+          <Button size="sm" className="h-10 shrink-0" onClick={async () => toast.show({ message: (await copyText(shownLink)) ? "Invite link copied" : "Select the link and copy it", tone: "success" })} data-copy-link>
+            <Copy size={15} /> Copy
+          </Button>
+        </div>
+      )}
+      {status !== "active" && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Button size="sm" className="h-11" disabled={!!busy} onClick={() => run("invite-link")} data-create-invite>
+            <Share2 size={16} /> {busy === "invite-link" ? "Making link…" : inv?.state === "open" ? "Make a new invite link" : "Create invite link"}
+          </Button>
+          {status === "invited" && resend && (
+            <Button size="sm" className="h-11" disabled={!!busy} onClick={() => run("invite-email")} data-email-invite>
+              <Send size={16} /> {busy === "invite-email" ? "Sending…" : "Email invite"}
             </Button>
           )}
+          {status === "invited" && (
+            <Button size="sm" className="h-11" disabled={!!busy} onClick={() => (setTemp(""), setTempOpen(true))} data-temp-password>
+              <KeyRound size={16} /> Set temporary password
+            </Button>
+          )}
+        </div>
+      )}
+      {status === "active" && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Button size="sm" className="h-11" disabled={!!busy || resend === false} onClick={() => run("reset-email")} title={resend === false ? "Email is not set up (RESEND_API_KEY)" : undefined}>
+            <Mail size={16} /> {busy === "reset-email" ? "Sending…" : "Send password reset"}
+          </Button>
           <Button size="sm" className="h-11" disabled={!!busy} onClick={() => (setTemp(""), setTempOpen(true))} data-temp-password>
             <KeyRound size={16} /> Set temporary password
           </Button>

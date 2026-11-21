@@ -9,6 +9,7 @@ import type {
   CoaRec,
   CreditEntryRec,
   CustomerRec,
+  InviteStatus,
   GroupRec,
   LabelRec,
   ListingRec,
@@ -241,7 +242,16 @@ export function toCustomer(c: CustomerRow): CustomerRec {
     mustChangePassword: c.mustChangePassword,
     referralCode: c.referralCode ?? "",
     referredById: c.referredById,
+    invite: inviteStatusOf(c),
   };
+}
+
+/** Where the invite link stands. A link that is open now wins over an older claim (a new link was made). */
+export function inviteStatusOf(c: Pick<CustomerRow, "inviteTokenHash" | "inviteExpiresAt" | "inviteCreatedAt" | "inviteClaimedAt" | "inviteClaimedEmail">, now = Date.now()): InviteStatus {
+  const base = { createdAt: isoN(c.inviteCreatedAt), expiresAt: isoN(c.inviteExpiresAt), claimedAt: isoN(c.inviteClaimedAt), claimedEmail: c.inviteClaimedEmail };
+  if (c.inviteTokenHash && c.inviteExpiresAt) return { ...base, state: c.inviteExpiresAt.getTime() < now ? "expired" : "open" };
+  if (c.inviteClaimedAt) return { ...base, state: "claimed" };
+  return { ...base, state: "none" };
 }
 
 export const toCreditEntry = (e: Prisma.CreditEntryGetPayload<object>): CreditEntryRec => ({

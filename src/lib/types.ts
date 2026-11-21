@@ -119,6 +119,16 @@ export interface CustomerRec {
   referralCode?: string;
   /** Who referred them. */
   referredById?: string | null;
+  /** The invite link: open (with dates), expired, or claimed (when, with which email). The link itself is never stored. */
+  invite?: InviteStatus;
+}
+
+export interface InviteStatus {
+  state: "none" | "open" | "expired" | "claimed";
+  createdAt: string | null;
+  expiresAt: string | null;
+  claimedAt: string | null;
+  claimedEmail: string | null;
 }
 
 export type AccountStatus = "none" | "invited" | "active";

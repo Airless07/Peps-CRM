@@ -112,7 +112,7 @@ export async function restore(input: AppData | Parameters<typeof normalizeBackup
         data: data.coas.filter((c) => productIds.has(c.productId)).map((c) => ({ ...c, testDate: dn(c.testDate), createdAt: d(c.createdAt) })),
       });
       await tx.customer.createMany({
-        data: data.customers.map(({ hasAccount: _h, accountStatus: _s, addresses, lastLoginAt, referralCode, ...c }) => ({
+        data: data.customers.map(({ hasAccount: _h, accountStatus: _s, invite: _i, addresses, lastLoginAt, referralCode, ...c }) => ({
           ...c,
           lastLoginAt: dn(lastLoginAt),
           // Empty = none yet (a new one is given on the next load). Codes are unique, so never store "".

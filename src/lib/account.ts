@@ -105,22 +105,29 @@ export async function changePassword(customerId: string, password: string) {
 }
 
 // ---------------------------------------------------------------- Invite / claim links
-/** Make a new invite link. The old one stops working. Only its hash is stored. */
+/**
+ * Make a new invite link (32 random bytes). The old one stops working. Only its hash is stored, so the
+ * full link is shown once, to the admin who made it. Works for customers with no email too: they type
+ * one when they claim it.
+ */
 export async function newInviteLink(customerId: string, origin = ""): Promise<{ url: string; expiresAt: Date; days: number }> {
   const { store } = await getStore();
   const c = await prisma.customer.findUnique({ where: { id: customerId } });
   if (!c) throw new HttpError(404, "Customer not found. Reload the page.");
-  if (!c.email.trim()) throw new HttpError(400, "Add an email to this customer first. The account is linked to it.");
   const days = store.referrals.inviteDays;
   const token = randomBytes(32).toString("base64url");
-  const expiresAt = new Date(Date.now() + days * 86_400_000);
-  await prisma.customer.update({ where: { id: customerId }, data: { inviteTokenHash: sha(token), inviteExpiresAt: expiresAt } });
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + days * 86_400_000);
+  await prisma.customer.update({ where: { id: customerId }, data: { inviteTokenHash: sha(token), inviteExpiresAt: expiresAt, inviteCreatedAt: now } });
   return { url: `${siteUrl(store, origin)}/account/invite?token=${token}`, expiresAt, days };
 }
 
-/** Email an invite (or a claim link) with a fresh link. */
+/** Email an invite (or a claim link) with a fresh link. Needs the email on file. */
 export async function sendInvite(customerId: string, origin = "", opts: { claim?: boolean } = {}): Promise<EmailOutcome> {
   const { store } = await getStore();
+  const found = await prisma.customer.findUnique({ where: { id: customerId }, select: { email: true } });
+  if (!found) throw new HttpError(404, "Customer not found. Reload the page.");
+  if (!found.email.trim()) throw new HttpError(400, "This customer has no email to send to. Use Create invite link and send it yourself.");
   const link = await newInviteLink(customerId, origin);
   const c = (await prisma.customer.findUnique({ where: { id: customerId } }))!;
   const creditCents = Math.max(0, await creditBalance(prisma, customerId));
@@ -134,25 +141,60 @@ async function inviteRow(token: string) {
   return c;
 }
 
-/** What the invite page shows: the name and store credit. Null when the link is wrong, used or expired. */
-export async function inviteInfo(token: string): Promise<{ name: string; creditCents: number } | null> {
+/**
+ * What the invite page shows: the name and the customer's store credit (their real balance, the same sum
+ * the account page and the admin show). `needsEmail`: no email on file, so the page asks for one.
+ * Null when the link is wrong, used or expired.
+ */
+export async function inviteInfo(token: string): Promise<{ name: string; creditCents: number; needsEmail: boolean } | null> {
   const c = await inviteRow(token);
   if (!c) return null;
-  return { name: c.name, creditCents: Math.max(0, await creditBalance(prisma, c.id)) };
+  return { name: c.name, creditCents: await creditBalance(prisma, c.id), needsEmail: !c.email.trim() };
 }
 
-/** Use an invite link: set the password, sign in. The link can't be used again. */
-export async function claimInvite(token: string, password: string): Promise<Account> {
+export const EMAIL_TAKEN_MESSAGE = "That email is already linked to another account. Use a different email or contact us.";
+const LINK_DEAD = "This link has expired or was already used. Ask us for a new one, or use Forgot your password.";
+
+/**
+ * Use an invite link: set the password and sign in, on the SAME customer (same credit, orders and referrals).
+ * A customer with no email types one here; it is saved on them. An email that belongs to any other customer
+ * is refused with one fixed message (nothing about that other customer is shown, nothing is merged or moved),
+ * and the link stays usable so they can try another email. The link can't be used again once it worked.
+ */
+export async function claimInvite(token: string, password: string, emailInput?: string): Promise<Account> {
   const c = await inviteRow(token);
-  if (!c) throw new HttpError(400, "This link has expired or was already used. Ask us for a new one, or use Forgot your password.");
-  // Single use even if two tabs submit at once: only the request that clears this exact hash wins.
-  const done = await prisma.customer.updateMany({
-    where: { id: c.id, inviteTokenHash: c.inviteTokenHash },
-    data: { passwordHash: await hashPassword(password), inviteTokenHash: null, inviteExpiresAt: null, mustChangePassword: false, resetTokenHash: null, resetExpiresAt: null, lastLoginAt: new Date() },
+  if (!c) throw new HttpError(400, LINK_DEAD);
+  const needsEmail = !c.email.trim();
+  const email = needsEmail ? norm(emailInput ?? "") : c.email;
+  if (needsEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) throw new HttpError(400, "Enter a valid email address, like name@example.com.");
+  const passwordHash = await hashPassword(password);
+  const now = new Date();
+  const updated = await prisma.$transaction(async (tx) => {
+    if (needsEmail) {
+      const others = await tx.customer.findMany({ where: { id: { not: c.id }, email: { not: "" } }, select: { email: true } });
+      if (others.some((o) => o.email.trim().toLowerCase() === email)) throw new HttpError(409, EMAIL_TAKEN_MESSAGE);
+    }
+    // Single use even if two tabs submit at once: only the request that clears this exact hash wins.
+    const done = await tx.customer.updateMany({
+      where: { id: c.id, inviteTokenHash: c.inviteTokenHash, ...(needsEmail ? { email: "" } : {}) },
+      data: {
+        ...(needsEmail ? { email } : {}),
+        passwordHash,
+        inviteTokenHash: null,
+        inviteExpiresAt: null,
+        inviteClaimedAt: now,
+        inviteClaimedEmail: email,
+        mustChangePassword: false,
+        resetTokenHash: null,
+        resetExpiresAt: null,
+        lastLoginAt: now,
+      },
+    });
+    if (done.count !== 1) throw new HttpError(400, LINK_DEAD);
+    return tx.customer.findUniqueOrThrow({ where: { id: c.id } });
   });
-  if (done.count !== 1) throw new HttpError(400, "This link has expired or was already used. Ask us for a new one, or use Forgot your password.");
   await setCookie(c.id);
-  return toAccount({ ...c, mustChangePassword: false });
+  return toAccount(updated);
 }
 
 /** Admin: set a temporary password. The customer must choose a new one at next sign in. */

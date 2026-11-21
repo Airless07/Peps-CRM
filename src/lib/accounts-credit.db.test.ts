@@ -16,6 +16,8 @@ const jar = vi.hoisted(() => {
   };
 });
 vi.mock("next/headers", () => ({ cookies: async () => jar }));
+// The invite page is rendered for real; its client form only needs a router object.
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push() {}, refresh() {} }) }));
 
 const dir = mkdtempSync(path.join(tmpdir(), "accounts-credit-test-"));
 const root = path.resolve(import.meta.dirname, "../..");
@@ -132,7 +134,7 @@ describe("invite links", () => {
     expect(link.days).toBe(14);
     expect(link.expiresAt.getTime() - Date.now()).toBeGreaterThan(13.9 * 86_400_000);
     const token = tokenOf(link.url);
-    expect(await account.inviteInfo(token)).toEqual({ name: "Dana Reed", creditCents: 2500 });
+    expect(await account.inviteInfo(token)).toEqual({ name: "Dana Reed", creditCents: 2500, needsEmail: false });
     // Only a hash of the token is stored.
     const row = await prisma.customer.findUnique({ where: { id: "dana" } });
     expect(row!.inviteTokenHash).not.toContain(token);
@@ -171,7 +173,7 @@ describe("invite links", () => {
   });
 
   it("need an email, and the invite email carries the link and the credit", async () => {
-    await expect(account.newInviteLink("sam", ORIGIN)).rejects.toThrow(/Add an email/);
+    await expect(account.sendInvite("sam", ORIGIN)).rejects.toThrow(/no email to send to/);
     await give("dana", 1200);
     const out = await account.sendInvite("dana", ORIGIN);
     expect(out.sent).toBe(true);
@@ -179,6 +181,124 @@ describe("invite links", () => {
     expect(sent[0].to).toEqual(["dana@example.com"]);
     expect(sent[0].text).toContain("$12.00 store credit");
     expect(sent[0].text).toMatch(/https:\/\/shop\.test\/account\/invite\?token=/);
+  });
+});
+
+// ---------------------------------------------------------------- No email yet
+describe("invite links for a customer with no email", () => {
+  it("claiming saves the email on the SAME customer; credit, orders and referrals carry over; password hashed", async () => {
+    await give("sam", 2000);
+    await sell.recordSale(sale({ id: "sam-order", customerId: "sam", customer: "Sam Lee", referredById: "dana" }), ORIGIN);
+    await prisma.customer.update({ where: { id: "dana" }, data: { referredById: "sam" } }); // Sam referred Dana
+    const balanceBefore = await balance("sam");
+    const link = await account.newInviteLink("sam", ORIGIN);
+    const token = tokenOf(link.url);
+    expect(token.length).toBeGreaterThanOrEqual(43); // 32 random bytes
+    expect(await account.inviteInfo(token)).toEqual({ name: "Sam Lee", creditCents: balanceBefore, needsEmail: true });
+    expect(ser.toCustomer((await prisma.customer.findUnique({ where: { id: "sam" } }))!).invite).toMatchObject({ state: "open", claimedAt: null });
+
+    await expect(account.claimInvite(token, "a-good-password")).rejects.toThrow(/valid email/);
+    const acc = await account.claimInvite(token, "a-good-password", "Sam.Lee@Example.com");
+    expect(acc.id).toBe("sam");
+    expect(acc.email).toBe("sam.lee@example.com");
+    expect(jar.get(account.ACCOUNT_COOKIE)?.value).toBeTruthy();
+    expect(await prisma.customer.count()).toBe(3); // nobody new
+    const row = (await prisma.customer.findUnique({ where: { id: "sam" } }))!;
+    expect(row.email).toBe("sam.lee@example.com");
+    expect(row.passwordHash).toMatch(/^\$2[aby]\$11\$/);
+    expect(row.passwordHash).not.toContain("a-good-password");
+    const rec = ser.toCustomer(row);
+    expect(rec.accountStatus).toBe("active");
+    expect(rec.invite).toMatchObject({ state: "claimed", claimedEmail: "sam.lee@example.com" });
+    expect(rec.invite!.claimedAt).toBeTruthy();
+    expect(await balance("sam")).toBe(balanceBefore);
+    expect(await prisma.order.count({ where: { customerId: "sam" } })).toBe(1);
+    expect((await prisma.customer.findUnique({ where: { id: "dana" } }))!.referredById).toBe("sam");
+    expect(rec.referralCode).toBe("SAMM3333");
+  });
+
+  it("an email used by another customer is blocked with one fixed message; nothing changes or leaks; the link stays usable", async () => {
+    await give("dana", 4321);
+    await give("sam", 700);
+    const token = tokenOf((await account.newInviteLink("sam", ORIGIN)).url);
+    for (const typed of ["dana@example.com", " DANA@EXAMPLE.COM ", "kim@example.com"]) {
+      let msg = "";
+      await account.claimInvite(token, "a-good-password", typed).catch((e: Error) => (msg = e.message));
+      expect(msg).toBe("That email is already linked to another account. Use a different email or contact us.");
+      expect(msg).not.toMatch(/Dana|Kim|43\.21|\$/);
+    }
+    expect(jar.get(account.ACCOUNT_COOKIE)).toBeUndefined();
+    const [sam, dana] = await Promise.all([prisma.customer.findUnique({ where: { id: "sam" } }), prisma.customer.findUnique({ where: { id: "dana" } })]);
+    expect(sam!.email).toBe("");
+    expect(sam!.passwordHash).toBeNull();
+    expect(dana!.passwordHash).toBeNull();
+    expect(await balance("dana")).toBe(4321);
+    expect(await balance("sam")).toBe(700);
+    // Through the real store route too: same message, no account in the answer.
+    const { POST } = await import("../app/api/store/account/route");
+    const res = await POST(req("/api/store/account", "POST", { action: "claim", token, email: "dana@example.com", password: "a-good-password", confirm: "a-good-password" }), { params: Promise.resolve({}) });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: "That email is already linked to another account. Use a different email or contact us." });
+    // Not used up: a different email works.
+    await account.claimInvite(token, "a-good-password", "sam@new.example");
+    expect((await prisma.customer.findUnique({ where: { id: "sam" } }))!.email).toBe("sam@new.example");
+  });
+
+  it("works once, expires, and a new link kills the old one", async () => {
+    const first = tokenOf((await account.newInviteLink("sam", ORIGIN)).url);
+    const second = tokenOf((await account.newInviteLink("sam", ORIGIN)).url);
+    expect(await account.inviteInfo(first)).toBeNull();
+    await expect(account.claimInvite(first, "a-good-password", "sam@new.example")).rejects.toThrow(/expired or was already used/);
+    await prisma.customer.update({ where: { id: "sam" }, data: { inviteExpiresAt: new Date(Date.now() - 1000) } });
+    expect(ser.toCustomer((await prisma.customer.findUnique({ where: { id: "sam" } }))!).invite!.state).toBe("expired");
+    await expect(account.claimInvite(second, "a-good-password", "sam@new.example")).rejects.toThrow(/expired/);
+    const third = tokenOf((await account.newInviteLink("sam", ORIGIN)).url);
+    await account.claimInvite(third, "a-good-password", "sam@new.example");
+    expect(await account.inviteInfo(third)).toBeNull();
+    await expect(account.claimInvite(third, "other-password", "sam2@new.example")).rejects.toThrow(/expired or was already used/);
+    expect((await prisma.customer.findUnique({ where: { id: "sam" } }))!.email).toBe("sam@new.example");
+  });
+
+  it("a customer with an email keeps the email on file (a typed one is ignored)", async () => {
+    const token = tokenOf((await account.newInviteLink("dana", ORIGIN)).url);
+    expect((await account.inviteInfo(token))!.needsEmail).toBe(false);
+    await account.claimInvite(token, "a-good-password", "other@example.com");
+    expect((await prisma.customer.findUnique({ where: { id: "dana" } }))!.email).toBe("dana@example.com");
+  });
+});
+
+describe("the invite page balance is always the customer's real balance", () => {
+  const pageText = async (token: string) => {
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const { default: InvitePage } = await import("../app/(store)/account/invite/page");
+    return renderToStaticMarkup(await InvitePage({ searchParams: Promise.resolve({ token }) })).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+  };
+  const usd = (c: number) => (c / 100).toLocaleString("en-US", { style: "currency", currency: "USD" });
+
+  it("after gifts, a sale using credit, a refund and a referral reward", async () => {
+    const token = tokenOf((await account.newInviteLink("sam", ORIGIN)).url);
+    const { balanceOf } = await import("./credit");
+    const check = async (expected: number) => {
+      const real = await balance("sam");
+      expect(real).toBe(expected);
+      const data = await ser.loadAll();
+      expect(balanceOf(data.creditEntries!, "sam")).toBe(real); // what the admin and the Sell cart show
+      expect((await account.inviteInfo(token))!.creditCents).toBe(real);
+      const text = await pageText(token);
+      expect(text).toContain("Welcome, Sam Lee.");
+      expect(text).toContain(`You have ${usd(real)} store credit waiting.`);
+    };
+    await check(0);
+    await give("sam", 2500);
+    await check(2500);
+    await sell.recordSale(sale({ id: "use", customerId: "sam", customer: "Sam Lee", storeCreditCents: 2500 }), ORIGIN);
+    await check(0); // all used: $0, not the gift amount
+    await adminCookie();
+    const { DELETE } = await import("../app/api/orders/[id]/route");
+    await DELETE(req("/api/orders/use", "DELETE", undefined), { params: Promise.resolve({ id: "use" }) });
+    await check(2500); // refunded
+    await sell.recordSale(sale({ id: "ref", referredById: "sam" }), ORIGIN);
+    await check(3500); // + $10 referral reward
   });
 });
 
@@ -198,7 +318,7 @@ describe("signing up with an email that already belongs to a customer", () => {
     expect(sent[0].to).toEqual(["dana@example.com"]);
     expect(sent[0].subject).toMatch(/Claim your/);
     const token = sent[0].text.match(/token=([A-Za-z0-9_-]+)/)![1];
-    expect(await account.inviteInfo(token)).toEqual({ name: "Dana Reed", creditCents: 4000 });
+    expect(await account.inviteInfo(token)).toEqual({ name: "Dana Reed", creditCents: 4000, needsEmail: false });
   });
 
   it("same for an account that already has a password: its password is not touched", async () => {

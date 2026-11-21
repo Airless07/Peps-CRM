@@ -271,9 +271,11 @@ export function ResetForm({ token }: { token: string }) {
 }
 
 // ---------------------------------------------------------------- Invite / claim
-export function InviteForm({ token }: { token: string }) {
+export function InviteForm({ token, needsEmail = false }: { token: string; needsEmail?: boolean }) {
   const router = useRouter();
+  const [email, setEmail] = useState("");
   const [pw, setPw] = useState("");
+  const [pw2, setPw2] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   return (
@@ -283,10 +285,12 @@ export function InviteForm({ token }: { token: string }) {
       onSubmit={async (e) => {
         e.preventDefault();
         setError("");
+        if (needsEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim())) return setError("Enter a valid email address, like name@example.com.");
         if (pw.length < 8) return setError("Use at least 8 characters for your password.");
+        if (needsEmail && pw !== pw2) return setError("The two passwords don't match.");
         setBusy(true);
         try {
-          await accountApi({ action: "claim", token, password: pw });
+          await accountApi(needsEmail ? { action: "claim", token, email: email.trim(), password: pw, confirm: pw2 } : { action: "claim", token, password: pw });
           router.push("/account");
           router.refresh();
         } catch (err) {
@@ -295,16 +299,33 @@ export function InviteForm({ token }: { token: string }) {
         }
       }}
     >
+      {needsEmail && (
+        <div>
+          <label className="s-label" htmlFor="iv-e">
+            Email
+          </label>
+          <input id="iv-e" type="email" inputMode="email" className="s-input" autoComplete="email" autoCapitalize="none" spellCheck={false} value={email} onChange={(e) => setEmail(e.target.value)} />
+          <span className="s-hint">You sign in with this email. Order updates are sent here.</span>
+        </div>
+      )}
       <div>
         <label className="s-label" htmlFor="iv-p">
-          Choose a password
+          {needsEmail ? "Password" : "Choose a password"}
         </label>
         <input id="iv-p" type="password" className="s-input" autoComplete="new-password" value={pw} onChange={(e) => setPw(e.target.value)} />
         <span className="s-hint">At least 8 characters.</span>
       </div>
+      {needsEmail && (
+        <div>
+          <label className="s-label" htmlFor="iv-p2">
+            Confirm password
+          </label>
+          <input id="iv-p2" type="password" className="s-input" autoComplete="new-password" value={pw2} onChange={(e) => setPw2(e.target.value)} />
+        </div>
+      )}
       {error && <Alert>{error}</Alert>}
       <button className="s-btn-primary w-full" disabled={busy}>
-        {busy ? "Saving…" : "Save password and sign in"}
+        {busy ? "Saving…" : needsEmail ? "Create my account" : "Save password and sign in"}
       </button>
     </form>
   );
