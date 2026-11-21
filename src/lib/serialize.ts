@@ -1,11 +1,13 @@
 import type { Prisma } from "@prisma/client";
 import type {
+  AccountStatus,
   Address,
   AdjustmentRec,
   AppData,
   BogoRule,
   CashHandoffRec,
   CoaRec,
+  CreditEntryRec,
   CustomerRec,
   GroupRec,
   LabelRec,
@@ -31,6 +33,7 @@ import { prisma } from "./db";
 import { cleanPaymentMethods, type BackupData } from "./backup";
 import { parseContent, parseStore } from "./store/config";
 import { cleanSellButtons } from "./sell-buttons";
+import { assignMissingReferralCodes } from "./referral-codes";
 
 const iso = (d: Date) => d.toISOString();
 const isoN = (d: Date | null) => (d ? d.toISOString() : null);
@@ -84,6 +87,8 @@ export function toSavedOrder(o: SavedOrderRow): SavedOrderRec {
     lines: json<SavedLineRec[]>(o.linesJson, []),
     owner: partnerOrNull(o.owner),
     cashTo: partnerOrNull(o.cashTo),
+    storeCreditCents: o.storeCreditCents,
+    referredById: o.referredById,
   };
 }
 
@@ -119,6 +124,8 @@ export function toOrder(o: OrderWithLines): OrderRec {
     adminNote: o.adminNote,
     owner: partnerOrNull(o.owner),
     cashTo: partnerOrNull(o.cashTo),
+    storeCreditCents: o.storeCreditCents,
+    referredById: o.referredById,
     web: online
       ? {
           email: o.email,
@@ -214,7 +221,11 @@ export function cleanBogo(v: Partial<BogoRule> | null | undefined): BogoRule {
 }
 
 type CustomerRow = Prisma.CustomerGetPayload<object>;
-/** Never includes the password hash or reset token. */
+
+/** Active = can sign in. Invited = has an email (a store account with no password yet). */
+export const accountStatusOf = (c: Pick<CustomerRow, "passwordHash" | "email">): AccountStatus => (c.passwordHash ? "active" : c.email.trim() ? "invited" : "none");
+
+/** Never includes the password hash, the reset token or the invite token. Every API that returns a customer goes through here. */
 export function toCustomer(c: CustomerRow): CustomerRec {
   return {
     id: c.id,
@@ -225,8 +236,27 @@ export function toCustomer(c: CustomerRow): CustomerRec {
     createdAt: iso(c.createdAt),
     hasAccount: !!c.passwordHash,
     addresses: json<Address[]>(c.addressesJson, []),
+    accountStatus: accountStatusOf(c),
+    lastLoginAt: isoN(c.lastLoginAt),
+    mustChangePassword: c.mustChangePassword,
+    referralCode: c.referralCode ?? "",
+    referredById: c.referredById,
   };
 }
+
+export const toCreditEntry = (e: Prisma.CreditEntryGetPayload<object>): CreditEntryRec => ({
+  id: e.id,
+  customerId: e.customerId,
+  date: iso(e.date),
+  amountCents: e.amountCents,
+  kind: e.kind as CreditEntryRec["kind"],
+  reason: e.reason,
+  orderId: e.orderId,
+  orderNumber: e.orderNumber,
+  by: e.by,
+  shortfallCents: e.shortfallCents,
+  createdAt: iso(e.createdAt),
+});
 
 const holder = (v: string): CashHandoffRec["from"] => (v === "A" || v === "B" ? v : "bank");
 export const toHandoff = (h: Prisma.CashHandoffGetPayload<object>): CashHandoffRec => ({
@@ -240,7 +270,9 @@ export const toHandoff = (h: Prisma.CashHandoffGetPayload<object>): CashHandoffR
 });
 
 export async function loadAll(): Promise<AppData> {
-  const [settings, products, customers, purchases, adjustments, orders, splits, payouts, labels, listings, groups, coas, promotions, reviews, messages, savedOrders, handoffs] =
+  // Every customer has a referral code (older rows get theirs here, once).
+  await assignMissingReferralCodes().catch((e) => console.error("[referral codes]", e));
+  const [settings, products, customers, purchases, adjustments, orders, splits, payouts, labels, listings, groups, coas, promotions, reviews, messages, savedOrders, handoffs, credits] =
     await Promise.all([
       getSettingsRow(),
       prisma.product.findMany({ orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] }),
@@ -259,6 +291,7 @@ export async function loadAll(): Promise<AppData> {
       prisma.contactMessage.findMany({ orderBy: { createdAt: "desc" } }),
       prisma.savedOrder.findMany({ orderBy: { savedAt: "desc" } }),
       prisma.cashHandoff.findMany({ orderBy: { date: "desc" } }),
+      prisma.creditEntry.findMany({ orderBy: [{ date: "desc" }, { createdAt: "desc" }] }),
     ]);
   const allOrders = orders.map(toOrder);
   const backfill = await prisma.dataMigration.findUnique({ where: { id: "sizes-from-names" } }).catch(() => null);
@@ -295,6 +328,7 @@ export async function loadAll(): Promise<AppData> {
     messages: messages.map((m): MessageRec => ({ ...m, createdAt: iso(m.createdAt) })),
     savedOrders: savedOrders.map(toSavedOrder),
     cashHandoffs: handoffs.map(toHandoff),
+    creditEntries: credits.map(toCreditEntry),
     store: parseStore(settings.storeJson),
     content: parseContent(settings.contentJson),
     sizeBackfill: backfill ? { ranAt: iso(backfill.ranAt), items: json<{ productId: string; product: string; size: string }[]>(backfill.detail, []) } : null,

@@ -28,6 +28,9 @@ import { checkoutMethods, payInstructions, payMethod } from "./store/payments";
 import { orderLinesOf, priceCart, shippingOptions, type CartItemInput } from "./store/pricing";
 import type { Address, AppData, OrderRec, PromoSnapshot } from "./types";
 import { track } from "./analytics";
+import { clampCredit } from "./credit";
+import { creditAvailable, rememberReferrer, syncOrderCredit } from "./credit-ops";
+import { customerByReferralCode } from "./referral-codes";
 
 type Tx = Prisma.TransactionClient;
 type Db = Tx | typeof prisma;
@@ -84,6 +87,7 @@ export function emailOrder(o: OrderRec, base: string): EmailOrder {
     lines: o.lines.map((l) => ({ name: lineName(l), quantity: l.quantity, totalCents: l.quantity * l.unitPriceCents })),
     subtotalCents: t.subtotal,
     discountCents: t.discount,
+    creditCents: t.credit,
     shippingCents: t.shipping,
     totalCents: t.total,
     shippingMethod: o.web?.shippingMethod ?? "",
@@ -118,6 +122,10 @@ export interface CheckoutInput {
   /** Total the customer saw. The order is refused if the price changed meanwhile. */
   expectedTotalCents: number;
   origin: string;
+  /** Store credit the customer chose to use (capped by what is available). Taken from the balance once paid. */
+  storeCreditCents?: number;
+  /** Optional referral code typed at checkout. Sets who referred the order (and the customer, if not set yet). */
+  referralCode?: string;
 }
 
 /** Price a cart exactly like the order will be saved. Shared by the quote API and placeOrder. */
@@ -152,15 +160,31 @@ export async function placeOrder(input: CheckoutInput): Promise<{ id: string; to
   if (!ship) throw new HttpError(400, "That shipping option is no longer available. Pick another one.");
   const method = checkoutMethods(store.payments).find((m) => m.id === input.payChoice && m.available);
   if (!method) throw new HttpError(400, "That payment method is not available. Pick another one.");
-  const total = pricing.subtotalCents - pricing.discountCents + ship.cents;
+  const customer = await prisma.customer.findUnique({ where: { id: input.customerId } });
+  if (!customer) throw new HttpError(401, "Sign in again to place your order.");
+
+  // Referral code: who referred this order. A typed code wins; else the customer's own referrer.
+  let referredById = customer.referredById;
+  if (input.referralCode?.trim()) {
+    const ref = await customerByReferralCode(prisma, input.referralCode);
+    if (!ref) throw new HttpError(400, "That referral code wasn't found. Check it, or leave the field empty.");
+    if (ref.id === customer.id) throw new HttpError(400, "That is your own referral code. Share it with friends instead.");
+    referredById = ref.id;
+  }
+
+  // Store credit: never more than what is free to spend (other unpaid orders hold theirs) or the total after discounts.
+  const wanted = Math.max(0, Math.round(input.storeCreditCents ?? 0));
+  const { available } = wanted > 0 ? await creditAvailable(prisma, customer.id) : { available: 0 };
+  if (wanted > available) throw new HttpError(409, `You have ${(available / 100).toLocaleString("en-US", { style: "currency", currency: "USD" })} store credit available. Lower the store credit and place the order again.`);
+  const credit = clampCredit(wanted, available, pricing.subtotalCents - pricing.discountCents);
+
+  const total = pricing.subtotalCents - pricing.discountCents - credit + ship.cents;
   if (total !== input.expectedTotalCents) throw new HttpError(409, "A price changed while you were checking out. Review the updated total and place the order again.");
 
   const now = new Date();
   const id = randomUUID();
   const token = newToken();
   const promo: PromoSnapshot = { code: pricing.code, promotionIds: pricing.applied.map((a) => a.id), labels: pricing.applied.map((a) => a.label), freeShipping: ship.free };
-  const customer = await prisma.customer.findUnique({ where: { id: input.customerId } });
-  if (!customer) throw new HttpError(401, "Sign in again to place your order.");
 
   const number = await prisma.$transaction(async (tx) => {
     const n = await nextOrderNumber(tx);
@@ -180,6 +204,9 @@ export async function placeOrder(input: CheckoutInput): Promise<{ id: string; to
         payChoice: input.payChoice,
         discountType: "$",
         discountValue: pricing.discountCents,
+        // Held until the order is paid; only then does it come off the balance.
+        storeCreditCents: credit,
+        referredById,
         email: input.email.trim().toLowerCase(),
         phone: input.phone.trim(),
         shipToJson: JSON.stringify(input.shipTo),
@@ -210,6 +237,7 @@ export async function placeOrder(input: CheckoutInput): Promise<{ id: string; to
     for (const a of pricing.applied) {
       await tx.promotionUse.create({ data: { id: randomUUID(), promotionId: a.id, orderId: id, email: input.email.trim().toLowerCase() } });
     }
+    await rememberReferrer(tx, customer.id, referredById);
     await logEvent(tx, id, "status", "Order placed. Waiting for payment.", `${method.name} · total $${(total / 100).toFixed(2)}`);
     return n;
   });
@@ -281,6 +309,8 @@ export async function markPaid(orderId: string, opts: { paymentMethod: string; o
       where: { id: orderId },
       data: { status: "paid", date: now, paidAt: now, soldBy: "W", paymentMethod: opts.paymentMethod.trim() || "Unknown", customerId, customer: customerName },
     });
+    // Paid: the store credit it used comes off the balance now, and the referrer earns their reward.
+    await syncOrderCredit(tx, orderId, { by: "Website order" });
     await logEvent(tx, orderId, "status", "Marked paid.", opts.paymentMethod);
   });
 
@@ -291,7 +321,7 @@ export async function markPaid(orderId: string, opts: { paymentMethod: string; o
 }
 
 // ---------------------------------------------------------------- Cancel
-export async function cancelOrder(orderId: string, reason: string, opts: { origin?: string; notify?: boolean } = {}) {
+export async function cancelOrder(orderId: string, reason: string, opts: { origin?: string; notify?: boolean; by?: string } = {}) {
   const { order } = await loadOrder(orderId);
   if (order.source !== "online") throw new HttpError(400, "In-person sales are not canceled. Open the sale and delete it instead.");
   if (order.status === "canceled") throw new HttpError(409, `Order #${order.number} is already canceled.`);
@@ -300,6 +330,8 @@ export async function cancelOrder(orderId: string, reason: string, opts: { origi
     await tx.order.update({ where: { id: orderId }, data: { status: "canceled", canceledAt: new Date(), cancelReason: text } });
     // Free the promotion uses so limited codes and deals count this order out.
     await tx.promotionUse.deleteMany({ where: { orderId } });
+    // Store credit used goes back to the customer; referral rewards are taken back (never below $0).
+    await syncOrderCredit(tx, orderId, { by: opts.by ?? "Admin", why: "canceled" });
     await logEvent(tx, orderId, "status", text);
   });
   if (opts.notify !== false && order.web?.email) {
@@ -313,7 +345,7 @@ export async function autoCancelDue(now = new Date()): Promise<number> {
   const due = await prisma.order.findMany({ where: { status: "awaiting_payment", expiresAt: { lte: now } }, select: { id: true } });
   for (const o of due) {
     try {
-      await cancelOrder(o.id, CANCEL_UNPAID_REASON);
+      await cancelOrder(o.id, CANCEL_UNPAID_REASON, { by: "Automatic" });
     } catch (e) {
       console.error("auto-cancel failed", o.id, e);
     }

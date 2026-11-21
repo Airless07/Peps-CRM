@@ -119,6 +119,8 @@ export interface EmailOrder {
   lines: { name: string; quantity: number; totalCents: number }[];
   subtotalCents: number;
   discountCents: number;
+  /** Store credit used. Absent = 0. */
+  creditCents?: number;
   shippingCents: number;
   totalCents: number;
   shippingMethod: string;
@@ -130,6 +132,7 @@ function totalsRows(o: EmailOrder): Block {
   const rows: [string, string][] = o.lines.map((l) => [`${l.name} × ${l.quantity}`, money(l.totalCents)]);
   rows.push(["Subtotal", money(o.subtotalCents)]);
   if (o.discountCents > 0) rows.push(["Discount", `-${money(o.discountCents)}`]);
+  if ((o.creditCents ?? 0) > 0) rows.push(["Store credit", `-${money(o.creditCents!)}`]);
   rows.push([`Shipping${o.shippingMethod ? ` (${o.shippingMethod})` : ""}`, o.shippingCents > 0 ? money(o.shippingCents) : "Free"]);
   rows.push(["Total", money(o.totalCents)]);
   return { rows, strongLast: true };
@@ -261,6 +264,22 @@ export function passwordResetEmail(store: StoreSettings, url: string): EmailCont
       { p: `Someone asked to reset the password for this email at ${store.storeName}.` },
       { button: { label: "Choose a new password", url } },
       { small: "The link works once and expires in 1 hour. If this was not you, ignore this email and nothing changes." },
+    ],
+  };
+}
+
+/** Invite to a store account, or the claim link sent when someone signs up with an email we already have. */
+export function inviteEmail(store: StoreSettings, v: { name: string; creditCents: number; url: string; days: number; claim: boolean }): EmailContent {
+  const first = v.name.trim().split(/\s+/)[0] || "there";
+  return {
+    subject: v.claim ? `Claim your ${store.storeName} account` : `Your ${store.storeName} account is ready`,
+    preview: v.creditCents > 0 ? `You have ${money(v.creditCents)} store credit waiting.` : "Choose a password to start using it.",
+    heading: v.claim ? "Claim your account" : `Welcome, ${first}`,
+    blocks: [
+      { p: v.claim ? `Someone tried to create an account at ${store.storeName} with this email. We already have an account for you, so nothing new was made.` : `${store.storeName} set up an account for you. Choose a password to see your orders and store credit.` },
+      ...(v.creditCents > 0 ? [{ p: `You have ${money(v.creditCents)} store credit.` }] : []),
+      { button: { label: v.claim ? "Claim my account" : "Choose a password", url: v.url } },
+      { small: `The link works once and expires in ${v.days} day${v.days === 1 ? "" : "s"}. If this was not you, ignore this email and nothing changes.` },
     ],
   };
 }

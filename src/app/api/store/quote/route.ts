@@ -1,5 +1,7 @@
 import { body, route } from "@/lib/api";
 import { currentAccount } from "@/lib/account";
+import { creditAvailable } from "@/lib/credit-ops";
+import { prisma } from "@/lib/db";
 import { quoteCheckout } from "@/lib/order-ops";
 import { rateLimit } from "@/lib/ratelimit";
 import { checkoutMethods } from "@/lib/store/payments";
@@ -27,6 +29,8 @@ export const POST = route(
       // Only say that live rates fell back; the technical reason stays on the server.
       shippingEstimated: data.store.shippingMode === "live" && (!to || !!liveNote),
       payMethods: checkoutMethods(data.store.payments),
+      // Signed-in customers: their store credit (balance, and what unpaid orders don't already hold).
+      credit: account ? await creditAvailable(prisma, account.id).then(({ balance, available }) => ({ balanceCents: Math.max(0, balance), availableCents: available })) : null,
     };
   },
   { public: true },

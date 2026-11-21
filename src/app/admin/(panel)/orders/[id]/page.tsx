@@ -120,6 +120,11 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                   <span className="text-neg">-{fmtMoney(t.discount)}</span>
                 </Row>
               )}
+              {t.credit > 0 && (
+                <Row label="Store credit">
+                  <span className="text-neg">-{fmtMoney(t.credit)}</span>
+                </Row>
+              )}
               {t.tip > 0 && <Row label="Tip">{fmtMoney(t.tip)}</Row>}
               {online && <Row label={`Shipping${w?.shippingMethod ? ` (${w.shippingMethod})` : ""}`}>{t.shipping > 0 ? fmtMoney(t.shipping) : "Free"}</Row>}
               <Row label="Total" strong>

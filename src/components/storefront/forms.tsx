@@ -270,10 +270,68 @@ export function ResetForm({ token }: { token: string }) {
   );
 }
 
+// ---------------------------------------------------------------- Invite / claim
+export function InviteForm({ token }: { token: string }) {
+  const router = useRouter();
+  const [pw, setPw] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  return (
+    <form
+      noValidate
+      className="space-y-4"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setError("");
+        if (pw.length < 8) return setError("Use at least 8 characters for your password.");
+        setBusy(true);
+        try {
+          await accountApi({ action: "claim", token, password: pw });
+          router.push("/account");
+          router.refresh();
+        } catch (err) {
+          setError((err as Error).message);
+          setBusy(false);
+        }
+      }}
+    >
+      <div>
+        <label className="s-label" htmlFor="iv-p">
+          Choose a password
+        </label>
+        <input id="iv-p" type="password" className="s-input" autoComplete="new-password" value={pw} onChange={(e) => setPw(e.target.value)} />
+        <span className="s-hint">At least 8 characters.</span>
+      </div>
+      {error && <Alert>{error}</Alert>}
+      <button className="s-btn-primary w-full" disabled={busy}>
+        {busy ? "Saving…" : "Save password and sign in"}
+      </button>
+    </form>
+  );
+}
+
 // ---------------------------------------------------------------- Account
-export function AccountView({ account, orders, statusText }: { account: AccountInfo | null; orders: PublicOrder[]; statusText: Record<string, string> }) {
+export interface AccountCredit {
+  balanceCents: number;
+  referralCode: string;
+  history: { id: string; date: string; amountCents: number; reason: string; orderNumber: number | null }[];
+}
+
+export function AccountView({ account, orders, statusText, credit }: { account: AccountInfo | null; orders: PublicOrder[]; statusText: Record<string, string>; credit?: AccountCredit | null }) {
   const router = useRouter();
   const [addresses, setAddresses] = useState(account?.addresses ?? []);
+  const [copied, setCopied] = useState(false);
+  if (account?.mustChangePassword) {
+    return (
+      <div className="mx-auto max-w-md">
+        <h1 className="text-4xl font-semibold" style={{ letterSpacing: "-0.03em" }}>
+          Choose a new password
+        </h1>
+        <p className="mb-7 mt-3 text-[1.0625rem] leading-relaxed text-stone">You signed in with a temporary password. Choose your own to continue.</p>
+        <AuthPanel initial="change" onDone={() => router.refresh()} />
+      </div>
+    );
+  }
   if (!account) {
     return (
       <div className="mx-auto max-w-md">
@@ -306,6 +364,41 @@ export function AccountView({ account, orders, statusText }: { account: AccountI
           Sign out
         </button>
       </div>
+
+      {credit && (
+        <div className="mt-10 grid gap-4 sm:grid-cols-2" data-account-credit>
+          <div className="rounded-2xl bg-soft p-5">
+            <div className="text-sm font-medium text-stone">Store credit</div>
+            <div className="mt-1 text-3xl font-semibold tabular-nums" data-account-balance>
+              {money(credit.balanceCents)}
+            </div>
+            <p className="mt-1 text-sm text-stone">Use it at checkout, all or part of it.</p>
+          </div>
+          {credit.referralCode && (
+            <div className="rounded-2xl border border-rule p-5">
+              <div className="text-sm font-medium text-stone">Your referral code</div>
+              <div className="mt-1 flex items-center gap-3">
+                <span className="font-mono text-2xl font-semibold tracking-wider" data-account-referral>
+                  {credit.referralCode}
+                </span>
+                <button
+                  type="button"
+                  className="s-link text-sm"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(credit.referralCode);
+                      setCopied(true);
+                    } catch {}
+                  }}
+                >
+                  {copied ? "Copied" : "Copy"}
+                </button>
+              </div>
+              <p className="mt-1 text-sm text-stone">Friends enter it at checkout. You earn store credit when their order is paid.</p>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="mt-12 grid gap-x-16 gap-y-12 lg:grid-cols-[1.6fr_1fr]">
         <section>
@@ -340,6 +433,28 @@ export function AccountView({ account, orders, statusText }: { account: AccountI
         </section>
 
         <section>
+          {credit && (
+            <div className="mb-12">
+              <h2 className="text-xl font-semibold">Store credit history</h2>
+              {credit.history.length === 0 ? (
+                <p className="mt-4 text-[15px] leading-relaxed text-stone">No store credit yet.</p>
+              ) : (
+                <ul className="mt-4 divide-y divide-rule border-y border-rule" data-account-credit-history>
+                  {credit.history.map((h) => (
+                    <li key={h.id} className="flex items-start justify-between gap-4 py-3 text-[15px]">
+                      <span className="min-w-0">
+                        <span className="block">{h.reason || "Store credit"}</span>
+                        <span className="block text-sm text-stone">{date(h.date)}</span>
+                      </span>
+                      <span className={`shrink-0 font-semibold tabular-nums ${h.amountCents < 0 ? "" : "text-brand"}`}>
+                        {h.amountCents < 0 ? `-${money(-h.amountCents)}` : `+${money(h.amountCents)}`}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
           <h2 className="text-xl font-semibold">Saved addresses</h2>
           {addresses.length === 0 ? (
             <p className="mt-4 text-[15px] leading-relaxed text-stone">The address you use at checkout is saved here for next time.</p>

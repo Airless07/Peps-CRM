@@ -19,6 +19,8 @@ export interface PublicOrder {
   subtotalCents: number;
   discountCents: number;
   discountLabels: string[];
+  /** Store credit used. */
+  creditCents: number;
   shippingCents: number;
   shippingMethod: string;
   totalCents: number;
@@ -57,6 +59,7 @@ export function toPublicOrder(row: NonNullable<Awaited<ReturnType<typeof findRow
     lines: o.lines.map((l) => ({ name: lineName(l), quantity: l.quantity, unitCents: l.unitPriceCents, totalCents: l.quantity * l.unitPriceCents })),
     subtotalCents: t.subtotal,
     discountCents: t.discount,
+    creditCents: t.credit,
     discountLabels: w.promo?.labels.filter((x) => !/free shipping/i.test(x)) ?? [],
     shippingCents: t.shipping,
     shippingMethod: w.shippingMethod,

@@ -7,6 +7,7 @@ import { DEFAULT_SETTINGS } from "./types";
 type Tx = Prisma.TransactionClient;
 
 export async function wipe(tx: Tx) {
+  await tx.creditEntry.deleteMany();
   await tx.payout.deleteMany();
   await tx.splitItem.deleteMany();
   await tx.split.deleteMany();
@@ -111,8 +112,11 @@ export async function restore(input: AppData | Parameters<typeof normalizeBackup
         data: data.coas.filter((c) => productIds.has(c.productId)).map((c) => ({ ...c, testDate: dn(c.testDate), createdAt: d(c.createdAt) })),
       });
       await tx.customer.createMany({
-        data: data.customers.map(({ hasAccount: _h, addresses, ...c }) => ({
+        data: data.customers.map(({ hasAccount: _h, accountStatus: _s, addresses, lastLoginAt, referralCode, ...c }) => ({
           ...c,
+          lastLoginAt: dn(lastLoginAt),
+          // Empty = none yet (a new one is given on the next load). Codes are unique, so never store "".
+          referralCode: referralCode || null,
           createdAt: d(c.createdAt),
           addressesJson: JSON.stringify(addresses ?? []),
           passwordHash: hashes.get(c.id) ?? null,
@@ -154,6 +158,9 @@ export async function restore(input: AppData | Parameters<typeof normalizeBackup
       });
       await tx.cashHandoff.createMany({
         data: (data.cashHandoffs ?? []).map(({ from, to, ...h }) => ({ ...h, fromHolder: from, toHolder: to, date: d(h.date), createdAt: d(h.createdAt) })),
+      });
+      await tx.creditEntry.createMany({
+        data: (data.creditEntries ?? []).map((e) => ({ ...e, date: d(e.date), createdAt: d(e.createdAt) })),
       });
       await tx.split.createMany({
         data: data.splits.map(({ items: _i, ...s }) => ({ ...s, date: d(s.date), createdAt: d(s.createdAt) })),

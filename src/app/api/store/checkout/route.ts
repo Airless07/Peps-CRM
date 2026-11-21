@@ -33,6 +33,8 @@ export const POST = route(
       payChoice: input.payChoice,
       expectedTotalCents: input.expectedTotalCents,
       origin: requestOrigin(req),
+      storeCreditCents: input.storeCreditCents,
+      referralCode: input.referralCode,
     });
     if (input.saveAddress) await saveAddress(account.id, { ...input.shipTo, street2: input.shipTo.street2 ?? "" });
     return { ok: true, token: order.token, number: order.number };

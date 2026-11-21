@@ -109,6 +109,38 @@ export interface CustomerRec {
   hasAccount: boolean;
   /** Saved shipping addresses (website account). */
   addresses: Address[];
+  /** "none": no email, so no account. "invited": has an email, no password yet. "active": can sign in. */
+  accountStatus?: AccountStatus;
+  /** Last time they signed in on the website. */
+  lastLoginAt?: string | null;
+  /** True after "Set temporary password" until they choose their own. */
+  mustChangePassword?: boolean;
+  /** Code they share with friends (set for every customer). */
+  referralCode?: string;
+  /** Who referred them. */
+  referredById?: string | null;
+}
+
+export type AccountStatus = "none" | "invited" | "active";
+export const ACCOUNT_STATUS_LABEL: Record<AccountStatus, string> = { none: "No account", invited: "Invited", active: "Active" };
+
+/** "manual": added or removed by the team. "order": used on an order (or refunded). "referral": reward for referring. "referral_new": reward for being referred. */
+export type CreditKind = "manual" | "order" | "referral" | "referral_new";
+
+/** One line of a customer's store credit history. The balance is the sum of amountCents. */
+export interface CreditEntryRec {
+  id: string;
+  customerId: string;
+  date: string;
+  amountCents: number;
+  kind: CreditKind;
+  reason: string;
+  orderId: string | null;
+  orderNumber: number | null;
+  by: string;
+  /** Part of a reversal that could not be taken back (the balance can't go below $0). */
+  shortfallCents: number;
+  createdAt: string;
 }
 
 export interface OrderRec {
@@ -142,6 +174,10 @@ export interface OrderRec {
   owner?: Partner | null;
   /** Cash sales: who received the cash. Null/absent = not recorded. */
   cashTo?: Partner | null;
+  /** Store credit used on this order. Works like a discount. Absent = 0. */
+  storeCreditCents?: number;
+  /** Customer who referred this sale. */
+  referredById?: string | null;
 }
 
 /** A line of a saved order: an order line plus the product's regular price when it was saved. */
@@ -177,6 +213,9 @@ export interface SavedOrderRec {
   /** Owner purchase at cost (prices are the saved costs). */
   owner?: Partner | null;
   cashTo?: Partner | null;
+  /** Store credit picked. Taken from the balance only when the order is completed. */
+  storeCreditCents?: number;
+  referredById?: string | null;
 }
 
 export interface Address {
@@ -448,6 +487,8 @@ export interface AppData {
   savedOrders: SavedOrderRec[];
   /** Cash moved between partners and the bank. Never changes business money. */
   cashHandoffs?: CashHandoffRec[];
+  /** Store credit history of every customer. */
+  creditEntries?: CreditEntryRec[];
   store: StoreSettings;
   content: SiteContent;
   /** The one-time "sizes from product names" fill-in: when it ran and what it filled. Null before it ran. */
@@ -468,7 +509,7 @@ export const STATUS_LABEL: Record<OrderStatus, string> = {
 };
 
 /** Defaults for the fields added with the store, for code that builds records by hand (tests, old backups). */
-export const ORDER_DEFAULTS = { number: null, source: "inperson", status: "completed", archived: false, shippingCents: 0, adminNote: "", web: null, owner: null, cashTo: null } as const satisfies Partial<OrderRec>;
+export const ORDER_DEFAULTS = { number: null, source: "inperson", status: "completed", archived: false, shippingCents: 0, adminNote: "", web: null, owner: null, cashTo: null, storeCreditCents: 0, referredById: null } as const satisfies Partial<OrderRec>;
 export const PRODUCT_DEFAULTS = { listingId: null, variantLabel: "", vialVolume: "", variantSort: 0, weightOz: null, testingStatus: "coming_soon" } as const satisfies Partial<ProductRec>;
 export const CUSTOMER_DEFAULTS = { email: "", hasAccount: false, addresses: [] as Address[] } satisfies Partial<CustomerRec>;
 export const emptyStoreData = () => ({
@@ -482,6 +523,7 @@ export const emptyStoreData = () => ({
   messages: [] as MessageRec[],
   savedOrders: [] as SavedOrderRec[],
   cashHandoffs: [] as CashHandoffRec[],
+  creditEntries: [] as CreditEntryRec[],
   store: structuredClone(DEFAULT_STORE),
   content: structuredClone(DEFAULT_CONTENT),
 });

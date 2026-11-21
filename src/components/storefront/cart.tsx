@@ -57,6 +57,8 @@ export interface Quote {
   shipping: ShipOption[];
   shippingEstimated: boolean;
   payMethods: { id: string; name: string; blurb: string; available: boolean }[];
+  /** Signed-in customer's store credit. Null when signed out. */
+  credit?: { balanceCents: number; availableCents: number } | null;
 }
 
 interface CartCtx {
@@ -384,11 +386,11 @@ export function ShippingNote() {
   );
 }
 
-export function CartTotals({ shippingCents, shippingLabel }: { shippingCents?: number | null; shippingLabel?: string }) {
+export function CartTotals({ shippingCents, shippingLabel, creditCents = 0 }: { shippingCents?: number | null; shippingLabel?: string; creditCents?: number }) {
   const { quote } = useCart();
   if (!quote) return null;
   const saved = quote.qtySavingsCents + quote.discountCents + (quote.bogoCents ?? 0);
-  const total = quote.subtotalCents - quote.discountCents + (shippingCents ?? 0);
+  const total = quote.subtotalCents - quote.discountCents - creditCents + (shippingCents ?? 0);
   return (
     <dl className="space-y-2 text-[15px]">
       <div className="flex justify-between text-stone">
@@ -415,6 +417,12 @@ export function CartTotals({ shippingCents, shippingLabel }: { shippingCents?: n
             <dd className="shrink-0 tabular-nums">-{money(a.cents)}</dd>
           </div>
         ))}
+      {creditCents > 0 && (
+        <div data-credit-row className="flex justify-between gap-4 text-brand">
+          <dt>Store credit</dt>
+          <dd className="shrink-0 tabular-nums">-{money(creditCents)}</dd>
+        </div>
+      )}
       {shippingCents !== undefined && (
         <div className="flex justify-between gap-4">
           <dt className="min-w-0 truncate">Shipping{shippingLabel ? ` (${shippingLabel})` : ""}</dt>

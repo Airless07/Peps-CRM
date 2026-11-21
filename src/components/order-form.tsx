@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ChevronDown, Crown, X } from "lucide-react";
 import { orderTotals } from "@/lib/money";
 import type { Draft, DraftLine } from "@/lib/draft";
@@ -16,6 +16,7 @@ import type { DiscountType, Partner } from "@/lib/types";
 import { Button, Field, Input, MoneyInput, NumberInput, Row, Segmented, Select, Sheet, Stepper, cx, useConfirm } from "./ui";
 import { useLoaded } from "./store";
 import { CustomerPicker } from "./customer-picker";
+import { ReferrerPicker, StoreCreditControl, creditFor } from "./credit-controls";
 
 const chip =
   "h-10 rounded-xl border px-3.5 text-sm font-medium tabular-nums transition active:scale-95";
@@ -27,6 +28,18 @@ export function OrderForm({ draft, onChange, mode }: { draft: Draft; onChange: (
   const confirm = useConfirm();
   const [customTip, setCustomTip] = useState(false);
   const [askOwner, setAskOwner] = useState(false);
+  // Store credit this order may use: the customer's free credit, and never more than the total after discounts.
+  const linkedCustomer = s && draft.customerId ? s.data.customers.find((c) => c.id === draft.customerId) : undefined;
+  const editingCounted = mode === "edit" && s ? s.data.orders.find((o) => o.id === draft.id) : undefined;
+  const credit = s && linkedCustomer && !draft.owner ? creditFor(s.data, linkedCustomer.id, draft.id, editingCounted && editingCounted.customerId === linkedCustomer.id ? editingCounted.storeCreditCents ?? 0 : 0) : null;
+  const pre = orderTotals({ ...draft, storeCreditCents: 0 });
+  const creditMax = credit ? Math.max(0, Math.min(credit.available, pre.subtotal - pre.discount)) : 0;
+  const creditWanted = draft.storeCreditCents ?? 0;
+  useEffect(() => {
+    // Items removed, a bigger discount, another customer: never use more than the order can take.
+    if (creditWanted > creditMax) onChange({ ...draft, storeCreditCents: creditMax });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [creditWanted, creditMax]);
   if (!s) return null;
   const { data, ledger, name } = s;
   const totals = orderTotals(draft);
@@ -297,12 +310,23 @@ export function OrderForm({ draft, onChange, mode }: { draft: Draft; onChange: (
               name={draft.customer}
               customerId={draft.customerId}
               customers={data.customers}
-              onChange={(v) => onChange({ ...draft, ...v })}
+              onChange={(v) => {
+                const c = v.customerId ? data.customers.find((x) => x.id === v.customerId) : undefined;
+                const changed = v.customerId !== draft.customerId;
+                onChange({
+                  ...draft,
+                  ...v,
+                  // Credit belongs to one customer: picking another starts at none.
+                  storeCreditCents: changed ? 0 : draft.storeCreditCents ?? 0,
+                  // The customer's own referrer is filled in when nobody is picked yet.
+                  referredById: draft.referredById && draft.referredById !== v.customerId ? draft.referredById : c?.referredById ?? null,
+                });
+              }}
             />
             {recent.length > 0 && (
               <div data-recent-customers className="mt-2 flex flex-wrap gap-1.5">
                 {recent.map((c) => (
-                  <button key={c.id} type="button" className="h-10 max-w-[12rem] truncate rounded-full border border-line px-3 text-sm font-medium text-ink transition hover:bg-surface2 active:scale-95" onClick={() => onChange({ ...draft, customer: c.name, customerId: c.id })}>
+                  <button key={c.id} type="button" className="h-10 max-w-[12rem] truncate rounded-full border border-line px-3 text-sm font-medium text-ink transition hover:bg-surface2 active:scale-95" onClick={() => onChange({ ...draft, customer: c.name, customerId: c.id, storeCreditCents: 0, referredById: draft.referredById ?? c.referredById ?? null })}>
                     {c.name}
                   </button>
                 ))}
@@ -313,6 +337,10 @@ export function OrderForm({ draft, onChange, mode }: { draft: Draft; onChange: (
             <Input value={draft.note} onChange={(e) => onChange({ ...draft, note: e.target.value })} placeholder="Anything to remember" />
           </Field>
         </div>
+        {credit && <StoreCreditControl available={credit.available} max={creditMax} value={Math.min(creditWanted, creditMax)} onChange={(c) => onChange({ ...draft, storeCreditCents: c })} />}
+        <Field label="Referred by (optional)" hint={owner ? "Owner price orders earn no referral credit." : `Earns ${data.store.referrals.percent}% of this order in store credit when it is completed.`}>
+          <ReferrerPicker value={draft.referredById} exclude={draft.customerId} onChange={(id) => onChange({ ...draft, referredById: id })} />
+        </Field>
       </div>
 
       {/* Breakdown */}
@@ -335,6 +363,11 @@ export function OrderForm({ draft, onChange, mode }: { draft: Draft; onChange: (
         {totals.discount > 0 && (
           <Row label={<span className="text-neg">Discount{draft.discountType === "%" ? ` (${draft.discountValue}%)` : ""}</span>}>
             <span className="text-neg">-{fmtMoney(totals.discount)}</span>
+          </Row>
+        )}
+        {totals.credit > 0 && (
+          <Row label={<span className="text-neg">Store credit</span>}>
+            <span className="text-neg">-{fmtMoney(totals.credit)}</span>
           </Row>
         )}
         {totals.tip > 0 && <Row label="Tip">{fmtMoney(totals.tip)}</Row>}

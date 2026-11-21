@@ -61,6 +61,10 @@ export const checkoutInput = z.object({
   ackResearch: z.literal(true, { error: "Tick the research use box to continue" }),
   ackPolicies: z.literal(true, { error: "Tick the policies box to continue" }),
   saveAddress: z.boolean().default(true),
+  /** Store credit to use (capped by the balance and the total). */
+  storeCreditCents: cents.default(0),
+  /** Optional referral code from a friend. */
+  referralCode: text(40).default(""),
 });
 
 const password = z.string().min(8, "Use at least 8 characters for your password").max(200);
@@ -73,6 +77,10 @@ export const accountAction = z.discriminatedUnion("action", [
   z.object({ action: z.literal("reset"), token: z.string().min(10).max(200), password }),
   z.object({ action: z.literal("addresses"), addresses: z.array(address).max(5) }),
   z.object({ action: z.literal("profile"), name: text(100).min(2, "Enter your name"), phone: text(30).default("") }),
+  /** Use an invite / claim link: choose a password and sign in. */
+  z.object({ action: z.literal("claim"), token: z.string().min(20).max(200), password }),
+  /** Choose a new password while signed in (required after a temporary password). */
+  z.object({ action: z.literal("change-password"), password }),
 ]);
 
 export const lookupInput = z.object({ number: z.coerce.number().int().min(1001).max(99_999_999), email });

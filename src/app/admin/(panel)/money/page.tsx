@@ -11,6 +11,7 @@ import { addDays, dayKey, fmtDateTime, fmtDay, fmtMoney, fmtTime, fromLocalInput
 import { cashPosition, handoffError } from "@/lib/cash";
 import { ownerSummary } from "@/lib/owner";
 import { paymentBreakdown } from "@/lib/insights";
+import { creditSummary } from "@/lib/credit";
 import { planSplit } from "@/lib/money";
 import type { CashHandoffRec, CashHolder, SplitRec } from "@/lib/types";
 
@@ -47,7 +48,7 @@ export default function MoneyPage() {
     // Owner purchases (a partner buying at cost) are not sales: they stay out of every sales number and get their own section.
     const inRange = inPeriod.filter((o) => !o.owner);
     const owner = ownerSummary(inPeriod, ledger);
-    const t = { revenue: 0, discount: 0, tip: 0, cost: 0, profit: 0, orders: inRange.length, units: 0 };
+    const t = { revenue: 0, discount: 0, credit: 0, tip: 0, cost: 0, profit: 0, orders: inRange.length, units: 0 };
     const byProduct = new Map<string, { name: string; units: number; revenue: number; cost: number }>();
     const bySeller = new Map<string, { orders: number; revenue: number; tips: number; units: number }>();
     const byDay = new Map<string, { revenue: number; profit: number }>();
@@ -63,6 +64,7 @@ export default function MoneyPage() {
       shippingCollected += r.shipping;
       t.revenue += r.revenue;
       t.discount += r.discount;
+      t.credit += r.credit;
       t.tip += r.tip;
       t.cost += r.cost;
       t.units += r.units;
@@ -139,6 +141,8 @@ export default function MoneyPage() {
         .reduce((x, l) => x + l.costCents, 0),
       payments: paymentBreakdown(inRange, data.settings.paymentMethods),
       owner,
+      // Store credit: everything not spent yet, and what was given and used in this period.
+      credit: creditSummary(data.creditEntries ?? [], (iso) => !range || (dayKey(iso) >= range[0] && dayKey(iso) <= range[1])),
     };
   }, [s, range, period]);
 
@@ -237,7 +241,7 @@ export default function MoneyPage() {
         <StatCard label="Profit" value={fmtMoney(t.profit)} tone={t.profit < 0 ? "neg" : "pos"} sub="incl. tips" />
         <StatCard label="Cost" value={fmtMoney(t.cost)} />
         <StatCard label="Tips" value={fmtMoney(t.tip)} />
-        <StatCard label="Discounts given" value={t.discount ? `-${fmtMoney(t.discount)}` : fmtMoney(0)} tone={t.discount ? "neg" : undefined} />
+        <StatCard label="Discounts given" value={t.discount ? `-${fmtMoney(t.discount)}` : fmtMoney(0)} tone={t.discount ? "neg" : undefined} sub={t.credit ? `plus ${fmtMoney(t.credit)} store credit` : undefined} />
         <StatCard label="Orders" value={String(t.orders)} />
         <StatCard label="Units sold" value={String(t.units)} />
         <StatCard label="Avg order" value={t.orders ? fmtMoney(Math.round((t.revenue + t.tip) / t.orders)) : "—"} />
@@ -251,6 +255,13 @@ export default function MoneyPage() {
           <BarChart buckets={stats.buckets} />
         )}
       </Card>
+
+      <SectionTitle>Store credit</SectionTitle>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3" data-money-credit>
+        <StatCard label="Outstanding store credit" value={fmtMoney(stats.credit.outstanding)} sub="all unspent balances" />
+        <StatCard label="Credit issued" value={fmtMoney(stats.credit.issued)} sub="this period: gifts and referrals" />
+        <StatCard label="Credit used" value={fmtMoney(stats.credit.used)} sub="this period, on orders (refunds taken off)" />
+      </div>
 
       <SectionTitle>Sales by product</SectionTitle>
       {stats.products.length === 0 ? (

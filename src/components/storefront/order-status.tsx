@@ -230,6 +230,12 @@ export function OrderStatus({ order: o, placed, reviewToken, statusText }: { ord
                 <dd className="shrink-0 tabular-nums">-{money(o.discountCents)}</dd>
               </div>
             )}
+            {o.creditCents > 0 && (
+              <div className="flex justify-between gap-4 text-brand">
+                <dt>Store credit</dt>
+                <dd className="shrink-0 tabular-nums">-{money(o.creditCents)}</dd>
+              </div>
+            )}
             <div className="flex justify-between gap-4">
               <dt className="min-w-0 truncate">Shipping{o.shippingMethod ? ` (${o.shippingMethod})` : ""}</dt>
               <dd className="shrink-0 tabular-nums">{o.shippingCents > 0 ? money(o.shippingCents) : "Free"}</dd>

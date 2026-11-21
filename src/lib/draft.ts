@@ -36,6 +36,10 @@ export interface Draft {
   owner?: Partner | null;
   /** Cash: who received it. Absent = the seller. */
   cashTo?: Partner | null;
+  /** Store credit to use. Capped by the customer's available credit and the total after discounts. */
+  storeCreditCents?: number;
+  /** Customer who referred this sale. */
+  referredById?: string | null;
 }
 
 export function orderToDraft(o: OrderRec): Draft {
@@ -52,6 +56,8 @@ export function orderToDraft(o: OrderRec): Draft {
     tipCents: o.tipCents,
     owner: o.owner ?? null,
     cashTo: o.cashTo ?? null,
+    storeCreditCents: o.storeCreditCents ?? 0,
+    referredById: o.referredById ?? null,
     lines: [...o.lines]
       .sort((a, b) => a.sortOrder - b.sortOrder)
       .map((l) => ({
@@ -79,6 +85,8 @@ export function draftToOrder(d: Draft, createdAt = new Date().toISOString(), bas
     customer: d.customer.trim(),
     owner: d.owner ?? null,
     cashTo: d.cashTo ?? null,
+    storeCreditCents: d.storeCreditCents ?? 0,
+    referredById: d.referredById ?? null,
     createdAt,
     lines: d.lines.map((l, i) => ({ ...l, orderId: d.id, sortOrder: i })),
   };
@@ -98,6 +106,8 @@ export function upgradeDraft(d: Draft, fallbackPayment: string): Draft {
     customer: d.customer ?? "",
     customerId: d.customerId ?? null,
     paymentMethod: d.paymentMethod || fallbackPayment || UNKNOWN_PAYMENT,
+    storeCreditCents: d.storeCreditCents ?? 0,
+    referredById: d.referredById ?? null,
   };
 }
 
@@ -108,11 +118,13 @@ export function upgradeDraft(d: Draft, fallbackPayment: string): Draft {
  */
 export function resolveDraftCustomer(d: Draft, customers: CustomerRec[], now = new Date().toISOString()): { draft: Draft; created: CustomerRec | null } {
   const name = d.customer.trim();
-  if (!name) return { draft: { ...d, customer: "", customerId: null }, created: null };
+  // No customer: no store credit (it belongs to a customer).
+  if (!name) return { draft: { ...d, customer: "", customerId: null, storeCreditCents: 0 }, created: null };
   const linked = d.customerId ? customers.find((c) => c.id === d.customerId) : undefined;
   if (linked) return { draft: { ...d, customer: linked.name }, created: null };
   const match = customers.find((c) => customerKey(c.name) === customerKey(name));
   if (match) return { draft: { ...d, customer: match.name, customerId: match.id }, created: null };
-  const created: CustomerRec = { id: d.customerId ?? uid(), name, phone: "", email: "", hasAccount: false, addresses: [], notes: "", createdAt: now };
-  return { draft: { ...d, customer: name, customerId: created.id }, created };
+  const created: CustomerRec = { id: d.customerId ?? uid(), name, phone: "", email: "", hasAccount: false, addresses: [], notes: "", createdAt: now, accountStatus: "none", referredById: d.referredById ?? null };
+  // A brand new customer has no store credit yet.
+  return { draft: { ...d, customer: name, customerId: created.id, storeCreditCents: 0 }, created };
 }

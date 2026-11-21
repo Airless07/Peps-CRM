@@ -97,6 +97,10 @@ export const orderInput = z.object({
   owner: ownerField,
   /** Cash sales: who received the cash. */
   cashTo: ownerField,
+  /** Store credit used. Capped by the balance and the total after discounts. */
+  storeCreditCents: posCents.default(0),
+  /** Customer who referred this sale. */
+  referredById: idStr.nullable().default(null),
 });
 
 /** POST /api/orders: a sale, optionally completing a saved order (removed in the same transaction). */
@@ -119,6 +123,8 @@ export const savedOrderInput = z.object({
     .max(200),
   owner: ownerField,
   cashTo: ownerField,
+  storeCreditCents: posCents.default(0),
+  referredById: idStr.nullable().default(null),
 });
 
 const holder = z.enum(["A", "B", "bank"]);
@@ -169,14 +175,38 @@ export const settingsUpdate = z
   })
   .partial();
 
+const customerEmail = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .max(200)
+  .refine((s) => s === "" || /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(s), "Enter a valid email address, like name@example.com");
+
 export const customerCreate = z.object({
   id: idStr,
   name: text(120).min(1, "Name is required"),
   phone: text(40).default(""),
-  email: text(200).default(""),
+  email: customerEmail.default(""),
   notes: text(2000).default(""),
+  referredById: idStr.nullable().default(null),
 });
 export const customerUpdate = customerCreate.omit({ id: true }).partial();
+
+export const customerAccountAction = z.discriminatedUnion("action", [
+  /** New single-use link (the old one stops working). Returned so it can be copied. */
+  z.object({ action: z.literal("invite-link") }),
+  z.object({ action: z.literal("invite-email") }),
+  z.object({ action: z.literal("reset-email") }),
+  /** The customer must change it at next sign in. Never stored or returned in plain text. */
+  z.object({ action: z.literal("temp-password"), password: z.string().min(8, "Use at least 8 characters").max(200) }),
+]);
+
+export const creditAdjust = z.object({
+  /** Positive adds, negative removes. */
+  amountCents: z.number().int().min(-100_000_000).max(100_000_000).refine((n) => n !== 0, "Enter an amount"),
+  reason: text(200).min(1, "Write a reason, for example Giveaway, Apology or Correction"),
+  by: text(60).default(""),
+});
 
 export const customerMerge = z.object({
   /** The duplicate: its orders move to intoId, then it is deleted. */

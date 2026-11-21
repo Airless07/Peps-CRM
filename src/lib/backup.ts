@@ -11,6 +11,7 @@ import type {
   AppData,
   CashHandoffRec,
   CoaRec,
+  CreditEntryRec,
   CustomerRec,
   GroupRec,
   LabelRec,
@@ -113,7 +114,14 @@ export function normalizeBackup(raw: Loose & { orders: Loose[] }, makeId: () => 
       addresses: Array.isArray(c.addresses) ? c.addresses : [],
       notes: c.notes ?? "",
       createdAt: c.createdAt ?? new Date().toISOString(),
+      // Accounts, credit and referrals: missing in older backups (then the database defaults apply).
+      ...(c.lastLoginAt ? { lastLoginAt: c.lastLoginAt } : {}),
+      ...(c.mustChangePassword ? { mustChangePassword: true } : {}),
+      ...(typeof c.referralCode === "string" && c.referralCode ? { referralCode: c.referralCode } : {}),
+      ...(typeof c.referredById === "string" && c.referredById ? { referredById: c.referredById } : {}),
     }));
+    const ids = new Set(customers.map((c) => c.id));
+    for (const c of customers) if (c.referredById && (!ids.has(c.referredById) || c.referredById === c.id)) c.referredById = null;
     const byId = new Map(customers.map((c) => [c.id, c]));
     // Never leave an order pointing at a customer that isn't in the file.
     all = all.map((o) => {
@@ -182,6 +190,8 @@ export function normalizeBackup(raw: Loose & { orders: Loose[] }, makeId: () => 
     // Cash hand-offs: missing in older backups.
     cashHandoffs: arr<CashHandoffRec>(data.cashHandoffs).filter((h) => h && typeof h.id === "string" && typeof h.amountCents === "number"),
     events: arr<OrderEventRec>(data.events),
+    // Store credit history: missing in older backups. Only entries of customers in the file.
+    creditEntries: arr<CreditEntryRec>(data.creditEntries).filter((e) => e && typeof e.id === "string" && typeof e.amountCents === "number" && customers.some((c) => c.id === e.customerId)),
     store,
     content,
   };

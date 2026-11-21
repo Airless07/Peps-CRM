@@ -27,6 +27,9 @@ export function toSavedOrder(draft: Draft, products: Pick<ProductRec, "id" | "de
     tipCents: draft.tipCents,
     owner: draft.owner ?? null,
     cashTo: draft.cashTo ?? null,
+    // The credit is only held while saved; it comes off the balance when the order is completed.
+    storeCreditCents: draft.customer.trim() && !draft.owner ? draft.storeCreditCents ?? 0 : 0,
+    referredById: draft.referredById ?? null,
     lines: draft.lines.map((l): SavedLineRec => {
       const old = before.get(l.id);
       const listPriceCents = old && old.productId === l.productId ? old.listPriceCents : l.productId ? price.get(l.productId) ?? null : null;
@@ -63,11 +66,13 @@ export function savedToDraft(s: SavedOrderRec, fallbackPayment: string, now = ne
     tipCents: s.tipCents,
     owner: s.owner ?? null,
     cashTo: s.cashTo ?? null,
+    storeCreditCents: s.storeCreditCents ?? 0,
+    referredById: s.referredById ?? null,
     lines: s.lines.map(toDraftLine),
   };
 }
 
-export const savedTotals = (s: Pick<SavedOrderRec, "lines" | "discountType" | "discountValue" | "tipCents">) => orderTotals(s);
+export const savedTotals = (s: Pick<SavedOrderRec, "lines" | "discountType" | "discountValue" | "tipCents" | "storeCreditCents">) => orderTotals(s);
 
 /** Cost of a saved line: the variant's CURRENT cost per unit, or the cost noted on the line when the product is gone. */
 const lineCost = (l: Pick<SavedLineRec, "productId" | "quantity" | "unitCostCents">, costOf: (productId: string) => number | undefined) =>
@@ -168,8 +173,8 @@ export function finalizeSale(
       date: now,
       owner,
       cashTo,
-      // Owner price: no discount, no tip (the server enforces the same).
-      ...(owner ? { discountType: "$" as const, discountValue: 0, tipCents: 0 } : {}),
+      // Owner price: no discount, no tip, no store credit (the server enforces the same).
+      ...(owner ? { discountType: "$" as const, discountValue: 0, tipCents: 0, storeCreditCents: 0 } : {}),
       lines: draft.lines.map((l) => {
         if (owner) {
           // A saved owner order keeps the cost prices it was saved with; a fresh one is charged today's cost.

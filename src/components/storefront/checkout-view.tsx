@@ -71,6 +71,9 @@ export function CheckoutView({ account: initial, states, ack, preview }: { accou
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [creditWanted, setCreditWanted] = useState(0);
+  const [creditCustom, setCreditCustom] = useState(false);
+  const [referralCode, setReferralCode] = useState("");
   const errorRef = useRef<HTMLDivElement>(null);
   const { quote, requote } = cart;
 
@@ -100,7 +103,11 @@ export function CheckoutView({ account: initial, states, ack, preview }: { accou
   }, [methods, pay]);
 
   const ship = options.find((o) => o.tier === tier);
-  const total = quote && ship ? quote.subtotalCents - quote.discountCents + ship.cents : null;
+  // Store credit: never more than what is available or the total after discounts. Taken from the balance once paid.
+  const creditAvail = account ? quote?.credit?.availableCents ?? 0 : 0;
+  const creditMax = quote ? Math.max(0, Math.min(creditAvail, quote.subtotalCents - quote.discountCents)) : 0;
+  const creditUsed = Math.min(creditWanted, creditMax);
+  const total = quote && ship ? quote.subtotalCents - quote.discountCents - creditUsed + ship.cents : null;
   const soldOut = quote?.lines.filter((l) => l.stock === "out") ?? [];
   const lines = useMemo(() => (quote?.lines ?? []).map((l) => ({ l, meta: info(l.variantId) })), [quote, info]);
 
@@ -136,7 +143,7 @@ export function CheckoutView({ account: initial, states, ack, preview }: { accou
       const res = await fetch("/api/store/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone, shipTo: { ...a, zip: a.zip.trim() }, items: cart.items, code: quote?.code ?? "", tier, payChoice: pay, expectedTotalCents: total, ackResearch: true, ackPolicies: true, saveAddress: true }),
+        body: JSON.stringify({ phone, shipTo: { ...a, zip: a.zip.trim() }, items: cart.items, code: quote?.code ?? "", tier, payChoice: pay, expectedTotalCents: total, ackResearch: true, ackPolicies: true, saveAddress: true, storeCreditCents: creditUsed, referralCode: referralCode.trim() }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -199,10 +206,61 @@ export function CheckoutView({ account: initial, states, ack, preview }: { accou
           </li>
         ))}
       </ul>
-      <div className="mt-4">{quote ? <CartTotals shippingCents={ship ? ship.cents : null} shippingLabel={ship?.name} /> : <div className="h-24 animate-pulse rounded-xl bg-rule/60" />}</div>
+      <div className="mt-4">{quote ? <CartTotals shippingCents={ship ? ship.cents : null} shippingLabel={ship?.name} creditCents={creditUsed} /> : <div className="h-24 animate-pulse rounded-xl bg-rule/60" />}</div>
       <div className="mt-5 border-t border-rule pt-4">
         <PromoField />
       </div>
+      {account && creditAvail > 0 && (
+        <div className="mt-5 border-t border-rule pt-4" data-checkout-credit>
+          <div className="flex items-baseline justify-between gap-3 text-[15px]">
+            <span className="font-medium">Store credit</span>
+            <span className="tabular-nums text-stone">{money(creditAvail)} available</span>
+          </div>
+          <div className="mt-2.5 flex flex-wrap gap-2">
+            <button type="button" data-apply-credit aria-pressed={creditUsed > 0 && creditUsed === creditMax && !creditCustom} onClick={() => (setCreditCustom(false), setCreditWanted(creditMax))} className={`h-10 rounded-full border px-4 text-sm font-medium transition ${creditUsed > 0 && creditUsed === creditMax && !creditCustom ? "border-coal bg-paper" : "border-rule hover:border-coal"}`}>
+              Apply all{creditMax < creditAvail ? ` (${money(creditMax)})` : ""}
+            </button>
+            {creditCustom ? (
+              <label className="flex h-10 items-center gap-1 rounded-full border border-coal bg-paper px-4 text-sm">
+                <span className="text-stone">$</span>
+                <input
+                  autoFocus
+                  inputMode="decimal"
+                  aria-label="Store credit to use"
+                  className="w-20 bg-transparent tabular-nums outline-none"
+                  defaultValue={creditUsed ? (creditUsed / 100).toFixed(2) : ""}
+                  onChange={(e) => {
+                    const v = Math.round(parseFloat(e.target.value.replace(/[^0-9.]/g, "")) * 100);
+                    setCreditWanted(Number.isFinite(v) ? Math.max(0, Math.min(creditMax, v)) : 0);
+                  }}
+                />
+              </label>
+            ) : (
+              <button type="button" onClick={() => setCreditCustom(true)} className="h-10 rounded-full border border-rule px-4 text-sm font-medium transition hover:border-coal">
+                Use part of it
+              </button>
+            )}
+            {creditUsed > 0 && (
+              <button type="button" onClick={() => (setCreditCustom(false), setCreditWanted(0))} className="h-10 rounded-full px-3 text-sm font-medium text-stone underline decoration-rule underline-offset-4 hover:text-coal">
+                Don’t use
+              </button>
+            )}
+          </div>
+          {creditUsed > 0 && (
+            <p className="mt-2 text-sm text-stone" data-credit-live>
+              Credit used <strong className="font-semibold text-coal tabular-nums">{money(creditUsed)}</strong>, remaining after this order <strong className="font-semibold text-coal tabular-nums">{money(creditAvail - creditUsed)}</strong>
+            </p>
+          )}
+        </div>
+      )}
+      {account && (
+        <div className="mt-5 border-t border-rule pt-4">
+          <label className="s-label" htmlFor="co-ref">
+            Referral code (optional)
+          </label>
+          <input id="co-ref" className="s-input uppercase" autoCapitalize="characters" spellCheck={false} maxLength={40} value={referralCode} onChange={(e) => setReferralCode(e.target.value)} placeholder="From a friend" />
+        </div>
+      )}
       <Link href="/cart" className="mt-4 block text-center text-sm font-medium text-stone underline decoration-rule underline-offset-4 hover:text-coal">
         Edit cart
       </Link>
@@ -247,6 +305,8 @@ export function CheckoutView({ account: initial, states, ack, preview }: { accou
                   intro="An account is needed to check out. It takes a few seconds, and your cart stays as it is."
                   onDone={(acc) => {
                     setAccount(acc);
+                    // Signed in now: price again so their store credit shows.
+                    void requote(addrKey ? { street1: a.street1, street2: a.street2, city: a.city, state: a.state, zip: a.zip } : null);
                     setA(acc.addresses[0] ?? { ...BLANK, name: acc.name });
                     setPhone(acc.phone ?? "");
                     router.refresh();

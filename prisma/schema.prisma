@@ -219,6 +219,10 @@ model Order {
   owner            String?
   /// Cash sales: who received the cash, "A" | "B". Null = not recorded.
   cashTo           String?
+  /// Store credit used on this order (works like a discount). Taken from the balance only once the order counts.
+  storeCreditCents Int             @default(0)
+  /// Customer who referred this sale (earns referral credit once it counts). No relation on purpose.
+  referredById     String?
   lines            OrderLine[]
   splitItems       SplitItem[]
   labels           LabelPurchase[]
@@ -255,6 +259,9 @@ model SavedOrder {
   owner         String?
   /// Cash: who will receive it, "A" | "B". Null = the seller.
   cashTo        String?
+  /// Store credit picked for this order. Only taken from the balance when it is completed.
+  storeCreditCents Int   @default(0)
+  referredById  String?
 }
 
 model Customer {
@@ -270,7 +277,42 @@ model Customer {
   addressesJson  String    @default("[]")
   resetTokenHash String?
   resetExpiresAt DateTime?
+  /// Invite / claim link (sha256 of the secret token). Single use; a new link replaces it.
+  inviteTokenHash String?
+  inviteExpiresAt DateTime?
+  /// Set by "Set temporary password": the customer must choose a new one at next sign in.
+  mustChangePassword Boolean  @default(false)
+  lastLoginAt    DateTime?
+  /// Code this customer shares with friends. Filled in for every customer.
+  referralCode   String?      @unique
+  /// Who referred this customer. No relation on purpose (a deleted referrer just unlinks).
+  referredById   String?
   orders    Order[]
+  credits   CreditEntry[]
+}
+
+/// Store credit history. The balance is the sum of amountCents; nothing stores a running balance.
+model CreditEntry {
+  id             String   @id
+  customerId     String
+  customer       Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  date           DateTime @default(now())
+  /// Positive adds credit, negative uses or removes it.
+  amountCents    Int
+  /// "manual" | "order" (credit used on an order, or refunded) | "referral" (referrer reward) | "referral_new" (referred customer reward)
+  kind           String
+  reason         String   @default("")
+  /// Related order (kept as history even if the order is deleted)
+  orderId        String?
+  orderNumber    Int?
+  /// Who did it: a partner name, "Website", "Automatic"...
+  by             String   @default("")
+  /// Part of a reversal that could not be taken back because the balance would go below $0.
+  shortfallCents Int      @default(0)
+  createdAt      DateTime @default(now())
+
+  @@index([customerId])
+  @@index([orderId])
 }
 
 model OrderLine {

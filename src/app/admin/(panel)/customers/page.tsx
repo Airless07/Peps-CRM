@@ -6,13 +6,15 @@ import { useRouter } from "next/navigation";
 import { useCart } from "@/components/cart";
 import { repeatOrderDraft } from "@/lib/sell-tools";
 import { OrderEditSheet } from "@/components/order-edit";
+import { AccountSection, CreditSection, ReferralSection } from "@/components/customer-account";
+import { balances } from "@/lib/credit";
 import { api, useLoaded } from "@/components/store";
 import { useToast } from "@/components/toast";
 import { Button, Card, Empty, Field, Input, PageHeader, PageSkeleton, Segmented, Select, Sheet, Textarea, cx, useConfirm } from "@/components/ui";
 import { deleteCustomerData, mergeCustomersData, searchCustomers, updateCustomerData } from "@/lib/customers";
 import { dayKey, fmtDay, fmtMoney, fmtTime, plural, uid } from "@/lib/format";
 import { customerStats, daysAgo, type CustomerStats } from "@/lib/insights";
-import type { CustomerRec, OrderRec } from "@/lib/types";
+import { ACCOUNT_STATUS_LABEL, type CustomerRec, type OrderRec } from "@/lib/types";
 import { lineName } from "@/lib/size";
 
 type Sort = "spent" | "recent" | "orders";
@@ -48,6 +50,7 @@ export default function CustomersPage() {
 
   if (!s || !stats) return <PageSkeleton />;
   const { data } = s;
+  const credit = balances(data.creditEntries ?? []);
 
   return (
     <div>
@@ -99,9 +102,14 @@ export default function CustomersPage() {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <span className="truncate font-medium">{st.customer.name}</span>
-                      {st.customer.hasAccount && (
-                        <span className="shrink-0 rounded-md bg-accent/10 px-1.5 py-0.5 text-[11px] font-medium text-accent" title="Has a website account">
-                          Account
+                      {(st.customer.accountStatus ?? "none") !== "none" && (
+                        <span className={cx("shrink-0 rounded-md px-1.5 py-0.5 text-[11px] font-medium", st.customer.accountStatus === "active" ? "bg-pos/12 text-pos" : "bg-accent/10 text-accent")} title="Website account">
+                          {ACCOUNT_STATUS_LABEL[st.customer.accountStatus!]}
+                        </span>
+                      )}
+                      {(credit.get(st.customer.id) ?? 0) > 0 && (
+                        <span className="shrink-0 rounded-md bg-surface2 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-ink" title="Store credit">
+                          {fmtMoney(credit.get(st.customer.id)!)} credit
                         </span>
                       )}
                     </div>
@@ -134,7 +142,7 @@ function CustomerSheet({ id, stats, onClose }: { id: string | null; stats: Custo
   const s = useLoaded();
   const toast = useToast();
   const confirm = useConfirm();
-  const [form, setForm] = useState({ name: "", phone: "", notes: "" });
+  const [form, setForm] = useState({ name: "", phone: "", email: "", notes: "" });
   const [mergeInto, setMergeInto] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
   const cart = useCart();
@@ -147,7 +155,7 @@ function CustomerSheet({ id, stats, onClose }: { id: string | null; stats: Custo
   }, [stats]);
   useEffect(() => {
     if (!id || !stats) return;
-    setForm({ name: stats.customer.name, phone: stats.customer.phone, notes: stats.customer.notes });
+    setForm({ name: stats.customer.name, phone: stats.customer.phone, email: stats.customer.email, notes: stats.customer.notes });
     setMergeInto("");
     // Only reset the form when a different customer opens
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -157,7 +165,7 @@ function CustomerSheet({ id, stats, onClose }: { id: string | null; stats: Custo
   const { data, mutate } = s;
   const st = stats ?? shown;
   const c = st?.customer;
-  const dirty = !!c && (form.name.trim() !== c.name || form.phone.trim() !== c.phone || form.notes.trim() !== c.notes);
+  const dirty = !!c && (form.name.trim() !== c.name || form.phone.trim() !== c.phone || form.email.trim().toLowerCase() !== c.email || form.notes.trim() !== c.notes);
   const orders = c
     ? data.orders.filter((o) => o.customerId === c.id).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
     : [];
@@ -179,13 +187,13 @@ function CustomerSheet({ id, stats, onClose }: { id: string | null; stats: Custo
 
   async function save() {
     if (!c) return;
-    const patch = { name: form.name.trim(), phone: form.phone.trim(), notes: form.notes.trim() };
+    const patch = { name: form.name.trim(), phone: form.phone.trim(), email: form.email.trim().toLowerCase(), notes: form.notes.trim() };
     if (!patch.name) return toast.show({ message: "Name is required", tone: "error" });
     const ok = await mutate(
       (d) => updateCustomerData(d, c.id, patch),
       () => api(`/api/customers/${c.id}`, "PATCH", patch),
     );
-    if (ok) toast.show({ message: "Customer saved" });
+    if (ok) toast.show({ message: patch.email && !c.email ? "Customer saved. They now have an invited account: copy or email the invite link." : "Customer saved" });
   }
 
   async function merge() {
@@ -261,18 +269,12 @@ function CustomerSheet({ id, stats, onClose }: { id: string | null; stats: Custo
               </span>
             </div>
 
-            <div className="rounded-2xl border border-line px-4 py-3 text-sm">
-              <div className="font-medium">{c.hasAccount ? "Has a website account" : "No website account"}</div>
-              <div className="mt-0.5 text-muted">
-                {c.hasAccount
-                  ? `Signs in with ${c.email}. Online orders from this account show up here.`
-                  : "In-person customer. They can still create a website account with their own email."}
-              </div>
-            </div>
-
             <div className="space-y-4">
               <Field label="Name">
                 <Input value={form.name} maxLength={120} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+              </Field>
+              <Field label="Email (optional)" hint="With an email the customer gets a store account. They choose their password from the invite link.">
+                <Input type="email" value={form.email} maxLength={200} autoCapitalize="none" onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="name@example.com" data-customer-email />
               </Field>
               <Field label="Phone (optional)">
                 <Input type="tel" value={form.phone} maxLength={40} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="Phone number" />
@@ -281,6 +283,10 @@ function CustomerSheet({ id, stats, onClose }: { id: string | null; stats: Custo
                 <Textarea value={form.notes} maxLength={2000} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Anything to remember" />
               </Field>
             </div>
+
+            <AccountSection c={c} />
+            <CreditSection c={c} />
+            <ReferralSection c={c} />
 
             <div>
               <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted">{plural(orders.length, "order")}</div>
@@ -365,9 +371,9 @@ function Stat({ label, value }: { label: string; value: string }) {
 function AddCustomerSheet({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: (id: string) => void }) {
   const s = useLoaded();
   const toast = useToast();
-  const [form, setForm] = useState({ name: "", phone: "", notes: "" });
+  const [form, setForm] = useState({ name: "", phone: "", email: "", notes: "" });
   useEffect(() => {
-    if (open) setForm({ name: "", phone: "", notes: "" });
+    if (open) setForm({ name: "", phone: "", email: "", notes: "" });
   }, [open]);
   if (!s) return null;
 
@@ -378,18 +384,19 @@ function AddCustomerSheet({ open, onClose, onCreated }: { open: boolean; onClose
       phone: form.phone.trim(),
       notes: form.notes.trim(),
       createdAt: new Date().toISOString(),
-      email: "",
+      email: form.email.trim().toLowerCase(),
       hasAccount: false,
       addresses: [],
+      accountStatus: form.email.trim() ? "invited" : "none",
     };
     if (!rec.name) return;
     onClose();
     const ok = await s!.mutate(
       (d) => ({ ...d, customers: [...d.customers, rec] }),
-      () => api("/api/customers", "POST", { id: rec.id, name: rec.name, phone: rec.phone, notes: rec.notes }),
+      () => api("/api/customers", "POST", { id: rec.id, name: rec.name, phone: rec.phone, email: rec.email, notes: rec.notes }),
     );
     if (ok) {
-      toast.show({ message: "Customer added" });
+      toast.show({ message: rec.email ? "Customer added with an invited account. Send the invite link from their page." : "Customer added" });
       onCreated(rec.id);
     }
   }
@@ -408,6 +415,9 @@ function AddCustomerSheet({ open, onClose, onCreated }: { open: boolean; onClose
       <div className="space-y-4">
         <Field label="Name">
           <Input autoFocus value={form.name} maxLength={120} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Name" />
+        </Field>
+        <Field label="Email (optional)" hint="Creates a store account with no password yet. Send them the invite link to set one.">
+          <Input type="email" value={form.email} maxLength={200} autoCapitalize="none" onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="name@example.com" />
         </Field>
         <Field label="Phone (optional)">
           <Input type="tel" value={form.phone} maxLength={40} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="Phone number" />

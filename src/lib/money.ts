@@ -53,7 +53,9 @@ export interface OrderTotals {
   tip: number;
   /** Shipping charged to the customer (website orders). 0 for in-person sales. */
   shipping: number;
-  /** What the customer pays: subtotal - discount + tip + shipping. */
+  /** Store credit used. Works like a discount (never more than subtotal - discount). */
+  credit: number;
+  /** What the customer pays: subtotal - discount - credit + tip + shipping. */
   total: number;
   /** Revenue after discount for each line, in the order of `lines` passed in. */
   lineRevenue: number[];
@@ -61,6 +63,7 @@ export interface OrderTotals {
 
 type TotalsInput = Pick<OrderRec, "discountType" | "discountValue" | "tipCents"> & {
   shippingCents?: number;
+  storeCreditCents?: number;
   lines: Pick<OrderLineRec, "quantity" | "unitPriceCents">[];
 };
 
@@ -68,7 +71,9 @@ export function orderTotals(order: TotalsInput): OrderTotals {
   const gross = order.lines.map((l) => l.quantity * l.unitPriceCents);
   const subtotal = gross.reduce((s, g) => s + g, 0);
   const discount = discountAmount(order.discountType, order.discountValue, subtotal);
-  const alloc = allocateDiscount(gross, discount);
+  // Store credit comes off after the discount, like a second discount. 0 on every order before credit existed.
+  const credit = Math.max(0, Math.min(subtotal - discount, Math.round(order.storeCreditCents || 0)));
+  const alloc = allocateDiscount(gross, discount + credit);
   const tip = Math.max(0, order.tipCents || 0);
   const shipping = Math.max(0, order.shippingCents || 0);
   return {
@@ -76,7 +81,8 @@ export function orderTotals(order: TotalsInput): OrderTotals {
     discount,
     tip,
     shipping,
-    total: subtotal - discount + tip + shipping,
+    credit,
+    total: subtotal - discount - credit + tip + shipping,
     lineRevenue: gross.map((g, i) => g - alloc[i]),
   };
 }
@@ -122,11 +128,13 @@ export interface OrderResult {
   soldBy: Seller;
   subtotal: number;
   discount: number;
+  /** Store credit used (lowers revenue like a discount). */
+  credit: number;
   tip: number;
   /** Shipping charged. All of it is business money, none is split. */
   shipping: number;
   total: number;
-  /** Revenue after discount (excludes tip). */
+  /** Revenue after discount and store credit (excludes tip). */
   revenue: number;
   cost: number;
   /** revenue - cost (excludes tip). */
@@ -374,7 +382,7 @@ export function computeLedger(data: AppData): Ledger {
       bal += shipping;
       shippingCollected += shipping;
     }
-    const revenue = totals.subtotal - totals.discount;
+    const revenue = totals.subtotal - totals.discount - totals.credit;
     const cost = results.reduce((x, r) => x + r.cost, 0);
     return {
       orderId: o.id,
@@ -382,6 +390,7 @@ export function computeLedger(data: AppData): Ledger {
       soldBy: o.soldBy,
       subtotal: totals.subtotal,
       discount: totals.discount,
+      credit: totals.credit,
       tip,
       shipping,
       total: totals.total,

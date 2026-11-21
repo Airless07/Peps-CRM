@@ -127,7 +127,7 @@ export function todaySummary(data: Pick<AppData, "orders" | "settings">, ledger:
  * A plain text receipt to paste into a text message: order number, items with sizes, any discount or
  * BOGO, total, date. BOGO items are listed at their normal price with the deal taken off under them.
  */
-export function receiptText(o: Pick<OrderRec, "number" | "date" | "lines" | "discountType" | "discountValue" | "tipCents" | "paymentMethod" | "owner" | "customer">, opts: { storeName: string; ownerName?: string }): string {
+export function receiptText(o: Pick<OrderRec, "number" | "date" | "lines" | "discountType" | "discountValue" | "tipCents" | "paymentMethod" | "owner" | "customer" | "storeCreditCents">, opts: { storeName: string; ownerName?: string }): string {
   const t = orderTotals(o);
   const out: string[] = [];
   if (opts.storeName.trim()) out.push(opts.storeName.trim());
@@ -146,6 +146,7 @@ export function receiptText(o: Pick<OrderRec, "number" | "date" | "lines" | "dis
   out.push("");
   if (o.owner) out.push(`Owner price${opts.ownerName ? ` (${opts.ownerName})` : ""}: charged at cost`);
   if (t.discount > 0) out.push(`Discount${o.discountType === "%" ? ` (${o.discountValue}%)` : ""}  -${fmtMoney(t.discount)}`);
+  if (t.credit > 0) out.push(`Store credit  -${fmtMoney(t.credit)}`);
   if (t.tip > 0) out.push(`Tip  ${fmtMoney(t.tip)}`);
   out.push(`Total  ${fmtMoney(t.total)}`);
   if (o.paymentMethod.trim() && o.paymentMethod !== "Unknown") out.push(`Paid with ${o.paymentMethod.trim()}`);

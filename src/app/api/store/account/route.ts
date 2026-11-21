@@ -1,5 +1,5 @@
 import { body, route } from "@/lib/api";
-import { currentAccount, requestPasswordReset, requireAccount, resetPassword, setAddresses, signIn, signOut, signUp } from "@/lib/account";
+import { changePassword, claimInvite, currentAccount, requestPasswordReset, requireAccount, resetPassword, setAddresses, signIn, signOut, signUp } from "@/lib/account";
 import { prisma } from "@/lib/db";
 import { requestOrigin } from "@/lib/order-ops";
 import { clearFailures, clientIp, lockedFor, rateLimit, recordFailure } from "@/lib/ratelimit";
@@ -15,9 +15,20 @@ export const POST = route(
   async (req) => {
     const input = await body(req, accountAction);
     switch (input.action) {
-      case "signup":
+      case "signup": {
         rateLimit(req, "signup", 6, 30 * 60_000);
-        return { account: await signUp(input) };
+        // An email we already know never signs anyone in: a claim link goes to that inbox instead.
+        const r = await signUp(input, requestOrigin(req));
+        return "account" in r ? { account: r.account } : { ok: true, claim: true, message: r.message };
+      }
+      case "claim":
+        rateLimit(req, "claim", 10, 30 * 60_000);
+        return { account: await claimInvite(input.token, input.password) };
+      case "change-password": {
+        const a = await requireAccount({ allowTemporary: true });
+        await changePassword(a.id, input.password);
+        return { ok: true, account: { ...a, mustChangePassword: false } };
+      }
       case "signin": {
         const key = `acct:${clientIp(req)}:${input.email}`;
         const wait = lockedFor(key);
@@ -40,7 +51,7 @@ export const POST = route(
         return {
           ok: true,
           message: r.emailWorking
-            ? "If an account uses that email, a reset link is on its way. It works for 1 hour."
+            ? "If an account uses that email, a link to choose a password is on its way."
             : "We couldn't send the reset email right now. Please use the contact page and we will help you get back in.",
         };
       }

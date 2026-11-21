@@ -43,6 +43,19 @@ export interface StoreSettings {
   unpaidReminder: boolean;
   /** Email the alert list when a variant drops to its low stock threshold. */
   lowStockAlerts: boolean;
+  /** Referral rewards and customer invite links. */
+  referrals: ReferralSettings;
+}
+
+export interface ReferralSettings {
+  /** Store credit the referrer earns, in percent of the order after discounts and store credit (no tips, no shipping). */
+  percent: number;
+  /** Only the referred customer's first order earns referral credit. */
+  firstOrderOnly: boolean;
+  /** Store credit the referred customer earns on their own order, in percent. 0 = none. */
+  newCustomerPercent: number;
+  /** How many days an invite or claim link works. */
+  inviteDays: number;
 }
 
 export type ShippingTierId = "standard" | "priority" | "express";
@@ -105,6 +118,7 @@ export const DEFAULT_STORE: StoreSettings = {
   siteUrl: "",
   unpaidReminder: true,
   lowStockAlerts: true,
+  referrals: { percent: 10, firstOrderOnly: false, newCustomerPercent: 0, inviteDays: 14 },
 };
 
 export type SectionId = "bestsellers" | "groups" | "products" | "quality" | "reviews" | "faq";
@@ -363,7 +377,16 @@ export function parseStore(json: string | null | undefined): StoreSettings {
   // Both default to on, also for settings saved before these switches existed.
   s.unpaidReminder = s.unpaidReminder !== false;
   s.lowStockAlerts = s.lowStockAlerts !== false;
+  s.referrals = cleanReferrals(s.referrals);
   return s;
+}
+
+/** Referral settings with every value in range (missing or broken values get the default). */
+export function cleanReferrals(v: Partial<ReferralSettings> | null | undefined): ReferralSettings {
+  const d = DEFAULT_STORE.referrals;
+  const pct = (x: unknown, def: number) => (typeof x === "number" && Number.isFinite(x) ? Math.min(100, Math.max(0, x)) : def);
+  const days = typeof v?.inviteDays === "number" && Number.isFinite(v.inviteDays) ? Math.min(90, Math.max(1, Math.round(v.inviteDays))) : d.inviteDays;
+  return { percent: pct(v?.percent, d.percent), firstOrderOnly: v?.firstOrderOnly === true, newCustomerPercent: pct(v?.newCustomerPercent, d.newCustomerPercent), inviteDays: days };
 }
 
 export function parseContent(json: string | null | undefined): SiteContent {
