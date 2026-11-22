@@ -21,7 +21,20 @@ function sameOrigin(req: NextRequest): boolean {
   }
 }
 
+/** Pages that show one person's data (account, cart, checkout, an order): never cached anywhere. */
+const PRIVATE_PAGES = ["/account", "/checkout", "/cart", "/order/", "/order-lookup", "/refer", "/review/"];
+const isPrivatePage = (p: string) => PRIVATE_PAGES.some((x) => p === x || p.startsWith(x.endsWith("/") ? x : `${x}/`));
+const NO_STORE = "private, no-store";
+
 export async function middleware(req: NextRequest) {
+  const res = await gate(req);
+  // Admin pages and every API answer are per session too.
+  const p = req.nextUrl.pathname;
+  if (isPrivatePage(p) || p.startsWith("/admin") || p.startsWith("/api/")) res.headers.set("Cache-Control", NO_STORE);
+  return res;
+}
+
+async function gate(req: NextRequest): Promise<NextResponse> {
   const { pathname } = req.nextUrl;
   const isApi = pathname.startsWith("/api/");
   const isAdminPage = pathname === "/admin" || pathname.startsWith("/admin/");
@@ -46,5 +59,5 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/admin/:path*", "/api/:path*"],
+  matcher: ["/admin/:path*", "/api/:path*", "/account/:path*", "/account", "/checkout", "/cart", "/order/:path*", "/order-lookup", "/refer", "/review/:path*"],
 };

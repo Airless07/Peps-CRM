@@ -58,8 +58,7 @@ export const POST = route(
       }
       case "reset":
         rateLimit(req, "reset-use", 10, 30 * 60_000);
-        await resetPassword(input.token, input.password);
-        return { ok: true };
+        return { ok: true, account: await resetPassword(input.token, input.password) };
       case "addresses": {
         const a = await requireAccount();
         await setAddresses(a.id, input.addresses.map((x) => ({ ...x, street2: x.street2 ?? "" })));

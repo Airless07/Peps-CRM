@@ -12,6 +12,9 @@ export class HttpError extends Error {
   }
 }
 
+/** Every API answer is about one session (account, cart, admin data): never stored by a browser, proxy or CDN. */
+export const NO_STORE = "private, no-store";
+
 export type Ctx<P = Record<string, string>> = { params: Promise<P> };
 
 /** Wrap a route handler: checks the session, turns errors into JSON. */
@@ -24,24 +27,27 @@ export function route<P = Record<string, string>>(
       if (!opts.public) {
         const jar = await cookies();
         if (!(await verifySessionToken(jar.get(SESSION_COOKIE)?.value))) {
-          return NextResponse.json({ error: "Not logged in" }, { status: 401 });
+          return NextResponse.json({ error: "Not logged in" }, { status: 401, headers: { "Cache-Control": NO_STORE } });
         }
       }
       const out = await fn(req, ctx);
-      if (out instanceof Response) return out;
-      return NextResponse.json(out ?? { ok: true });
-    } catch (e) {
-      if (e instanceof HttpError) return NextResponse.json({ error: e.message }, { status: e.status });
-      if (e instanceof ZodError) {
-        const msg = e.issues.map((i) => `${i.path.join(".") || "input"}: ${i.message}`).join("; ");
-        return NextResponse.json({ error: msg }, { status: 400 });
+      if (out instanceof Response) {
+        try {
+          if (!out.headers.has("Cache-Control")) out.headers.set("Cache-Control", NO_STORE);
+        } catch {}
+        return out;
       }
+      return NextResponse.json(out ?? { ok: true }, { headers: { "Cache-Control": NO_STORE } });
+    } catch (e) {
+      const fail = (error: string, status: number) => NextResponse.json({ error }, { status, headers: { "Cache-Control": NO_STORE } });
+      if (e instanceof HttpError) return fail(e.message, e.status);
+      if (e instanceof ZodError) return fail(e.issues.map((i) => `${i.path.join(".") || "input"}: ${i.message}`).join("; "), 400);
       const code = (e as { code?: string })?.code;
-      if (code === "P2025") return NextResponse.json({ error: "Record not found" }, { status: 404 });
-      if (code === "P2002") return NextResponse.json({ error: "That record already exists" }, { status: 409 });
-      if (code === "P2003") return NextResponse.json({ error: "Linked record not found" }, { status: 400 });
+      if (code === "P2025") return fail("Record not found", 404);
+      if (code === "P2002") return fail("That record already exists", 409);
+      if (code === "P2003") return fail("Linked record not found", 400);
       console.error(e);
-      return NextResponse.json({ error: "Something went wrong" }, { status: 500 });
+      return fail("Something went wrong", 500);
     }
   };
 }

@@ -30,6 +30,8 @@ export const POST = route(
     });
     const stock = new Map(catalog.products.flatMap((p) => p.variants.map((v) => [v.id, v.stock] as const)));
     return {
+      // Who this price is for. The browser throws the answer away if it shows another account's cart.
+      accountId: account?.id ?? null,
       ...pricing,
       lines: pricing.lines.map((l) => ({ ...l, stock: stock.get(l.variantId) ?? "out" })),
       // Items that were in the cart but can no longer be bought (removed from the website).

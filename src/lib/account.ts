@@ -9,7 +9,7 @@ import { inviteEmail, passwordResetEmail, sendEmail, type EmailOutcome } from ".
 import { getStore, siteUrl } from "./order-ops";
 import { uniqueReferralCode } from "./referral-codes";
 import { json } from "./serialize";
-import { signValue, verifyValue } from "./session";
+import { SESSION_COOKIE, signValue, verifyValue } from "./session";
 import type { Address } from "./types";
 
 export const ACCOUNT_COOKIE = "peps_account";
@@ -40,8 +40,14 @@ async function setCookie(customerId: string) {
   (await cookies()).set(ACCOUNT_COOKIE, token, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/", expires });
 }
 
+/**
+ * Sign out of the store. One browser is one person: the admin session (if any) ends too, so signing out
+ * never leaves half of a session behind on a shared computer. (Admin sign out ends the store session too.)
+ */
 export async function signOut() {
-  (await cookies()).set(ACCOUNT_COOKIE, "", { httpOnly: true, path: "/", maxAge: 0 });
+  const jar = await cookies();
+  jar.set(ACCOUNT_COOKIE, "", { httpOnly: true, path: "/", maxAge: 0 });
+  jar.set(SESSION_COOKIE, "", { httpOnly: true, path: "/", maxAge: 0 });
 }
 
 /** The signed-in customer, or null. */
@@ -229,13 +235,14 @@ export async function requestPasswordReset(emailInput: string, origin: string): 
   return { emailWorking: out.sent };
 }
 
-export async function resetPassword(token: string, password: string) {
+export async function resetPassword(token: string, password: string): Promise<Account> {
   const c = await prisma.customer.findFirst({ where: { resetTokenHash: sha(token) } });
   if (!c || !c.resetExpiresAt || c.resetExpiresAt.getTime() < Date.now()) {
     throw new HttpError(400, "This reset link has expired or was already used. Ask for a new one.");
   }
-  await prisma.customer.update({ where: { id: c.id }, data: { passwordHash: await hashPassword(password), resetTokenHash: null, resetExpiresAt: null, mustChangePassword: false, lastLoginAt: new Date() } });
+  const updated = await prisma.customer.update({ where: { id: c.id }, data: { passwordHash: await hashPassword(password), resetTokenHash: null, resetExpiresAt: null, mustChangePassword: false, lastLoginAt: new Date() } });
   await setCookie(c.id);
+  return toAccount(updated);
 }
 
 const sameAddress = (a: Address, b: Address) =>

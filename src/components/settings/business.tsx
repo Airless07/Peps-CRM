@@ -98,6 +98,14 @@ export function BusinessSettings() {
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
+    // The store account in this browser is signed out too: tell open store tabs, drop the local cart.
+    try {
+      localStorage.removeItem("bp-cart:guest");
+      localStorage.removeItem("bp-cart");
+      const c = new BroadcastChannel("bp-account");
+      c.postMessage({ id: null });
+      c.close();
+    } catch {}
     window.location.href = "/admin/login";
   }
 

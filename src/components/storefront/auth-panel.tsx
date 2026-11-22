@@ -2,6 +2,7 @@
 
 // Sign in / create account / forgot password. Used inside checkout (the cart is kept) and on /account.
 import { useState } from "react";
+import { announceAccount } from "./cart";
 
 export interface AccountInfo {
   id: string;
@@ -17,6 +18,9 @@ export async function accountApi<T = { account?: AccountInfo; ok?: boolean; mess
   const res = await fetch("/api/store/account", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(cleanError(json.error) || "Something went wrong. Try again.");
+  // The session changed: the cart (this tab and other tabs) switches to the right account right away.
+  if (body.action === "signout") announceAccount(null);
+  else if (json?.account?.id && ["signin", "signup", "claim", "reset", "change-password"].includes(String(body.action))) announceAccount(json.account.id);
   return json as T;
 }
 

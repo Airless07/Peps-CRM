@@ -60,7 +60,7 @@ export default async function StoreLayout({ children }: { children: React.ReactN
         <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[100] focus:rounded-full focus:bg-coal focus:px-4 focus:py-2 focus:text-sm focus:text-white">
           Skip to content
         </a>
-        <CartProvider products={live ? catalog.products : []}>
+        <CartProvider products={live ? catalog.products : []} accountId={account?.id ?? null}>
           <StandaloneRedirect admin={admin} />
           {!store.open && admin && (
             <div className="bg-coal px-4 py-2 text-center text-[13px] text-white">

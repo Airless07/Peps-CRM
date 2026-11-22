@@ -5,9 +5,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, CreditCard, Landmark, Lock } from "lucide-react";
-import { AuthPanel, cleanError, type AccountInfo } from "./auth-panel";
+import { accountApi, AuthPanel, cleanError, type AccountInfo } from "./auth-panel";
 import { resetCheckoutStart, trackCheckoutStart } from "./analytics";
-import { CartTotals, LastReferralPrompt, money, PromoField, useCart, useLineInfo } from "./cart";
+import { CartTotals, money, PromoField, useCart, useLineInfo } from "./cart";
 
 type Addr = AccountInfo["addresses"][number];
 const BLANK: Addr = { name: "", street1: "", street2: "", city: "", state: "", zip: "", country: "US" };
@@ -75,6 +75,39 @@ export function CheckoutView({ account: initial, states, ack, preview }: { accou
   const [creditCustom, setCreditCustom] = useState(false);
   const errorRef = useRef<HTMLDivElement>(null);
   const { quote, requote } = cart;
+
+  // Checkout fields belong to one account. When the account changes (sign out, or another account signed
+  // in from another tab) every field is reset at once: nothing typed for, or filled from, the previous
+  // account is shown for even a moment.
+  const fillFrom = (acc: AccountInfo | null) => {
+    setA(acc?.addresses[0] ?? { ...BLANK, name: acc?.name ?? "" });
+    setPhone(acc?.phone ?? "");
+    setCreditWanted(0);
+    setCreditCustom(false);
+    setErrors({});
+    setFormError("");
+    setAck1(false);
+    setAck2(false);
+    setPay("");
+    setTier("");
+  };
+  useEffect(() => {
+    if (!cart.ready) return;
+    if (cart.owner === (account?.id ?? null)) return;
+    if (cart.owner === null) {
+      setAccount(null);
+      fillFrom(null);
+    } else if (initial?.id === cart.owner) {
+      setAccount(initial);
+      fillFrom(initial);
+    } else {
+      // Signed in as someone else elsewhere: show nothing of the old account, then load the new one.
+      setAccount(null);
+      fillFrom(null);
+      router.refresh();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cart.owner, cart.ready, initial?.id]);
 
   const addressComplete = a.street1.trim().length >= 3 && a.city.trim().length >= 2 && !!a.state && /^\d{5}(-\d{4})?$/.test(a.zip.trim());
   // Live shipping prices depend on the address: re-price when it is complete or changes.
@@ -165,7 +198,7 @@ export function CheckoutView({ account: initial, states, ack, preview }: { accou
       const res = await fetch("/api/store/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone, shipTo: { ...a, zip: a.zip.trim() }, items: cart.items, code: quote?.code ?? "", tier: isLocal ? "" : tier, fulfillment: method, localTime: isLocal ? localTime : "", localNotes: isLocal ? localNotes : "", payChoice: pay, expectedTotalCents: total, ackResearch: true, ackPolicies: true, saveAddress: true, storeCreditCents: creditUsed, referralCode: quote?.referral ? cart.referral : "" }),
+        body: JSON.stringify({ accountId: account?.id ?? null, phone, shipTo: { ...a, zip: a.zip.trim() }, items: cart.items, code: quote?.code ?? "", tier: isLocal ? "" : tier, fulfillment: method, localTime: isLocal ? localTime : "", localNotes: isLocal ? localNotes : "", payChoice: pay, expectedTotalCents: total, ackResearch: true, ackPolicies: true, saveAddress: true, storeCreditCents: creditUsed, referralCode: quote?.referral ? cart.referral : "" }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -230,8 +263,7 @@ export function CheckoutView({ account: initial, states, ack, preview }: { accou
       </ul>
       <div className="mt-4">{quote ? <CartTotals shippingCents={ship ? ship.cents : null} shippingLabel={ship?.name} creditCents={creditUsed} /> : <div className="h-24 animate-pulse rounded-xl bg-rule/60" />}</div>
       <div className="mt-5 space-y-2.5 border-t border-rule pt-4">
-        <LastReferralPrompt />
-        <PromoField />
+        <PromoField offerLast />
       </div>
       {account && creditAvail > 0 && (
         <div className="mt-5 border-t border-rule pt-4" data-checkout-credit>
@@ -300,8 +332,9 @@ export function CheckoutView({ account: initial, states, ack, preview }: { accou
                   type="button"
                   className="text-sm font-medium text-stone underline decoration-rule underline-offset-4 hover:text-coal"
                   onClick={async () => {
-                    await fetch("/api/store/account", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "signout" }) });
+                    await accountApi({ action: "signout" }).catch(() => {});
                     setAccount(null);
+                    fillFrom(null);
                     router.refresh();
                   }}
                 >
@@ -319,11 +352,9 @@ export function CheckoutView({ account: initial, states, ack, preview }: { accou
                 <AuthPanel
                   intro="An account is needed to check out. It takes a few seconds, and your cart stays as it is."
                   onDone={(acc) => {
+                    // The cart switches to this account's cart (guest items added in, codes re-entered) and re-prices for it.
                     setAccount(acc);
-                    // Signed in now: price again so their store credit shows.
-                    void requote(addrKey ? { street1: a.street1, street2: a.street2, city: a.city, state: a.state, zip: a.zip } : null);
-                    setA(acc.addresses[0] ?? { ...BLANK, name: acc.name });
-                    setPhone(acc.phone ?? "");
+                    fillFrom(acc);
                     router.refresh();
                   }}
                 />

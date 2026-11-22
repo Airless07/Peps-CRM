@@ -244,6 +244,8 @@ model Order {
   payAtPickup      Boolean         @default(false)
   /// Local orders: when it was marked ready for pickup / delivery.
   readyAt          DateTime?
+  /// Label purchase in progress (set atomically before Shippo is called). Stops a label being bought twice.
+  labelLockAt      DateTime?
   lines            OrderLine[]
   splitItems       SplitItem[]
   labels           LabelPurchase[]
@@ -319,6 +321,20 @@ model Customer {
   orders    Order[]
   credits   CreditEntry[]
   codeChanges ReferralCodeChange[]
+  cart      CustomerCart?
+}
+
+/// A signed-in customer's cart, kept on the server so it follows the account (any device) and is
+/// never seen by anyone else. Guests keep their cart in the browser. Prices are never stored here.
+model CustomerCart {
+  customerId String   @id
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  /// JSON [{ variantId, quantity }]
+  itemsJson  String   @default("[]")
+  /// Codes applied by this account (re-checked on every quote; cleared at each sign in).
+  code       String   @default("")
+  referral   String   @default("")
+  updatedAt  DateTime @updatedAt
 }
 
 /// Every code a customer can type: referral codes and discount codes share ONE namespace.

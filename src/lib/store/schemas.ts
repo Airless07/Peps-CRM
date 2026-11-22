@@ -72,6 +72,8 @@ export const checkoutInput = z.object({
   storeCreditCents: cents.default(0),
   /** Optional referral code from a friend. */
   referralCode: text(40).default(""),
+  /** The account the browser built this cart for. Refused when the session is a different account. */
+  accountId: z.string().max(64).nullable().optional(),
 });
 
 const password = z.string().min(8, "Use at least 8 characters for your password").max(200);

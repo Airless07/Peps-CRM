@@ -1,7 +1,12 @@
 "use client";
 
-// Cart state for the store. Items and the discount code live in localStorage; every price comes
-// from the server (/api/store/quote), so the drawer, the cart page and checkout always agree.
+// Cart state for the store. Every account has its own cart:
+//  - signed in: the cart lives on the server (CustomerCart), tied to the account, so it follows the
+//    account to any device and no other account ever sees it;
+//  - guest: the cart lives in this browser under GUEST_KEY.
+// Signing in adds the guest cart to the account's cart (codes are not carried over). Signing out clears
+// everything local. Every price comes from the server (/api/store/quote) for whoever is signed in NOW,
+// so the drawer, the cart page and checkout always agree and nothing priced in the browser is trusted.
 import Link from "next/link";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -11,9 +16,30 @@ import type { PublicProduct } from "@/lib/store/catalog";
 import { Vial } from "./vial";
 
 export const money = (c: number) => `$${(c / 100).toFixed(2)}`;
-const KEY = "bp-cart";
+/** The guest cart (signed out). Never holds a signed-in account's cart. */
+export const GUEST_KEY = "bp-cart:guest";
+/** Before carts were per account, one cart for everybody in the browser lived here. Read once as a guest, then removed. */
+const LEGACY_KEY = "bp-cart";
+const CHANNEL = "bp-account";
+const EVENT = "bp-account-change";
 /** A typed code as kept in the cart: letters, numbers, dashes and underscores, as typed (the server ignores case). */
 const cleanTyped = (c: string) => c.trim().replace(/[^A-Za-z0-9_-]/g, "").slice(0, 30);
+
+/**
+ * Tell the cart (this tab and other tabs) who is signed in now. Called right after sign in / sign up /
+ * claim / reset (with the account id) and sign out (null), so the cart switches immediately instead of
+ * after the page reloads.
+ */
+export function announceAccount(id: string | null) {
+  try {
+    window.dispatchEvent(new CustomEvent(EVENT, { detail: { id } }));
+  } catch {}
+  try {
+    const c = new BroadcastChannel(CHANNEL);
+    c.postMessage({ id });
+    c.close();
+  } catch {}
+}
 
 export interface CartItem {
   variantId: string;
@@ -41,6 +67,8 @@ export interface ShipOption {
   estimate: string;
 }
 export interface Quote {
+  /** Account the server priced this for (null = guest). */
+  accountId?: string | null;
   lines: QuoteLine[];
   listSubtotalCents: number;
   qtySavingsCents: number;
@@ -76,7 +104,11 @@ export interface Quote {
   lastReferral?: string | null;
 }
 
+export type AddOutcome = { ok: boolean; added: number; message: string };
+
 interface CartCtx {
+  /** Who this cart belongs to: an account id, or null for the guest cart. */
+  owner: string | null;
   items: CartItem[];
   code: string;
   /** Referral code slot (one per order), separate from the discount code slot. */
@@ -90,11 +122,18 @@ interface CartCtx {
   open: boolean;
   setOpen: (v: boolean) => void;
   add: (variantId: string, quantity?: number) => void;
+  /** Add with a stock check on the server (quick add). Opens the drawer when something was added. */
+  addChecked: (variantId: string, quantity: number) => Promise<AddOutcome>;
   setQty: (variantId: string, quantity: number) => void;
   swap: (fromVariantId: string, toVariantId: string) => void;
   remove: (variantId: string) => void;
   setCode: (code: string) => void;
   clear: () => void;
+  /** Check a typed code (discount or referral) for THIS account and only keep it when it works. */
+  applyCode: (typed: string) => Promise<{ ok: boolean; error: string }>;
+  /** "You used CODE last time" was answered (Yes or No): don't offer it again in this checkout. */
+  lastPromptDone: boolean;
+  setLastPromptDone: (v: boolean) => void;
   /** Re-price with a shipping address (checkout, for live rates). */
   requote: (shipTo?: Record<string, string> | null) => Promise<Quote | null>;
   products: PublicProduct[];
@@ -107,7 +146,38 @@ export const useCart = () => {
   return c;
 };
 
-export function CartProvider({ products, children }: { products: PublicProduct[]; children: React.ReactNode }) {
+const validItems = (list: unknown): CartItem[] =>
+  Array.isArray(list) ? list.filter((i): i is CartItem => !!i && typeof i.variantId === "string" && Number.isInteger(i.quantity) && i.quantity > 0).map((i) => ({ variantId: i.variantId, quantity: Math.min(99, i.quantity) })) : [];
+
+function readGuest(): { items: CartItem[]; code: string; referral: string } {
+  try {
+    let raw = localStorage.getItem(GUEST_KEY);
+    // One-time move of the old shared cart, only ever into the GUEST cart.
+    const legacy = localStorage.getItem(LEGACY_KEY);
+    if (legacy !== null) {
+      if (raw === null) raw = legacy;
+      localStorage.removeItem(LEGACY_KEY);
+    }
+    const saved = JSON.parse(raw ?? "{}") as { items?: unknown; code?: string; referral?: string };
+    return { items: validItems(saved.items), code: typeof saved.code === "string" ? saved.code : "", referral: typeof saved.referral === "string" ? saved.referral : "" };
+  } catch {
+    return { items: [], code: "", referral: "" };
+  }
+}
+function clearLocal() {
+  try {
+    localStorage.removeItem(GUEST_KEY);
+    localStorage.removeItem(LEGACY_KEY);
+    sessionStorage.removeItem("bl-checkout");
+  } catch {}
+}
+async function cartApi(body: Record<string, unknown>) {
+  const res = await fetch("/api/store/cart", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), cache: "no-store" });
+  return { res, json: (await res.json().catch(() => ({}))) as Record<string, unknown> };
+}
+
+export function CartProvider({ products, accountId = null, children }: { products: PublicProduct[]; accountId?: string | null; children: React.ReactNode }) {
+  const [owner, setOwner] = useState<string | null>(accountId);
   const [items, setItems] = useState<CartItem[]>([]);
   const [code, setCodeState] = useState("");
   const [referral, setReferralState] = useState("");
@@ -116,21 +186,138 @@ export function CartProvider({ products, children }: { products: PublicProduct[]
   const [quote, setQuote] = useState<Quote | null>(null);
   const [quoting, setQuoting] = useState(false);
   const [quoteError, setQuoteError] = useState("");
+  const [lastPromptDone, setLastPromptDone] = useState(false);
   const seq = useRef(0);
   const shipToRef = useRef<Record<string, string> | null>(null);
+  // Who the cart on screen belongs to, and a generation number: any answer that arrives after the
+  // account changed belongs to the old account and is thrown away.
+  const ownerRef = useRef<string | null>(accountId);
+  const gen = useRef(0);
+  const itemsRef = useRef<CartItem[]>([]);
+  itemsRef.current = items;
+  const savedRef = useRef("");
+  const urlDone = useRef(false);
 
+  /** Show the cart of `next` (null = guest). Everything of the previous account is wiped first. */
+  const load = useCallback(async (next: string | null, mergeGuest: CartItem[] | null) => {
+    const g = ++gen.current;
+    ownerRef.current = next;
+    seq.current++; // drop any price on its way for the previous account
+    setOwner(next);
+    setItems([]);
+    setCodeState("");
+    setReferralState("");
+    setQuote(null);
+    setQuoteError("");
+    setQuoting(false);
+    setLastPromptDone(false);
+    setReady(false);
+    shipToRef.current = null;
+    let loaded = { items: [] as CartItem[], code: "", referral: "" };
+    if (next === null) {
+      loaded = readGuest();
+    } else {
+      try {
+        const { res, json } = mergeGuest?.length
+          ? await cartApi({ action: "merge", accountId: next, items: mergeGuest })
+          : await fetch("/api/store/cart", { cache: "no-store" }).then(async (r) => ({ res: r, json: (await r.json().catch(() => ({}))) as Record<string, unknown> }));
+        if (g !== gen.current) return;
+        const now = (json.accountId as string | null | undefined) ?? null;
+        if (now !== next) {
+          // Signed in as someone else (or signed out) by now: load that one instead.
+          void load(now, null);
+          return;
+        }
+        if (res.ok) {
+          loaded = { items: validItems(json.items), code: String(json.code ?? ""), referral: String(json.referral ?? "") };
+          // The guest cart is now part of the account's cart: the browser copy goes.
+          if (mergeGuest) clearLocal();
+        }
+      } catch {}
+    }
+    if (g !== gen.current) return;
+    setItems(loaded.items);
+    setCodeState(loaded.code);
+    setReferralState(loaded.referral);
+    savedRef.current = JSON.stringify(loaded);
+    setReady(true);
+  }, []);
+
+  /** The signed-in account changed (sign in, sign out, another tab, or the page reloaded with a new session). */
+  const switchTo = useCallback(
+    (next: string | null) => {
+      if (next === ownerRef.current) return;
+      const prev = ownerRef.current;
+      if (next === null) {
+        // Signed out: nothing of the account stays in this browser. A fresh, empty guest cart.
+        clearLocal();
+        void load(null, null);
+        return;
+      }
+      // Guest -> account: the guest's items go into the account's cart. Account -> another account: nothing carries over.
+      const guest = prev === null ? (itemsRef.current.length ? itemsRef.current : readGuest().items) : null;
+      if (prev !== null) clearLocal();
+      void load(next, guest);
+    },
+    [load],
+  );
+
+  // First load, and whenever the server-rendered session changes (router.refresh after sign in / out).
+  const first = useRef(true);
   useEffect(() => {
+    if (first.current) {
+      first.current = false;
+      if (accountId !== null) {
+        // Signed in: the old shared browser cart may belong to anyone. It is not used for this account.
+        try {
+          localStorage.removeItem(LEGACY_KEY);
+        } catch {}
+      }
+      void load(accountId, null);
+      return;
+    }
+    switchTo(accountId);
+  }, [accountId, load, switchTo]);
+
+  // Sign in / out in this tab (instant), in another tab (BroadcastChannel), or anywhere (checked when the tab is shown again).
+  useEffect(() => {
+    const onEvent = (e: Event) => switchTo(((e as CustomEvent).detail?.id as string | null) ?? null);
+    window.addEventListener(EVENT, onEvent);
+    let ch: BroadcastChannel | null = null;
     try {
-      const saved = JSON.parse(localStorage.getItem(KEY) ?? "{}") as { items?: CartItem[]; code?: string; referral?: string };
-      if (Array.isArray(saved.items)) setItems(saved.items.filter((i) => i && typeof i.variantId === "string" && i.quantity > 0));
-      // "Apply now" in the promo bar links to ?code=XXXX; a friend's share link to ?ref=THEIR-CODE.
+      ch = new BroadcastChannel(CHANNEL);
+      ch.onmessage = (m) => switchTo((m.data?.id as string | null) ?? null);
+    } catch {}
+    const probe = () => {
+      if (document.visibilityState !== "visible") return;
+      fetch("/api/store/cart", { cache: "no-store" })
+        .then((r) => r.json())
+        .then((j) => {
+          const now = (j?.accountId as string | null | undefined) ?? null;
+          if (now !== ownerRef.current) switchTo(now);
+        })
+        .catch(() => {});
+    };
+    document.addEventListener("visibilitychange", probe);
+    window.addEventListener("focus", probe);
+    return () => {
+      window.removeEventListener(EVENT, onEvent);
+      ch?.close();
+      document.removeEventListener("visibilitychange", probe);
+      window.removeEventListener("focus", probe);
+    };
+  }, [switchTo]);
+
+  // "Apply now" in the promo bar links to ?code=XXXX; a friend's share link to ?ref=THEIR-CODE. Read once, into whichever cart is loaded.
+  useEffect(() => {
+    if (!ready || urlDone.current) return;
+    urlDone.current = true;
+    try {
       const params = new URLSearchParams(window.location.search);
       const fromUrl = params.get("code");
       const refUrl = params.get("ref");
-      const next = (fromUrl || saved.code || "").toUpperCase().slice(0, 30);
-      if (next) setCodeState(next);
-      const nextRef = cleanTyped(refUrl || saved.referral || "");
-      if (nextRef) setReferralState(nextRef);
+      if (fromUrl) setCodeState(fromUrl.toUpperCase().replace(/[^A-Z0-9_-]/g, "").slice(0, 30));
+      if (refUrl) setReferralState(cleanTyped(refUrl));
       if (fromUrl || refUrl) {
         const u = new URL(window.location.href);
         u.searchParams.delete("code");
@@ -139,42 +326,69 @@ export function CartProvider({ products, children }: { products: PublicProduct[]
         if (fromUrl) setOpen(true);
       }
     } catch {}
-    setReady(true);
-  }, []);
+  }, [ready]);
 
+  // Save: guest -> this browser; signed in -> the account on the server (debounced). The account id goes
+  // with every save and the server refuses it when the session is someone else's.
   useEffect(() => {
     if (!ready) return;
-    try {
-      localStorage.setItem(KEY, JSON.stringify({ items, code, referral }));
-    } catch {}
-  }, [items, code, referral, ready]);
-
-  const fetchQuote = useCallback(async (list: CartItem[], c: string, ref: string, shipTo: Record<string, string> | null): Promise<Quote | null> => {
-    if (list.length === 0) {
-      setQuote(null);
-      setQuoteError("");
-      return null;
+    const snap = JSON.stringify({ items, code, referral });
+    if (snap === savedRef.current) return;
+    const who = owner;
+    if (who === null) {
+      savedRef.current = snap;
+      try {
+        localStorage.setItem(GUEST_KEY, snap);
+      } catch {}
+      return;
     }
-    const n = ++seq.current;
-    setQuoting(true);
-    try {
-      const res = await fetch("/api/store/quote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: list, code: c, referralCode: ref, shipTo }) });
-      const json = await res.json().catch(() => ({}));
-      if (n !== seq.current) return null;
-      if (!res.ok) {
-        setQuoteError(json.error || "We couldn't price your cart. Check your connection and try again.");
+    const g = gen.current;
+    const t = setTimeout(async () => {
+      try {
+        const { res, json } = await cartApi({ action: "save", accountId: who, items, code, referral });
+        if (g !== gen.current) return;
+        if (res.ok) savedRef.current = snap;
+        else if (res.status === 409 && json.accountChanged) switchTo((json.accountId as string | null) ?? null);
+        else if (res.status === 401) switchTo(null);
+      } catch {}
+    }, 350);
+    return () => clearTimeout(t);
+  }, [items, code, referral, ready, owner, switchTo]);
+
+  const fetchQuote = useCallback(
+    async (list: CartItem[], c: string, ref: string, shipTo: Record<string, string> | null): Promise<Quote | null> => {
+      if (list.length === 0) {
+        setQuote(null);
+        setQuoteError("");
         return null;
       }
-      setQuote(json as Quote);
-      setQuoteError("");
-      return json as Quote;
-    } catch {
-      if (n === seq.current) setQuoteError("We couldn't price your cart. Check your connection and try again.");
-      return null;
-    } finally {
-      if (n === seq.current) setQuoting(false);
-    }
-  }, []);
+      const n = ++seq.current;
+      setQuoting(true);
+      try {
+        const res = await fetch("/api/store/quote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: list, code: c, referralCode: ref, shipTo }), cache: "no-store" });
+        const json = await res.json().catch(() => ({}));
+        if (n !== seq.current) return null;
+        if (!res.ok) {
+          setQuoteError(json.error || "We couldn't price your cart. Check your connection and try again.");
+          return null;
+        }
+        // Priced for a different session than the cart on screen: switch carts, never show this price.
+        if ("accountId" in json && (json.accountId ?? null) !== ownerRef.current) {
+          switchTo(json.accountId ?? null);
+          return null;
+        }
+        setQuote(json as Quote);
+        setQuoteError("");
+        return json as Quote;
+      } catch {
+        if (n === seq.current) setQuoteError("We couldn't price your cart. Check your connection and try again.");
+        return null;
+      } finally {
+        if (n === seq.current) setQuoting(false);
+      }
+    },
+    [switchTo],
+  );
 
   useEffect(() => {
     if (!ready) return;
@@ -195,6 +409,33 @@ export function CartProvider({ products, children }: { products: PublicProduct[]
     });
     setOpen(true);
   }, []);
+  const addChecked = useCallback(
+    async (variantId: string, quantity: number): Promise<AddOutcome> => {
+      const who = ownerRef.current;
+      const g = gen.current;
+      try {
+        const { res, json } = await cartApi({ action: "add", accountId: who, variantId, quantity, items: itemsRef.current });
+        if (g !== gen.current) return { ok: false, added: 0, message: "Your account changed. Try again." };
+        if (res.status === 409 && json.accountChanged) {
+          switchTo((json.accountId as string | null) ?? null);
+          return { ok: false, added: 0, message: "Your account changed. Try again." };
+        }
+        if (!res.ok) return { ok: false, added: 0, message: String(json.error || "We couldn't add that. Try again.") };
+        const added = Number(json.added ?? 0);
+        if (added > 0) {
+          const next = validItems(json.items);
+          // Signed in: the server already saved it.
+          if (who !== null) savedRef.current = JSON.stringify({ items: next, code, referral });
+          setItems(next);
+          setOpen(true);
+        }
+        return { ok: added > 0, added, message: String(json.message ?? "") };
+      } catch {
+        return { ok: false, added: 0, message: "We couldn't add that. Check your connection and try again." };
+      }
+    },
+    [code, referral, switchTo],
+  );
   const setQty = useCallback((variantId: string, quantity: number) => {
     setItems((list) => (quantity <= 0 ? list.filter((x) => x.variantId !== variantId) : list.map((x) => (x.variantId === variantId ? { ...x, quantity: Math.min(99, quantity) } : x))));
   }, []);
@@ -214,6 +455,7 @@ export function CartProvider({ products, children }: { products: PublicProduct[]
     // No lock-in: the next order starts without a referral code (a one-click "use it again" is offered).
     setReferralState("");
     setQuote(null);
+    setLastPromptDone(false);
   }, []);
   const setCode = useCallback((c: string) => setCodeState(c.toUpperCase().replace(/[^A-Z0-9_-]/g, "").slice(0, 30)), []);
   const setReferral = useCallback((c: string) => setReferralState(cleanTyped(c)), []);
@@ -225,10 +467,43 @@ export function CartProvider({ products, children }: { products: PublicProduct[]
     [items, code, referral, fetchQuote],
   );
 
+  /**
+   * One box takes both kinds of code. The server says which kind it is, then the cart is priced WITH the
+   * code for this account; only a code that works is put in its slot. A code that doesn't work never
+   * enters the cart, so nothing can type itself back into the box later.
+   */
+  const applyCode = useCallback(
+    async (typed: string): Promise<{ ok: boolean; error: string }> => {
+      const value = cleanTyped(typed);
+      if (!value) return { ok: false, error: "Enter a code." };
+      const g = gen.current;
+      try {
+        const res = await fetch("/api/store/code", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: value }), cache: "no-store" });
+        const json = (await res.json().catch(() => ({}))) as { kind?: string; error?: string };
+        if (!res.ok) return { ok: false, error: json.error || "We couldn't check that code. Try again." };
+        if (json.kind !== "discount" && json.kind !== "referral") return { ok: false, error: json.error || "That code was not found. Check the spelling and try again." };
+        const nextCode = json.kind === "discount" ? value.toUpperCase() : code;
+        const nextRef = json.kind === "referral" ? value : referral;
+        const tr = await fetch("/api/store/quote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: itemsRef.current, code: nextCode, referralCode: nextRef, shipTo: shipToRef.current }), cache: "no-store" });
+        const q = (await tr.json().catch(() => ({}))) as Partial<Quote> & { error?: string };
+        if (g !== gen.current) return { ok: false, error: "Your account changed. Enter the code again." };
+        if (!tr.ok) return { ok: false, error: q.error || "We couldn't check that code. Try again." };
+        const err = json.kind === "discount" ? q.codeError ?? "" : q.referralError ?? "";
+        if (err) return { ok: false, error: err };
+        if (json.kind === "discount") setCode(value);
+        else setReferral(value);
+        return { ok: true, error: "" };
+      } catch {
+        return { ok: false, error: "We couldn't check that code. Check your connection and try again." };
+      }
+    },
+    [code, referral, setCode, setReferral],
+  );
+
   const count = items.reduce((s, i) => s + i.quantity, 0);
   const value = useMemo(
-    () => ({ items, code, referral, setReferral, count, ready, quote, quoting, quoteError, open, setOpen, add, setQty, swap, remove, setCode, clear, requote, products }),
-    [items, code, referral, setReferral, count, ready, quote, quoting, quoteError, open, add, setQty, swap, remove, setCode, clear, requote, products],
+    () => ({ owner, items, code, referral, setReferral, count, ready, quote, quoting, quoteError, open, setOpen, add, addChecked, setQty, swap, remove, setCode, clear, applyCode, lastPromptDone, setLastPromptDone, requote, products }),
+    [owner, items, code, referral, setReferral, count, ready, quote, quoting, quoteError, open, add, addChecked, setQty, swap, remove, setCode, clear, applyCode, lastPromptDone, requote, products],
   );
   return (
     <Ctx.Provider value={value}>
@@ -340,43 +615,39 @@ export function CartLines({ compact }: { compact?: boolean }) {
   );
 }
 
-export function PromoField() {
+/**
+ * The one code box (discount or referral code). The box shows exactly what the customer typed and nothing
+ * else: it is never filled in by the cart, so a deleted code stays deleted. A code is applied only when it
+ * works for this account; otherwise the box keeps what was typed and says why.
+ * `offerLast` (checkout): "You used code CODE last time. Use it again?" under the box, with Yes / No.
+ */
+export function PromoField({ offerLast = false }: { offerLast?: boolean }) {
   const cart = useCart();
   const [text, setText] = useState("");
   const [openField, setOpenField] = useState(false);
   const [checking, setChecking] = useState(false);
-  const [kindError, setKindError] = useState("");
+  const [error, setError] = useState("");
   const q = cart.quote;
   const applied = q?.code;
   const ref = q?.referral ?? null;
   const settled = !!q && !cart.quoting;
-  const codeErr = cart.code && settled ? q!.codeError : "";
-  const refErr = cart.referral && settled ? q!.referralError ?? "" : "";
-  const err = kindError || codeErr || refErr;
+  // A code that was applied but stopped working (an item was removed, the code ended...): said under the chips, never put back in the box.
+  const staleCode = cart.code && settled && q!.codeError ? { code: cart.code, error: q!.codeError, clear: () => cart.setCode("") } : null;
+  const staleRef = cart.referral && settled && q!.referralError ? { code: cart.referral, error: q!.referralError, clear: () => cart.setReferral("") } : null;
   const conflict = settled ? q!.conflict ?? null : null;
-  useEffect(() => {
-    if (err) setOpenField(true);
-  }, [err]);
 
-  // One box for both kinds: ask the server which one it is, then put it in that slot (one of each per order).
   async function apply(typed: string) {
-    const value = typed.trim();
-    if (!value) return;
+    if (!typed.trim()) return;
     setChecking(true);
-    setKindError("");
-    try {
-      const res = await fetch("/api/store/code", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: value }) });
-      const json = (await res.json().catch(() => ({}))) as { kind?: string; error?: string };
-      if (!res.ok) throw new Error(json.error || "We couldn't check that code. Try again.");
-      if (json.kind === "discount") cart.setCode(value);
-      else if (json.kind === "referral") cart.setReferral(value);
-      else throw new Error(json.error || "That code was not found. Check the spelling and try again.");
+    setError("");
+    const r = await cart.applyCode(typed);
+    setChecking(false);
+    if (r.ok) {
       setText("");
       setOpenField(false);
-    } catch (e) {
-      setKindError((e as Error).message);
-    } finally {
-      setChecking(false);
+    } else {
+      setError(r.error);
+      setOpenField(true);
     }
   }
 
@@ -392,6 +663,8 @@ export function PromoField() {
     </div>
   );
   const both = !!applied && !!ref;
+  // Last time's referral code: signed in, the server says it still exists and is not theirs, no referral code on this order, not answered yet.
+  const last = offerLast && cart.owner && !cart.lastPromptDone && !cart.referral && !ref && !conflict ? q?.lastReferral ?? null : null;
 
   return (
     <div className="space-y-2.5">
@@ -404,6 +677,19 @@ export function PromoField() {
           () => cart.setReferral(""),
           { "data-applied-referral": ref.code },
         )}
+      {[staleCode, staleRef].map(
+        (x) =>
+          x && (
+            <p key={x.code} className="s-error flex flex-wrap items-center gap-x-2" role="alert" data-stale-code={x.code}>
+              <span>
+                <strong className="font-semibold">{x.code}</strong>: {x.error}
+              </span>
+              <button type="button" className="underline underline-offset-4" onClick={x.clear}>
+                Remove
+              </button>
+            </p>
+          ),
+      )}
       {conflict && (
         <div className="rounded-xl border border-brand/40 bg-paper p-4 text-sm" role="alert" data-code-conflict>
           <p className="font-medium text-coal">{conflict.message}</p>
@@ -417,7 +703,7 @@ export function PromoField() {
           </div>
         </div>
       )}
-      {!both && !conflict && (!openField && !err ? (
+      {!both && !conflict && (!openField ? (
         <button type="button" onClick={() => setOpenField(true)} className="flex h-11 items-center gap-2 text-sm font-medium text-coal underline decoration-rule underline-offset-4 hover:decoration-coal">
           <Tag size={15} /> {applied || ref ? "Add another code" : "Add a discount or referral code"}
         </button>
@@ -425,7 +711,7 @@ export function PromoField() {
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            void apply(text || (codeErr ? cart.code : refErr ? cart.referral : ""));
+            void apply(text);
           }}
         >
           <label className="s-label" htmlFor="promo-code">
@@ -435,48 +721,50 @@ export function PromoField() {
             <input
               id="promo-code"
               className="s-input uppercase tracking-wide"
-              value={text || (codeErr ? cart.code : refErr ? cart.referral : "")}
-              onChange={(e) => (setText(e.target.value), setKindError(""))}
+              value={text}
+              onChange={(e) => (setText(e.target.value), setError(""))}
               placeholder="Enter code"
               autoComplete="off"
               autoCapitalize="characters"
               spellCheck={false}
               maxLength={30}
-              aria-describedby={err ? "promo-error" : undefined}
+              aria-invalid={!!error}
+              aria-describedby={error ? "promo-error" : undefined}
             />
-            <button type="submit" className="s-btn-line shrink-0 px-5" disabled={checking || cart.quoting || !(text || cart.code || cart.referral).trim()}>
-              {checking || cart.quoting ? "Checking…" : "Apply"}
+            <button type="submit" className="s-btn-line shrink-0 px-5" disabled={checking || !text.trim()}>
+              {checking ? "Checking…" : "Apply"}
             </button>
           </div>
-          {err && (
+          {error && (
             <p id="promo-error" className="s-error" role="alert">
-              {err}{" "}
-              {!kindError && (
-                <button type="button" className="underline underline-offset-4" onClick={() => (codeErr ? cart.setCode("") : cart.setReferral(""), setText(""))}>
-                  Clear
-                </button>
-              )}
+              {error}
             </p>
           )}
         </form>
       ))}
-    </div>
-  );
-}
-
-/** Signed-in buyer who used a referral code before: "You used CODE last time. Use it again?" One click applies it. */
-export function LastReferralPrompt() {
-  const cart = useCart();
-  const last = cart.quote?.lastReferral;
-  if (!last || cart.referral || cart.quote?.referral) return null;
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rule px-4 py-3 text-sm" data-last-referral={last}>
-      <span>
-        You used <strong className="font-semibold tracking-wide">{last}</strong> last time. Use it again?
-      </span>
-      <button type="button" className="s-btn-line h-9 px-4 text-sm" onClick={() => cart.setReferral(last)}>
-        Apply {last}
-      </button>
+      {last && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[13px] text-stone" data-last-referral={last}>
+          <span>
+            You used code <strong className="font-semibold tracking-wide text-coal">{last}</strong> last time. Use it again?
+          </span>
+          <span className="flex gap-1.5">
+            <button
+              type="button"
+              data-last-referral-yes
+              className="h-8 rounded-full border border-coal px-3 font-medium text-coal transition hover:bg-coal hover:text-white"
+              onClick={() => {
+                cart.setLastPromptDone(true);
+                void apply(last);
+              }}
+            >
+              Yes
+            </button>
+            <button type="button" data-last-referral-no className="h-8 rounded-full border border-rule px-3 font-medium text-stone transition hover:border-coal hover:text-coal" onClick={() => cart.setLastPromptDone(true)}>
+              No
+            </button>
+          </span>
+        </div>
+      )}
     </div>
   );
 }
