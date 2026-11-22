@@ -47,7 +47,8 @@ export default function ShipQueuePage() {
     />
   );
 
-  if (order && mode === "list") {
+  // List mode stays mounted even when the queue becomes empty, so the bulk result list stays on screen.
+  if (mode === "list") {
     return (
       <div className="mx-auto max-w-3xl">
         <PageHeader title="Ship queue" sub={`${plural(queue.length, "order")} paid and waiting, oldest first`} actions={modeSwitch} />
@@ -283,6 +284,20 @@ function BulkList({ queue, onOpen }: { queue: OrderRec[]; onOpen: (index: number
 
   const openPdf = (path: string, list: OrderRec[]) => window.open(`${path}?ids=${list.map((o) => o.id).join(",")}`, "_blank", "noopener");
 
+  if (queue.length === 0 && !run) {
+    return (
+      <Empty
+        icon={<PackageCheck size={36} />}
+        title="Nothing to ship"
+        body="Paid website orders show up here, oldest first, as soon as you mark them paid."
+        action={
+          <Link href="/admin/orders">
+            <Button variant="primary">Go to orders</Button>
+          </Link>
+        }
+      />
+    );
+  }
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-center gap-2">

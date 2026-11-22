@@ -388,7 +388,7 @@ export function ProductSheet({ listingId, onClose }: { listingId: string | "new"
                     <Input value={l.purity} onChange={(e) => setField("purity", e.target.value)} placeholder="e.g. ≥99%" />
                   </Field>
                   <Field label="Form" tag={infoEmpty("form")}>
-                    <Input value={l.form} onChange={(e) => setField("form", e.target.value)} placeholder="e.g. Lyophilized powder" />
+                    <Input value={l.form} onChange={(e) => setField("form", e.target.value)} placeholder="e.g. Powder in a sealed vial" />
                   </Field>
                   <Field label="Storage conditions" tag={infoEmpty("storage")}>
                     <Input value={l.storage} onChange={(e) => setField("storage", e.target.value)} placeholder="e.g. Store at -20°C" />

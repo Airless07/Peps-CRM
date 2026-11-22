@@ -51,7 +51,7 @@ test.beforeAll(async ({ browser }) => {
   for (const o of s.data.savedOrders) await admin.request.delete(`/api/saved-orders/${o.id}`, { headers: ORIGIN });
   await admin.request.patch("/api/settings", { headers: ORIGIN, data: { sellButtons: { discounts: [{ type: "$", value: 500 }, { type: "$", value: 1000 }, { type: "$", value: 2000 }, { type: "%", value: 10 }], tips: [500, 1000, 2000] } } });
   start = await adminState(admin.request);
-  const reta20 = start.data.products.find((p) => p.name === "Reta 20mg")!;
+  const reta20 = start.data.products.find((p) => p.name === "Retatrutide 20mg")!;
   v20 = reta20.id;
   price20 = reta20.defaultPriceCents;
 });
@@ -71,9 +71,9 @@ test("1. the cart shows the default quick buttons and Save for later next to Com
   expect(await adm.getByRole("heading", { name: "Sell", exact: true }).evaluate((h) => h.getBoundingClientRect().height)).toBeLessThan(40);
   await shot("01-sell-header-390");
   await adm.setViewportSize({ width: 1280, height: 900 });
-  const row = adm.locator('[data-sell-product="Reta"] [data-sell-variant]').nth(1);
-  await row.getByRole("button", { name: /^Sell 1 Reta 20mg/ }).click();
-  await row.getByRole("button", { name: /^Sell 1 Reta 20mg/ }).click();
+  const row = adm.locator('[data-sell-product="Retatrutide"] [data-sell-variant]').nth(1);
+  await row.getByRole("button", { name: /^Sell 1 Retatrutide 20mg/ }).click();
+  await row.getByRole("button", { name: /^Sell 1 Retatrutide 20mg/ }).click();
   await adm.getByRole("button", { name: /Current order/ }).click();
   const dialog = adm.getByRole("dialog");
   // Wait for the cart sheet to be open before reading its buttons.
@@ -118,7 +118,7 @@ test("3. the Dashboard to-do and the In-person orders Saved tab show it", async 
   await shot("03-dashboard-todo");
   await adm.goto("/admin/in-person");
   await adm.getByRole("radio", { name: "Saved (1)" }).click();
-  await expect(adm.locator(`[data-saved-order="${savedId}"]`)).toContainText("2× Reta 20mg");
+  await expect(adm.locator(`[data-saved-order="${savedId}"]`)).toContainText("2× Retatrutide 20mg");
   await shot("03-in-person-saved-tab");
   await adm.setViewportSize({ width: 390, height: 844 });
   await checkPhoneLayout("main");
@@ -195,7 +195,7 @@ test("6. Complete asks for the payment method, warns about stock, then completes
   await sheet.getByRole("button", { name: /^Complete order/ }).click();
   // Stock warning before anything is recorded.
   const warn = adm.getByRole("dialog").filter({ hasText: "Not enough stock" });
-  await expect(warn).toContainText("Reta 20mg will go below zero");
+  await expect(warn).toContainText("Retatrutide 20mg will go below zero");
   await shot("06-stock-warning");
   expect((await adminState(admin.request)).all.length).toBe(before.all.length);
   await warn.getByRole("button", { name: "Complete anyway" }).click();
@@ -227,11 +227,11 @@ test("6. Complete asks for the payment method, warns about stock, then completes
 test("7. Delete asks first, and puts the held stock back", async () => {
   const before = await adminState(admin.request);
   await adm.goto("/admin/sell");
-  await adm.locator('[data-sell-product="Reta"] [data-sell-variant]').nth(0).getByRole("button", { name: /^Sell 1 Reta 10mg/ }).click();
+  await adm.locator('[data-sell-product="Retatrutide"] [data-sell-variant]').nth(0).getByRole("button", { name: /^Sell 1 Retatrutide 10mg/ }).click();
   await adm.getByRole("button", { name: /Current order/ }).click();
   await Promise.all([adm.waitForResponse((r) => r.url().endsWith("/api/saved-orders") && r.request().method() === "POST"), adm.getByRole("dialog").getByRole("button", { name: "Save for later" }).click()]);
   await expect(adm.locator("[data-saved-orders-button]")).toHaveText(/Saved orders \(1\)/);
-  const v10 = before.data.products.find((p) => p.name === "Reta 10mg")!.id;
+  const v10 = before.data.products.find((p) => p.name === "Retatrutide 10mg")!.id;
   expect(numbers(await adminState(admin.request))).toEqual(heldOut(before, v10, 1));
   await adm.locator("[data-saved-orders-button]").click();
   await adm.getByRole("button", { name: /^Delete saved order/ }).click();
@@ -310,9 +310,9 @@ test("8. Settings: add, edit, remove and reorder the quick buttons with a live p
 
 test("9. the Sell cart shows exactly these buttons in this order, and they apply correctly", async () => {
   await adm.goto("/admin/sell");
-  const row = adm.locator('[data-sell-product="Reta"] [data-sell-variant]').nth(0);
-  await row.getByRole("button", { name: /^Sell 1 Reta 10mg/ }).click();
-  await row.getByRole("button", { name: /^Sell 1 Reta 10mg/ }).click();
+  const row = adm.locator('[data-sell-product="Retatrutide"] [data-sell-variant]').nth(0);
+  await row.getByRole("button", { name: /^Sell 1 Retatrutide 10mg/ }).click();
+  await row.getByRole("button", { name: /^Sell 1 Retatrutide 10mg/ }).click();
   await adm.getByRole("button", { name: /Current order/ }).click();
   const dialog = adm.getByRole("dialog");
   // Wait for the cart sheet to be open before reading its buttons.
@@ -323,7 +323,7 @@ test("9. the Sell cart shows exactly these buttons in this order, and they apply
   await expect(dialog.getByRole("button", { name: "Custom" })).toBeVisible();
   await expect(dialog.getByRole("radio", { name: "%" })).toBeVisible();
 
-  const price = (await adminState(admin.request)).data.products.find((p) => p.name === "Reta 10mg")!.defaultPriceCents;
+  const price = (await adminState(admin.request)).data.products.find((p) => p.name === "Retatrutide 10mg")!.defaultPriceCents;
   const sub = 2 * price;
   const money = (c: number) => `$${(c / 100).toFixed(2)}`;
   const totalBtn = dialog.getByRole("button", { name: /^Complete order/ });

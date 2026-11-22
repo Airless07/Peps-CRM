@@ -58,7 +58,55 @@ export async function backfillSizes(): Promise<SizeFill[] | null> {
   });
 }
 
+// ---------------------------------------------------------------- Product names
+export const NAMES_ID = "canonical-product-names-2026-11";
+/** Old short names -> the names customers should see. Only the start of a name is changed (sizes stay). */
+const NAME_RULES: [RegExp, string][] = [
+  [/^Reta(?=\s|$)/, "Retatrutide"],
+  [/^MOTS-C(?=\s|$)/i, "MOTS-c"],
+  [/^5[ -]?Amino(?:[ -]?1MQ)?(?=\s|$)/i, "5-Amino-1MQ"],
+  [/^CJC\s*\/\s*IPA(?=\s|$)/i, "CJC-1295 (NO DAC) + Ipamorelin"],
+  [/^CJC-1295\s*\+\s*Ipamorelin(?=\s|$)/i, "CJC-1295 (NO DAC) + Ipamorelin"],
+];
+export function canonicalName(name: string): string {
+  for (const [re, to] of NAME_RULES) if (re.test(name)) return name.replace(re, to);
+  return name;
+}
+
+/**
+ * Renames products and website listings to the canonical names, once. Slugs (URLs), past orders and
+ * receipts are not touched. Every change is written to the DataMigration row so it can be undone.
+ */
+export async function canonicalProductNames(): Promise<{ table: string; id: string; from: string; to: string }[] | null> {
+  return prisma.$transaction(async (tx) => {
+    if (await tx.dataMigration.findUnique({ where: { id: NAMES_ID } })) return null;
+    const changes: { table: string; id: string; from: string; to: string }[] = [];
+    for (const l of await tx.listing.findMany({ select: { id: true, name: true } })) {
+      const to = canonicalName(l.name);
+      if (to !== l.name) {
+        await tx.listing.update({ where: { id: l.id }, data: { name: to } });
+        changes.push({ table: "Listing", id: l.id, from: l.name, to });
+      }
+    }
+    for (const pr of await tx.product.findMany({ select: { id: true, name: true } })) {
+      const to = canonicalName(pr.name);
+      if (to !== pr.name) {
+        await tx.product.update({ where: { id: pr.id }, data: { name: to } });
+        changes.push({ table: "Product", id: pr.id, from: pr.name, to });
+      }
+    }
+    await tx.dataMigration.create({ data: { id: NAMES_ID, detail: JSON.stringify(changes) } });
+    return changes;
+  });
+}
+
 export async function runDataMigrations() {
+  try {
+    const renamed = await canonicalProductNames();
+    if (renamed?.length) console.log(`[data] Product names updated (${renamed.length}):${renamed.map((c) => `\n  ${c.from} -> ${c.to}`).join("")}`);
+  } catch (e) {
+    console.error("[data] product names failed:", e instanceof Error ? e.message : e);
+  }
   try {
     const filled = await backfillSizes();
     if (filled) console.log(`[data] Sizes filled in from product names (${filled.length}):${filled.map((f) => `\n  ${f.product} -> ${f.size}`).join("")}`);

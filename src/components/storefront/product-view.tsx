@@ -33,12 +33,22 @@ export function ProductView({ p }: { p: PublicProduct }) {
   const tiers = [{ minQty: 1, percentOff: 0 }, ...p.qtyDeals];
   const activeTier = [...tiers].reverse().find((t) => qty + inCart >= t.minQty)!;
 
-  function add() {
-    cart.add(v.id, qty);
-    trackEvent("add_to_cart", p.id);
-    setAdded(true);
-    setTimeout(() => setAdded(false), 1600);
-    setQty(1);
+  const [note, setNote] = useState("");
+  const [adding, setAdding] = useState(false);
+  // Added through the server: capped at stock, and saved to the signed-in account straight away.
+  async function add() {
+    if (adding) return;
+    setAdding(true);
+    setNote("");
+    const r = await cart.addChecked(v.id, qty);
+    setAdding(false);
+    if (r.added > 0) {
+      trackEvent("add_to_cart", p.id);
+      setAdded(true);
+      setTimeout(() => setAdded(false), 1600);
+      setQty(1);
+    }
+    if (r.message) setNote(r.message);
   }
 
   const current = p.photos[photo];
@@ -173,7 +183,7 @@ export function ProductView({ p }: { p: PublicProduct }) {
 
         <div className="mt-7 flex items-stretch gap-3">
           <QtyStepper value={qty} onChange={(n) => setQty(Math.max(1, Math.min(99, n)))} label={p.name} />
-          <button type="button" onClick={add} disabled={soldOut} className="s-btn-primary h-12 flex-1 px-4 sm:h-[3.25rem]">
+          <button type="button" onClick={add} disabled={soldOut || adding} className="s-btn-primary h-12 flex-1 px-4 sm:h-[3.25rem]">
             {soldOut ? "Sold out" : added ? (
               <>
                 <Check size={18} /> Added
@@ -184,6 +194,11 @@ export function ProductView({ p }: { p: PublicProduct }) {
           </button>
         </div>
         {soldOut && p.variants.some((x) => x.stock !== "out") && <p className="s-hint">This size is sold out. Another size is available above.</p>}
+        {note && (
+          <p className="s-hint !text-brand" role="status" data-add-note>
+            {note}
+          </p>
+        )}
 
         {/* Current COA for the selected size */}
         <section aria-label="Certificate of analysis" className="mt-8 rounded-2xl border border-rule p-5">

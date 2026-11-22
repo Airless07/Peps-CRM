@@ -27,7 +27,7 @@ test.beforeAll(async ({ browser }) => {
   start = await adminState(admin.request);
   for (const o of start.data.savedOrders) await admin.request.delete(`/api/saved-orders/${o.id}`, { headers: ORIGIN });
   start = await adminState(admin.request);
-  v20 = start.data.products.find((p) => p.name === "Reta 20mg")!.id;
+  v20 = start.data.products.find((p) => p.name === "Retatrutide 20mg")!.id;
 });
 test.afterAll(async () => {
   await admin?.close();
@@ -39,8 +39,8 @@ test("1. owner price charges cost, hides discounts and tips, and completes with 
   // Start from an empty cart whatever an earlier test left.
   await adm.evaluate(() => localStorage.removeItem("peps-cart"));
   await adm.reload();
-  const row = adm.locator('[data-sell-product="Reta"] [data-sell-variant]').nth(1);
-  await row.getByRole("button", { name: /^Sell 1 Reta 20mg/ }).click();
+  const row = adm.locator('[data-sell-product="Retatrutide"] [data-sell-variant]').nth(1);
+  await row.getByRole("button", { name: /^Sell 1 Retatrutide 20mg/ }).click();
   await adm.getByRole("button", { name: /Current order/ }).click();
   const cart = adm.getByRole("dialog").filter({ has: adm.getByRole("heading", { name: "Current order" }) });
   await expect(cart.locator("[data-owner-price]")).toBeVisible();
@@ -84,7 +84,7 @@ test("2. Copy receipt puts a plain text receipt on the clipboard, and Today show
   const text = await adm.evaluate(() => navigator.clipboard.readText());
   const o = (await adminState(admin.request)).data.orders.find((x) => x.id === ownerId)!;
   expect(text).toContain(`Order #${o.number}`);
-  expect(text).toContain("1× Reta 20mg");
+  expect(text).toContain("1× Retatrutide 20mg");
   expect(text).toMatch(/Owner price .*charged at cost/);
   expect(text).toMatch(/Total {2}\$\d+\.\d\d/);
   const today = adm.locator("[data-today]");

@@ -115,11 +115,11 @@ function seedData() {
   const delivered = db.prepare(`select id, token, "reviewToken" from "Order" where source = 'online' and status = 'delivered' limit 1`).get() as { id: string; token: string; reviewToken: string } | undefined;
   const any = db.prepare(`select id, token from "Order" where source = 'online' order by "createdAt" desc limit 1`).get() as { id: string; token: string };
   const awaiting = db.prepare(`select id, token from "Order" where source = 'online' and status = 'awaiting_payment' limit 1`).get() as { id: string; token: string } | undefined;
-  const listing = db.prepare(`select slug from "Listing" where "showOnWebsite" = 1 and name = 'Reta'`).get() as { slug: string };
+  const listing = db.prepare(`select slug from "Listing" where "showOnWebsite" = 1 and name = 'Retatrutide'`).get() as { slug: string };
   const plain = db.prepare(`select slug from "Listing" where "showOnWebsite" = 1 and "casNumber" = '' and formula = '' and "molecularWeight" = '' and purity = '' and form = '' and storage = '' limit 1`).get() as { slug: string };
   const withCas = db.prepare(`select slug from "Listing" where "showOnWebsite" = 1 and "casNumber" != '' limit 1`).get() as { slug: string } | undefined;
   const group = db.prepare(`select slug from "ProductGroup" limit 1`).get() as { slug: string };
-  const variant = db.prepare(`select p.id from "Product" p join "Listing" l on l.id = p."listingId" where l.name = 'Reta' limit 1`).get() as { id: string };
+  const variant = db.prepare(`select p.id from "Product" p join "Listing" l on l.id = p."listingId" where l.name = 'Retatrutide' limit 1`).get() as { id: string };
   db.close();
   return { delivered, any, awaiting, listing, plain, withCas, group, variant };
 }

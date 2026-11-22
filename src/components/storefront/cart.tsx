@@ -196,11 +196,14 @@ export function CartProvider({ products, accountId = null, children }: { product
   const itemsRef = useRef<CartItem[]>([]);
   itemsRef.current = items;
   const savedRef = useRef("");
+  /** A signed-in save waiting for its debounce. Sent at once (keepalive) if the page is left before it fires. */
+  const pendingSave = useRef<Record<string, unknown> | null>(null);
   const urlDone = useRef(false);
 
   /** Show the cart of `next` (null = guest). Everything of the previous account is wiped first. */
   const load = useCallback(async (next: string | null, mergeGuest: CartItem[] | null) => {
     const g = ++gen.current;
+    pendingSave.current = null;
     ownerRef.current = next;
     seq.current++; // drop any price on its way for the previous account
     setOwner(next);
@@ -343,9 +346,12 @@ export function CartProvider({ products, accountId = null, children }: { product
       return;
     }
     const g = gen.current;
+    const body = { action: "save", accountId: who, items, code, referral };
+    pendingSave.current = body;
     const t = setTimeout(async () => {
+      pendingSave.current = null;
       try {
-        const { res, json } = await cartApi({ action: "save", accountId: who, items, code, referral });
+        const { res, json } = await cartApi(body);
         if (g !== gen.current) return;
         if (res.ok) savedRef.current = snap;
         else if (res.status === 409 && json.accountChanged) switchTo((json.accountId as string | null) ?? null);
@@ -354,6 +360,24 @@ export function CartProvider({ products, accountId = null, children }: { product
     }, 350);
     return () => clearTimeout(t);
   }, [items, code, referral, ready, owner, switchTo]);
+
+  useEffect(() => {
+    const flush = () => {
+      const b = pendingSave.current;
+      if (!b) return;
+      pendingSave.current = null;
+      try {
+        void fetch("/api/store/cart", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b), keepalive: true });
+      } catch {}
+    };
+    window.addEventListener("pagehide", flush);
+    const hidden = () => document.visibilityState === "hidden" && flush();
+    document.addEventListener("visibilitychange", hidden);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", hidden);
+    };
+  }, []);
 
   const fetchQuote = useCallback(
     async (list: CartItem[], c: string, ref: string, shipTo: Record<string, string> | null): Promise<Quote | null> => {
@@ -459,12 +483,21 @@ export function CartProvider({ products, accountId = null, children }: { product
   }, []);
   const setCode = useCallback((c: string) => setCodeState(c.toUpperCase().replace(/[^A-Z0-9_-]/g, "").slice(0, 30)), []);
   const setReferral = useCallback((c: string) => setReferralState(cleanTyped(c)), []);
+  // Always prices the cart as it is NOW (callers may hold an old copy of this function, e.g. a timer set
+  // before the account's cart finished loading). Before the cart is loaded there is nothing to price.
+  const codeRef = useRef(code);
+  codeRef.current = code;
+  const referralRef = useRef(referral);
+  referralRef.current = referral;
+  const readyRef = useRef(ready);
+  readyRef.current = ready;
   const requote = useCallback(
-    (shipTo?: Record<string, string> | null) => {
+    async (shipTo?: Record<string, string> | null) => {
       shipToRef.current = shipTo ?? null;
-      return fetchQuote(items, code, referral, shipToRef.current);
+      if (!readyRef.current) return null;
+      return fetchQuote(itemsRef.current, codeRef.current, referralRef.current, shipToRef.current);
     },
-    [items, code, referral, fetchQuote],
+    [fetchQuote],
   );
 
   /**

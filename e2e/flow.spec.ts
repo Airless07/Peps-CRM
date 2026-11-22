@@ -70,7 +70,7 @@ test("1. the store is open and shows the new brand with honest testing copy", as
 
 test("2. add two sizes of one product: buy more, save more applies", async () => {
   const catalog = (await (await shopper.request.get("/api/store/products")).json()) as { products: PublicProduct[] };
-  reta = catalog.products.find((p) => p.name === "Reta")!;
+  reta = catalog.products.find((p) => p.name === "Retatrutide")!;
   expect(reta, "Reta is on the website with two sizes").toBeTruthy();
   expect(reta.variants.map((v) => v.label)).toEqual(["10mg", "20mg"]);
   [v10, v20] = reta.variants.map((v) => v.id);
@@ -85,11 +85,11 @@ test("2. add two sizes of one product: buy more, save more applies", async () =>
   await shop.goto(`/product/${reta.slug}`);
   await passAgeGate(shop);
   await shop.getByRole("radio", { name: /^10mg/ }).click();
-  await shop.getByRole("button", { name: /Add to cart/ }).click();
+  await shop.getByRole("button", { name: /^Add to cart ·/ }).click();
   await expect(shop.getByRole("dialog", { name: "Your cart" })).toBeVisible();
   await shop.getByRole("button", { name: "Close cart" }).click();
   await shop.getByRole("radio", { name: /^20mg/ }).click();
-  await shop.getByRole("button", { name: /Add to cart/ }).click();
+  await shop.getByRole("button", { name: /^Add to cart ·/ }).click();
 
   const drawer = shop.getByRole("dialog", { name: "Your cart" });
   await expect(drawer.getByText("Buy more, save more")).toBeVisible();
@@ -103,8 +103,8 @@ test("2. add two sizes of one product: buy more, save more applies", async () =>
 
 test("3. a discount code stacks on top, in the drawer and on the cart page", async () => {
   const drawer = shop.getByRole("dialog", { name: "Your cart" });
-  await drawer.getByRole("button", { name: "Add a discount code" }).click();
-  await drawer.getByLabel("Discount code").fill("welcome10");
+  await drawer.getByRole("button", { name: "Add a discount or referral code" }).click();
+  await drawer.getByLabel("Discount or referral code").fill("welcome10");
   await drawer.getByRole("button", { name: "Apply" }).click();
   await expect(drawer.getByText(/Code\s+WELCOME10\s+applied/)).toBeVisible();
   await expect(drawer.getByText(`-${usd(expected.code)}`)).toBeVisible();
@@ -267,7 +267,8 @@ test("10. admin: buy the shipping label (Shippo is a fake): its cost comes out o
   const s = await adminState(admin.request);
   const o = s.data.orders.find((x) => x.id === orderId)!;
   expect(o.status).toBe("label_purchased");
-  expect(o.web).toMatchObject({ trackingNumber: "9400111899560000000001", labelUrl: "https://deliver.goshippo.com/mock-label.pdf" });
+  expect(o.web?.trackingNumber).toMatch(/^94001118995600000\d{5}$/);
+  expect(o.web?.labelUrl).toBe(`https://deliver.goshippo.com/mock-label-${o.web?.trackingNumber}.pdf`);
   expect(s.data.labels.filter((l) => l.orderId === orderId).map((l) => l.costCents)).toEqual([910]);
   expect(s.money.business).toBe(afterPaid.money.business - 910);
   expect(s.money.labels - afterPaid.money.labels).toBe(910);
@@ -282,7 +283,7 @@ test("10. admin: buy the shipping label (Shippo is a fake): its cost comes out o
   // The customer got the tracking number.
   const mail = emails().find((e) => e.subject === `Order #${orderNumber} has shipped`)!;
   expect(mail.to).toEqual([EMAIL]);
-  expect(mail.text).toContain("9400111899560000000001");
+  expect(mail.text).toMatch(/94001118995600000\d{5}/);
 });
 
 test("11. admin: mark shipped, then delivered: the review email goes out", async () => {
@@ -341,7 +342,7 @@ test("12. admin: an in-person sale from the Sell screen", async () => {
   const before = await adminState(admin.request);
   await adm.goto("/admin/sell");
   // Sizes are grouped under their product, in store order, with a photo on the card.
-  const retaCard = adm.locator('[data-sell-product="Reta"]');
+  const retaCard = adm.locator('[data-sell-product="Retatrutide"]');
   await expect(retaCard.locator("[data-sell-variant]")).toHaveCount(2);
   await expect(retaCard.locator("[data-sell-variant]").nth(0)).toContainText("10mg");
   await expect(retaCard.locator("[data-sell-variant]").nth(1)).toContainText("20mg");
@@ -360,7 +361,7 @@ test("12. admin: an in-person sale from the Sell screen", async () => {
   await adm.screenshot({ path: path.join(evidence, "12-sell.png"), fullPage: true });
 
   const price = before.data.products.find((p) => p.id === v20)!.defaultPriceCents;
-  await retaCard.locator("[data-sell-variant]").nth(1).getByRole("button", { name: /^Sell 1 Reta 20mg/ }).click();
+  await retaCard.locator("[data-sell-variant]").nth(1).getByRole("button", { name: /^Sell 1 Retatrutide 20mg/ }).click();
   await adm.getByRole("button", { name: /Current order/ }).click();
   await adm.getByRole("button", { name: new RegExp(`Complete order · \\${usd(price).replace(".00", "(\\.00)?")}`) }).click();
   await expect(adm.getByText(/Order saved/).first()).toBeVisible();
