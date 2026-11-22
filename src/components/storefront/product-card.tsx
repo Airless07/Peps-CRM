@@ -2,6 +2,7 @@ import Link from "next/link";
 import { BadgeCheck, Clock3, FlaskConical } from "lucide-react";
 import type { PublicProduct, PublicVariant, StockLevel } from "@/lib/store/catalog";
 import { STOCK_LABEL } from "@/lib/store/catalog";
+import { QuickAdd } from "./quick-add";
 import { Vial } from "./vial";
 
 export const fmt = (c: number) => `$${(c / 100).toFixed(2)}`;
@@ -62,8 +63,9 @@ export function ProductCard({ p, priority, index = 0 }: { p: PublicProduct; prio
   // The whole card is ONE real link (image, name, price, badges), so the first tap anywhere opens the
   // product, on touch screens too. Nothing interactive is nested inside it (the COA link lives on the
   // product page), and every hover effect is hover-capable devices only (see tailwind.config.ts).
+  // Quick add is a sibling of the link, laid over the photo on desktops only (store.css .qa-*).
   return (
-    <article data-reveal style={{ ["--i" as string]: index % 4 }} className="flex flex-col">
+    <article data-reveal style={{ ["--i" as string]: index % 4 }} className="qa-card relative flex flex-col">
       <Link href={`/product/${p.slug}`} data-product-card={p.slug} className="s-card group flex flex-1 flex-col rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-4">
         <div className="relative aspect-[4/5] overflow-hidden rounded-2xl bg-soft">
           {photo ? (
@@ -120,6 +122,8 @@ export function ProductCard({ p, priority, index = 0 }: { p: PublicProduct; prio
           </div>
         </div>
       </Link>
+      {/* Desktop only (hover + fine pointer): size, quantity, add. Outside the link, over the bottom of the photo. */}
+      <QuickAdd p={p} />
     </article>
   );
 }

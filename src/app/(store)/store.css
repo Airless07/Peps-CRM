@@ -374,3 +374,49 @@ details.s-acc[open] .s-acc-icon {
   height: max(100%, 2.75rem);
   transform: translate(-50%, -50%);
 }
+
+/* Quick add on product cards: desktops only (a real mouse or trackpad). Phones and tablets never get it. */
+.qa-wrap {
+  display: none;
+}
+@media (hover: hover) and (pointer: fine) {
+  .qa-wrap {
+    display: block;
+    position: absolute;
+    inset-inline: 0;
+    top: 0;
+    aspect-ratio: 4 / 5;
+    pointer-events: none;
+    z-index: 2;
+  }
+  .qa-bar {
+    position: absolute;
+    left: 0.5rem;
+    right: 0.5rem;
+    bottom: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    padding: 0.5rem;
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--s-bg) 92%, transparent);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    box-shadow: 0 6px 24px -10px rgb(0 0 0 / 0.25);
+    opacity: 0;
+    transform: translateY(8px);
+    pointer-events: none;
+    transition: opacity 0.2s ease-out, transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .qa-card:hover .qa-bar,
+  .qa-card:focus-within .qa-bar {
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .qa-bar {
+    transition: none;
+  }
+}
