@@ -15,7 +15,7 @@ import { listingsMissingInfo, listingsWithNoInfo } from "@/lib/store/product-inf
 import { STATES } from "@/lib/store/schemas";
 import { RECOMMENDED_SIZES } from "@/lib/store/sizes";
 
-export type StoreTab = "launch" | "store" | "payments" | "shipping" | "email" | "referrals" | "backups";
+export type StoreTab = "launch" | "store" | "payments" | "shipping" | "email" | "referrals" | "local" | "backups";
 
 interface Keys {
   resend: boolean;
@@ -564,7 +564,153 @@ export function StoreSettingsTabs({ tab, onTab }: { tab: StoreTab; onTab: (t: st
     );
   }
 
+  // ------------------------------------------------------------ Local pickup and delivery
+  if (tab === "local") {
+    const l = form.local;
+    const setL = (patch: Partial<StoreSettings["local"]>) => set("local", { ...l, ...patch });
+    const setP = (patch: Partial<StoreSettings["local"]["pickup"]>) => setL({ pickup: { ...l.pickup, ...patch } });
+    const setD = (patch: Partial<StoreSettings["local"]["delivery"]>) => setL({ delivery: { ...l.delivery, ...patch } });
+    return (
+      <div className="space-y-5" data-local-settings>
+        <SectionTitle>Local area</SectionTitle>
+        <Card className="space-y-4 p-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Home ZIP code" hint="Private: never shown to customers. Distance is measured from the center of this ZIP.">
+              <Input value={l.homeZip} inputMode="numeric" maxLength={5} placeholder="48127" onChange={(e) => setL({ homeZip: e.target.value.replace(/\D/g, "").slice(0, 5) })} data-home-zip />
+            </Field>
+            <Field label="Local radius" hint="Straight-line miles. Customers inside it see local pickup and delivery at checkout.">
+              <NumberInput className="w-40" value={l.radiusMiles} min={1} max={200} step={1} suffix="mi" onChange={(n) => setL({ radiusMiles: Math.max(1, Math.min(200, n ?? 15)) })} label="local radius" />
+            </Field>
+          </div>
+        </Card>
+
+        <SectionTitle>Local pickup</SectionTitle>
+        <Card className="space-y-4 p-4">
+          <Toggle checked={l.pickup.enabled} onChange={(v) => setP({ enabled: v })} label="Offer local pickup (free)" hint="Customers see only the town of the pickup spot until their order is placed." />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Pickup spot name" hint="A PUBLIC place, e.g. a store parking lot. Never your home.">
+              <Input value={l.pickup.name} maxLength={120} placeholder="Target parking lot (near the entrance)" onChange={(e) => setP({ name: e.target.value })} />
+            </Field>
+            <Field label="Street address">
+              <Input value={l.pickup.street1} maxLength={160} onChange={(e) => setP({ street1: e.target.value })} />
+            </Field>
+            <Field label="Town" hint="Shown before checkout: “Pickup spot in Dearborn Heights area”.">
+              <Input value={l.pickup.city} maxLength={80} onChange={(e) => setP({ city: e.target.value })} />
+            </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="State">
+                <Select value={l.pickup.state} onChange={(e) => setP({ state: e.target.value })}>
+                  <option value="">—</option>
+                  {STATES.map((st) => (
+                    <option key={st}>{st}</option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="ZIP">
+                <Input value={l.pickup.zip} inputMode="numeric" maxLength={10} onChange={(e) => setP({ zip: e.target.value })} />
+              </Field>
+            </div>
+          </div>
+          <Field label="Pickup instructions" hint="Sent after the order is placed, with the address.">
+            <Textarea value={l.pickup.instructions} maxLength={1000} rows={3} placeholder="Park near the cart return. Text us when you arrive." onChange={(e) => setP({ instructions: e.target.value })} />
+          </Field>
+          {l.pickup.enabled && !(l.pickup.name.trim() && l.pickup.street1.trim() && l.pickup.city.trim()) && <p className="text-sm text-warn">Fill in the spot name, street and town: until then pickup is hidden at checkout.</p>}
+        </Card>
+
+        <SectionTitle>Local delivery</SectionTitle>
+        <Card className="space-y-4 p-4">
+          <Toggle checked={l.delivery.enabled} onChange={(v) => setD({ enabled: v })} label="Offer local delivery" hint="Charged like shipping, but no label is bought." />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Delivery fee">
+              <MoneyInput value={l.delivery.feeCents} onChange={(c) => setD({ feeCents: Math.max(0, c ?? 0) })} label="delivery fee" />
+            </Field>
+            <Field label="Free local delivery over" hint="Items after discounts. Leave empty for never free. Separate from free shipping rules.">
+              <MoneyInput value={l.delivery.freeOverCents} nullable placeholder="Off" onChange={(c) => setD({ freeOverCents: c && c > 0 ? c : null })} label="free delivery over" />
+            </Field>
+          </div>
+        </Card>
+
+        <SectionTitle>Payment and times</SectionTitle>
+        <Card className="space-y-4 p-4">
+          <Toggle checked={l.payAtPickup} onChange={(v) => setL({ payAtPickup: v })} label="Allow “pay at pickup / delivery” (cash or Zelle)" hint="Only offered on local orders. Such orders are never auto-canceled; mark them paid when you get the money." />
+          <div className="border-t border-line pt-4">
+            <div className="mb-2 text-sm font-medium">Available time windows</div>
+            <div className="space-y-2">
+              {l.windows.map((w, i) => (
+                <div key={i} className="flex gap-2">
+                  <Input value={w} maxLength={60} onChange={(e) => setL({ windows: l.windows.map((x, k) => (k === i ? e.target.value : x)) })} aria-label={`Time window ${i + 1}`} />
+                  <Button variant="soft" className="h-12 shrink-0" aria-label={`Remove time window ${i + 1}`} onClick={() => setL({ windows: l.windows.filter((_, k) => k !== i) })}>
+                    <X size={16} />
+                  </Button>
+                </div>
+              ))}
+              <Button variant="soft" size="sm" className="h-10" onClick={() => setL({ windows: [...l.windows, l.windows.length ? "" : "Weekdays 5–9pm"] })} data-add-window>
+                <Plus size={16} /> Add a time window
+              </Button>
+            </div>
+            <p className="mt-2 text-xs text-muted">Customers pick one as their preferred time. You text them to confirm the exact time.</p>
+          </div>
+        </Card>
+
+        <LocalAreaPreview zip={l.homeZip} radius={l.radiusMiles} />
+        {saveBar}
+      </div>
+    );
+  }
+
   return <Backups />;
+}
+
+/** "Your local area covers N ZIP codes", from the values in the form (before saving), so the owner can check it. */
+function LocalAreaPreview({ zip, radius }: { zip: string; radius: number }) {
+  const [data, setData] = useState<{ home: { town: string; state: string }; zips: { zip: string; town: string; state: string; miles: number }[] } | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (zip.length !== 5) {
+      setData(null);
+      setError(zip ? "" : "Enter your home ZIP code to see the local area.");
+      return;
+    }
+    const t = setTimeout(() => {
+      api<NonNullable<typeof data>>(`/api/local/zips?zip=${zip}&radius=${radius}`)
+        .then((d) => (setData(d), setError("")))
+        .catch((e) => (setData(null), setError((e as Error).message)));
+    }, 300);
+    return () => clearTimeout(t);
+  }, [zip, radius]);
+  const towns = data ? [...new Set(data.zips.map((z) => z.town).filter(Boolean))] : [];
+  return (
+    <Card className="p-4" data-local-area>
+      {error ? (
+        <p className="text-sm text-muted">{error}</p>
+      ) : !data ? (
+        <p className="text-sm text-muted">Loading…</p>
+      ) : (
+        <>
+          <div className="font-medium" data-local-count>
+            Your local area covers {data.zips.length} ZIP code{data.zips.length === 1 ? "" : "s"}
+            <span className="font-normal text-muted">
+              {" "}
+              ({radius} mi around {data.home.town || zip}
+              {data.home.state ? `, ${data.home.state}` : ""}) · {towns.length} towns
+            </span>
+          </div>
+          <ul className="mt-3 grid max-h-80 grid-cols-1 gap-x-4 overflow-y-auto text-sm sm:grid-cols-2" data-local-zips>
+            {data.zips.map((z) => (
+              <li key={z.zip} className="flex justify-between gap-3 border-b border-line py-1.5">
+                <span>
+                  <span className="font-mono">{z.zip}</span> {z.town || "—"}
+                  {z.state ? `, ${z.state}` : ""}
+                </span>
+                <span className="tabular-nums text-muted">{z.miles} mi</span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs text-muted">Distance is straight-line between ZIP centers (US Census data). ZIPs not in the data are never local.</p>
+        </>
+      )}
+    </Card>
+  );
 }
 
 // ---------------------------------------------------------------- Backups

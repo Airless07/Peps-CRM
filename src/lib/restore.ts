@@ -35,7 +35,7 @@ const dn = (s: string | null | undefined) => (s ? new Date(s) : null);
 const j = (v: unknown) => (v === null || v === undefined ? "" : JSON.stringify(v));
 
 function orderRow(o: OrderRec, files: Map<string, { screenshotFile: string; reviewToken: string | null }>) {
-  const { lines: _l, web, ...rest } = o;
+  const { lines: _l, web, localSpot, readyAt, ...rest } = o;
   const f = files.get(o.id);
   return {
     ...rest,
@@ -60,6 +60,8 @@ function orderRow(o: OrderRec, files: Map<string, { screenshotFile: string; revi
     deliveredAt: dn(web?.deliveredAt),
     canceledAt: dn(web?.canceledAt),
     reminderSentAt: dn(web?.reminderSentAt),
+    localJson: localSpot ? JSON.stringify(localSpot) : "",
+    readyAt: dn(readyAt ?? null),
     trackingNumber: web?.trackingNumber ?? "",
     trackingCarrier: web?.trackingCarrier ?? "",
     trackingStatus: web?.trackingStatus ?? "",

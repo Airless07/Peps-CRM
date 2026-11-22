@@ -67,11 +67,13 @@ export function OrderStatus({ order: o, placed, reviewToken, statusText }: { ord
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [uploaded, setUploaded] = useState(o.hasScreenshot);
-  const awaiting = o.status === "awaiting_payment";
+  // Pay at pickup / delivery: nothing to send now, so no payment box.
+  const awaiting = o.status === "awaiting_payment" && !o.local?.payAtPickup;
+  const local = o.local;
 
   // Keep the page fresh while waiting (payment confirmed, shipped...).
   useEffect(() => {
-    if (o.status === "delivered" || o.status === "canceled") return;
+    if (o.status === "delivered" || o.status === "picked_up" || o.status === "canceled") return;
     const t = setInterval(() => document.visibilityState === "visible" && router.refresh(), 45000);
     return () => clearInterval(t);
   }, [o.status, router]);
@@ -97,10 +99,10 @@ export function OrderStatus({ order: o, placed, reviewToken, statusText }: { ord
     <div className="s-wrap pb-8 pt-10 sm:pt-14">
       <p className="text-sm font-medium text-brand">{placed && awaiting ? "Order received" : statusText}</p>
       <h1 className="mt-2 text-4xl font-semibold leading-[1.05] sm:text-5xl" style={{ letterSpacing: "-0.03em" }}>
-        {placed && awaiting ? "Thank you. One step left: send your payment." : `Order #${o.number}`}
+        {placed && awaiting ? "Thank you. One step left: send your payment." : placed && local ? "Thank you. We have your order." : `Order #${o.number}`}
       </h1>
       <p className="mt-3 text-[15px] text-stone">
-        {placed && awaiting ? `Order #${o.number} · ` : ""}Placed {when(o.placedAt)} · Updates go to {o.email}
+        {placed && (awaiting || local) ? `Order #${o.number} · ` : ""}Placed {when(o.placedAt)} · Updates go to {o.email}
       </p>
 
       <div className="mt-10 grid gap-x-16 gap-y-10 lg:grid-cols-[1.35fr_1fr]">
@@ -117,6 +119,46 @@ export function OrderStatus({ order: o, placed, reviewToken, statusText }: { ord
                   Contact us
                 </Link>
               </div>
+            </section>
+          )}
+
+          {local && o.status !== "canceled" && (
+            <section aria-labelledby="local-title" className="rounded-2xl border border-coal p-5 sm:p-7" data-local-info>
+              <h2 id="local-title" className="text-2xl font-semibold">
+                {local.method === "pickup" ? "Local pickup" : "Local delivery"}
+                {local.ready && <span className="ml-3 rounded-full bg-brand-tint px-3 py-1 align-middle text-sm font-semibold text-brand-deep">Ready</span>}
+              </h2>
+              <dl className="mt-3 divide-y divide-rule border-y border-rule text-[15px]">
+                {local.method === "pickup" && local.spot && (
+                  <div className="py-3">
+                    <dt className="text-sm text-stone">Pickup spot</dt>
+                    <dd className="mt-0.5 font-semibold" data-pickup-spot>
+                      {local.spot.name}
+                    </dd>
+                    <dd data-pickup-address>{local.spot.address}</dd>
+                    {local.spot.instructions && <dd className="mt-1 leading-relaxed text-stone">{local.spot.instructions}</dd>}
+                  </div>
+                )}
+                {local.method === "delivery" && (
+                  <div className="py-3">
+                    <dt className="text-sm text-stone">Delivering to</dt>
+                    <dd className="mt-0.5">{o.shipTo.slice(1).join(", ")}</dd>
+                  </div>
+                )}
+                <div className="py-3">
+                  <dt className="text-sm text-stone">Your preferred time</dt>
+                  <dd className="mt-0.5 font-semibold">{local.time || "Any time"}</dd>
+                </div>
+                {local.payAtPickup && o.status === "awaiting_payment" && (
+                  <div className="py-3">
+                    <dt className="text-sm text-stone">Payment</dt>
+                    <dd className="mt-0.5">
+                      Pay <strong className="font-semibold">{money(o.totalCents)}</strong> at {local.method === "pickup" ? "pickup" : "delivery"}, in cash or by Zelle.
+                    </dd>
+                  </div>
+                )}
+              </dl>
+              <p className="mt-4 text-[15px] font-medium">We’ll text you to confirm the exact time.</p>
             </section>
           )}
 
@@ -195,7 +237,7 @@ export function OrderStatus({ order: o, placed, reviewToken, statusText }: { ord
                     </span>
                     <div className="-mt-0.5">
                       <div className={`text-[1.0625rem] ${s.done || s.current ? "font-semibold" : "text-stone"}`}>{s.label}</div>
-                      <div className="text-sm text-stone">{s.done ? when(s.at) : s.current ? (s.key === "paid" ? "Waiting for your payment" : s.key === "shipped" ? "Being packed" : "On its way") : ""}</div>
+                      <div className="text-sm text-stone">{s.done ? when(s.at) : s.current ? (s.key === "paid" ? (local?.payAtPickup ? "At the handover" : "Waiting for your payment") : s.key === "shipped" ? "Being packed" : s.key === "ready" ? "Being prepared" : s.key === "handed" ? "We’ll text you to confirm the time" : "On its way") : ""}</div>
                     </div>
                   </li>
                 ))}
@@ -237,7 +279,7 @@ export function OrderStatus({ order: o, placed, reviewToken, statusText }: { ord
               </div>
             )}
             <div className="flex justify-between gap-4">
-              <dt className="min-w-0 truncate">Shipping{o.shippingMethod ? ` (${o.shippingMethod})` : ""}</dt>
+              <dt className="min-w-0 truncate">{local ? o.shippingMethod : `Shipping${o.shippingMethod ? ` (${o.shippingMethod})` : ""}`}</dt>
               <dd className="shrink-0 tabular-nums">{o.shippingCents > 0 ? money(o.shippingCents) : "Free"}</dd>
             </div>
             <div className="flex items-baseline justify-between border-t border-rule pt-3 font-semibold">
@@ -245,9 +287,9 @@ export function OrderStatus({ order: o, placed, reviewToken, statusText }: { ord
               <dd className="text-xl tabular-nums">{money(o.totalCents)}</dd>
             </div>
           </dl>
-          {o.shipTo.length > 0 && (
+          {o.shipTo.length > 0 && local?.method !== "pickup" && (
             <div className="mt-5 border-t border-rule pt-4 text-[15px]">
-              <div className="text-sm text-stone">Shipping to</div>
+              <div className="text-sm text-stone">{local ? "Delivering to" : "Shipping to"}</div>
               <address className="mt-1 not-italic leading-relaxed">
                 {o.shipTo.map((l, i) => (
                   <div key={i}>{l}</div>

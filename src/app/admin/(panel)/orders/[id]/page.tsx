@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ArrowLeft, Mail, MessageSquareText, CircleDot } from "lucide-react";
 import { InternalNote } from "@/components/internal-note";
 import { OrderReferralCard, RefundCard } from "@/components/order-referral";
+import { OrderLocalCard } from "@/components/order-local";
 import { StepButton, useOrderActions } from "@/components/order-actions";
 import { RowMenu } from "@/components/row-menu";
 import { api, useLoaded } from "@/components/store";
@@ -74,6 +75,8 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
             <h1 className="text-2xl font-semibold tabular-nums tracking-tight">Order #{order.number ?? "—"}</h1>
             <Badge tone={STATUS_TONE[order.status]}>{statusLabel(order)}</Badge>
             {order.archived && <Badge>Archived</Badge>}
+            {order.fulfillment === "pickup" && <Badge tone="accent">Local pickup</Badge>}
+            {order.fulfillment === "delivery" && <Badge tone="accent">Local delivery</Badge>}
             {order.owner && <Badge tone="accent">Owner purchase · {s.name(order.owner)}</Badge>}
           </div>
           <div className="mt-1 text-sm text-muted">
@@ -127,7 +130,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                 </Row>
               )}
               {t.tip > 0 && <Row label="Tip">{fmtMoney(t.tip)}</Row>}
-              {online && <Row label={`Shipping${w?.shippingMethod ? ` (${w.shippingMethod})` : ""}`}>{t.shipping > 0 ? fmtMoney(t.shipping) : "Free"}</Row>}
+              {online && <Row label={order.fulfillment === "pickup" || order.fulfillment === "delivery" ? `${w?.shippingMethod || "Local"} fee` : `Shipping${w?.shippingMethod ? ` (${w.shippingMethod})` : ""}`}>{t.shipping > 0 ? fmtMoney(t.shipping) : "Free"}</Row>}
               {t.refunded > 0 && (
                 <Row label="Refunded">
                   <span className="text-neg">-{fmtMoney(t.refunded)}</span>
@@ -158,6 +161,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
             )}
           </Card>
 
+          <OrderLocalCard order={order} />
           <OrderReferralCard order={order} />
           <RefundCard order={order} />
 

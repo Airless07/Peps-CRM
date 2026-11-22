@@ -32,7 +32,7 @@ import type {
 import { countsInMoney } from "./types";
 import { prisma } from "./db";
 import { cleanPaymentMethods, type BackupData } from "./backup";
-import { parseContent, parseStore } from "./store/config";
+import { parseContent, parseStore, type PickupSpot } from "./store/config";
 import { cleanSellButtons } from "./sell-buttons";
 import { assignMissingReferralCodes } from "./referral-codes";
 
@@ -132,6 +132,12 @@ export function toOrder(o: OrderWithLines): OrderRec {
     referralDiscountPct: o.referralDiscountPct,
     referralDiscountCents: o.referralDiscountCents,
     refundedCents: o.refundedCents,
+    fulfillment: (o.fulfillment === "pickup" || o.fulfillment === "delivery" ? o.fulfillment : "ship") as OrderRec["fulfillment"],
+    localTime: o.localTime,
+    localNotes: o.localNotes,
+    localSpot: json<PickupSpot | null>(o.localJson, null),
+    payAtPickup: o.payAtPickup,
+    readyAt: isoN(o.readyAt),
     web: online
       ? {
           email: o.email,

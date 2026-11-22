@@ -57,7 +57,12 @@ export const checkoutInput = z.object({
   shipTo: address,
   items: cartItems.min(1, "Your cart is empty"),
   code: text(40).default(""),
-  tier,
+  /** Shipping option; empty for local pickup / delivery. */
+  tier: z.union([tier, z.literal("")]).default(""),
+  /** "ship" | "pickup" | "delivery" (local methods are re-checked on the server). */
+  fulfillment: z.enum(["ship", "pickup", "delivery"]).default("ship"),
+  localTime: text(60).default(""),
+  localNotes: text(500).default(""),
   payChoice: text(20).min(1, "Pick a payment method"),
   expectedTotalCents: cents,
   ackResearch: z.literal(true, { error: "Tick the research use box to continue" }),
@@ -121,6 +126,9 @@ export const orderAction = z.discriminatedUnion("action", [
   z.object({ action: z.literal("note"), note: text(500).min(1) }),
   // Internal note for the team (may be empty to clear it). Never shown to the customer.
   z.object({ action: z.literal("admin-note"), note: text(2000) }),
+  // Local pickup / delivery.
+  z.object({ action: z.literal("mark-ready"), notify: z.boolean().default(true) }),
+  z.object({ action: z.literal("mark-handed-over") }),
   // Money given back (partial or full). expectedRefundedCents guards against recording the same refund twice.
   z.object({ action: z.literal("refund"), amountCents: cents.min(1, "Enter the amount you refunded"), expectedRefundedCents: cents, reason: text(200).default("") }),
 ]);

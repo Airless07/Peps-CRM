@@ -4,7 +4,7 @@
 // and the sheets they open (Mark paid, Buy label, Mark shipped, Cancel, payment screenshot, edit address).
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ExternalLink, Printer } from "lucide-react";
-import { customerName, labelsOpened, nextStep, orderTotal, rememberLabelOpened, STEP_LABEL, type NextStep } from "@/lib/admin/orders-view";
+import { customerName, handOverLabel, isLocalOrder, labelsOpened, nextStep, orderTotal, rememberLabelOpened, STEP_LABEL, type NextStep } from "@/lib/admin/orders-view";
 import { fmtMoney } from "@/lib/format";
 import { payMethod } from "@/lib/store/payments";
 import { STATES } from "@/lib/store/schemas";
@@ -107,6 +107,17 @@ export function OrderActionsProvider({ children }: { children: React.ReactNode }
           confirmText: "Mark delivered",
         });
         if (ok) await post(o, { action: "mark-delivered" });
+      } else if (step === "mark-ready") {
+        const what = o.fulfillment === "delivery" ? "delivery" : "pickup";
+        const ok = await confirm({
+          title: `Mark order #${o.number} ready for ${what}?`,
+          body: `The customer gets a “Your order is ready for ${what}” email.${o.status === "awaiting_payment" ? " It stays unpaid until you mark it paid when you get the money." : ""}`,
+          confirmText: "Mark ready",
+        });
+        if (ok) await post(o, { action: "mark-ready" });
+      } else if (step === "mark-handed-over") {
+        const ok = await confirm({ title: `${handOverLabel(o)}: order #${o.number}?`, body: "Use this once the customer has the order.", confirmText: handOverLabel(o) });
+        if (ok) await post(o, { action: "mark-handed-over" });
       }
     },
     [confirm, openLabel, post],
@@ -120,7 +131,12 @@ export function OrderActionsProvider({ children }: { children: React.ReactNode }
       const w = o.web;
       const counted = o.status !== "awaiting_payment" && o.status !== "canceled";
       const items: RowMenuItem[] = [];
-      if (online) {
+      if (online && isLocalOrder(o)) {
+        // Local pickup / delivery: no labels, no tracking.
+        if (o.status === "awaiting_payment") items.push({ label: "Mark paid", onSelect: () => setSheet({ kind: "paid", order: o }) });
+        if (!o.readyAt && (o.status === "paid" || (o.status === "awaiting_payment" && o.payAtPickup))) items.push({ label: "Mark ready", onSelect: () => void run("mark-ready", o) });
+        if (o.status === "paid" || o.status === "ready") items.push({ label: handOverLabel(o), onSelect: () => void run("mark-handed-over", o) });
+      } else if (online) {
         items.push({ label: "Check tracking", onSelect: () => void post(o, { action: "check-tracking" }), disabled: !w?.trackingNumber, disabledReason: "No tracking number yet." });
         items.push({ label: "Open label", onSelect: () => openLabel(o), disabled: !w?.labelUrl, disabledReason: "No label bought yet." });
         if (o.status === "paid" || o.status === "label_purchased") {
@@ -134,12 +150,12 @@ export function OrderActionsProvider({ children }: { children: React.ReactNode }
       if (counted) items.push({ label: "Edit", onSelect: () => setEditId(o.id) });
       else if (o.status === "awaiting_payment") items.push({ label: "Edit address", onSelect: () => setSheet({ kind: "contact", order: o }) });
       if (online && o.status !== "canceled") {
-        items.push({ label: "Cancel order", danger: true, onSelect: () => setSheet({ kind: "cancel", order: o }), disabled: o.status === "delivered", disabledReason: "Delivered orders can’t be canceled." });
+        items.push({ label: "Cancel order", danger: true, onSelect: () => setSheet({ kind: "cancel", order: o }), disabled: o.status === "delivered" || o.status === "picked_up", disabledReason: "Completed orders can’t be canceled." });
       }
       items.push(o.archived ? { label: "Move back to orders", onSelect: () => void post(o, { action: "unarchive" }) } : { label: "Archive", onSelect: () => void post(o, { action: "archive" }) });
       return items;
     },
-    [openLabel, post],
+    [openLabel, post, run],
   );
 
   const value = useMemo(() => ({ run, menu, step, busyId }), [run, menu, step, busyId]);
@@ -200,7 +216,7 @@ export function StepButton({ order, size = "sm", block, className }: { order: Or
       }}
     >
       {s === "open-label" && <ExternalLink size={15} />}
-      {busyId === order.id ? "Working…" : STEP_LABEL[s]}
+      {busyId === order.id ? "Working…" : s === "mark-handed-over" ? handOverLabel(order) : STEP_LABEL[s]}
     </Button>
   );
 }

@@ -39,7 +39,7 @@ export default function OrdersPage() {
     const needle = q.trim().toLowerCase().replace(/^#/, "");
     return everything
       .filter((o) => (view === "archived" ? o.archived : !o.archived))
-      .filter((o) => view !== "open" || (o.source === "online" && !["delivered", "canceled"].includes(o.status)))
+      .filter((o) => view !== "open" || (o.source === "online" && !["delivered", "picked_up", "canceled"].includes(o.status)))
       .filter((o) => source === "all" || (source === "owner" ? !!o.owner : o.source === source))
       .filter((o) => status === "any" || o.status === status)
       .filter(
@@ -56,7 +56,7 @@ export default function OrdersPage() {
   if (!s) return <PageSkeleton />;
   const { ledger } = s;
   const archivedCount = everything.filter((o) => o.archived).length;
-  const openCount = everything.filter((o) => !o.archived && o.source === "online" && !["delivered", "canceled"].includes(o.status)).length;
+  const openCount = everything.filter((o) => !o.archived && o.source === "online" && !["delivered", "picked_up", "canceled"].includes(o.status)).length;
   const shown = list.slice(0, limit);
   const open = (o: OrderRec) => router.push(`/admin/orders/${o.id}`);
 
@@ -131,6 +131,8 @@ export default function OrdersPage() {
           <option value="paid">Paid, no label</option>
           <option value="label_purchased">Label purchased</option>
           <option value="shipped">Shipped</option>
+          <option value="ready">Ready (local)</option>
+          <option value="picked_up">Picked up (local)</option>
           <option value="delivered">Delivered</option>
           <option value="canceled">Canceled</option>
           <option value="completed">Completed (in person)</option>

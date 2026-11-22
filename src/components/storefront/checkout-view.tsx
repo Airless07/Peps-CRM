@@ -92,7 +92,24 @@ export function CheckoutView({ account: initial, states, ack, preview }: { accou
   }, [hasItems]);
 
   const options = quote?.shipping ?? [];
-  const methods = quote?.payMethods ?? [];
+  // Local pickup / delivery: offered only when the address ZIP is local (decided by the server).
+  const local = addressComplete ? quote?.local ?? null : null;
+  const [method, setMethod] = useState<"ship" | "pickup" | "delivery">("ship");
+  const [localTime, setLocalTime] = useState("");
+  const [localNotes, setLocalNotes] = useState("");
+  const isLocal = method !== "ship";
+  // Address changed to a non-local ZIP (or the option was turned off): back to shipping.
+  useEffect(() => {
+    if ((method === "pickup" && !local?.pickup) || (method === "delivery" && !local?.delivery)) setMethod("ship");
+  }, [local, method]);
+  useEffect(() => {
+    if (local?.windows.length && !local.windows.includes(localTime)) setLocalTime("");
+  }, [local, localTime]);
+  const payAtPickupOn = isLocal && !!local?.payAtPickup;
+  const methods = useMemo(
+    () => [...(quote?.payMethods ?? []), ...(payAtPickupOn ? [{ id: "pickup", name: method === "delivery" ? "Pay at delivery" : "Pay at pickup", blurb: "Cash or Zelle when we meet. Your order is held for you.", available: true }] : [])],
+    [quote?.payMethods, payAtPickupOn, method],
+  );
   useEffect(() => {
     if (options.length && !options.some((o) => o.tier === tier)) setTier(options[0].tier);
   }, [options, tier]);
@@ -101,7 +118,11 @@ export function CheckoutView({ account: initial, states, ack, preview }: { accou
     if (ok.length && !ok.some((m) => m.id === pay)) setPay(ok[0].id);
   }, [methods, pay]);
 
-  const ship = options.find((o) => o.tier === tier);
+  const shipOption = options.find((o) => o.tier === tier);
+  // What the summary and the total use: the shipping option, or the local method's price.
+  const ship = isLocal
+    ? { name: method === "pickup" ? "Local pickup" : "Local delivery", cents: method === "delivery" ? local?.delivery?.cents ?? 0 : 0 }
+    : shipOption;
   // Store credit: never more than what is available or the total after discounts. Taken from the balance once paid.
   const creditAvail = account ? quote?.credit?.availableCents ?? 0 : 0;
   const creditMax = quote ? Math.max(0, Math.min(creditAvail, quote.subtotalCents - quote.discountCents)) : 0;
@@ -128,6 +149,8 @@ export function CheckoutView({ account: initial, states, ack, preview }: { accou
     if (!a.state) e.state = "Pick a state.";
     if (!/^\d{5}(-\d{4})?$/.test(a.zip.trim())) e.zip = "Enter a 5 digit ZIP code.";
     if (!ship) e.ship = "Pick a shipping option.";
+    if (isLocal && phone.replace(/\D/g, "").length < 10) e.phone = "Enter a phone number so we can text you about the time.";
+    if (isLocal && local?.windows.length && !localTime) e.localTime = "Pick a preferred time.";
     if (!pay) e.pay = "Pick a payment method.";
     if (!ack1 || !ack2) e.ack = "Tick both boxes to place your order.";
     setErrors(e);
@@ -142,7 +165,7 @@ export function CheckoutView({ account: initial, states, ack, preview }: { accou
       const res = await fetch("/api/store/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone, shipTo: { ...a, zip: a.zip.trim() }, items: cart.items, code: quote?.code ?? "", tier, payChoice: pay, expectedTotalCents: total, ackResearch: true, ackPolicies: true, saveAddress: true, storeCreditCents: creditUsed, referralCode: quote?.referral ? cart.referral : "" }),
+        body: JSON.stringify({ phone, shipTo: { ...a, zip: a.zip.trim() }, items: cart.items, code: quote?.code ?? "", tier: isLocal ? "" : tier, fulfillment: method, localTime: isLocal ? localTime : "", localNotes: isLocal ? localNotes : "", payChoice: pay, expectedTotalCents: total, ackResearch: true, ackPolicies: true, saveAddress: true, storeCreditCents: creditUsed, referralCode: quote?.referral ? cart.referral : "" }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -350,16 +373,72 @@ export function CheckoutView({ account: initial, states, ack, preview }: { accou
                 </div>
                 <div>
                   <label className="s-label" htmlFor="co-phone">
-                    Phone (optional)
+                    {isLocal ? "Phone" : "Phone (optional)"}
                   </label>
-                  <input id="co-phone" type="tel" className="s-input" autoComplete="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
-                  <span className="s-hint">Recommended for delivery updates.</span>
+                  <input id="co-phone" type="tel" className={`s-input ${errors.phone ? "!border-brand" : ""}`} autoComplete="tel" value={phone} aria-invalid={!!errors.phone} onChange={(e) => (setPhone(e.target.value), setErrors((x) => ({ ...x, phone: "" })))} />
+                  {errors.phone ? <span className="s-error">{errors.phone}</span> : <span className="s-hint">{isLocal ? "Needed for local pickup or delivery: we text you to confirm the time." : "Recommended for delivery updates."}</span>}
                 </div>
               </div>
             </Step>
 
             <Step n={3} title="Shipping method" done={!!ship}>
-              {options.length === 0 ? (
+              {local && (
+                <div className="mb-5 rounded-2xl border border-brand/30 bg-brand-tint/60 p-4 sm:p-5" data-local-prompt>
+                  <p className="text-[1.0625rem] font-semibold">Looks like you’re local! Skip shipping?</p>
+                  <div role="radiogroup" aria-label="Local options" className="mt-3 space-y-2.5">
+                    {(
+                      [
+                        local.pickup && { id: "pickup" as const, name: "Local pickup", sub: `Pickup spot in ${local.pickup.town} area, shared after your order is confirmed.`, price: "FREE" },
+                        local.delivery && {
+                          id: "delivery" as const,
+                          name: "Local delivery",
+                          sub: local.delivery.freeOverCents && local.delivery.cents > 0 ? `Free on orders of ${money(local.delivery.freeOverCents)} or more.` : "We bring it to your address.",
+                          price: local.delivery.cents === 0 ? "FREE" : money(local.delivery.cents),
+                        },
+                        { id: "ship" as const, name: "Ship it", sub: "Normal shipping options and prices.", price: "" },
+                      ].filter(Boolean) as { id: "ship" | "pickup" | "delivery"; name: string; sub: string; price: string }[]
+                    ).map((o) => {
+                      const on = method === o.id;
+                      return (
+                        <label key={o.id} className={`flex cursor-pointer items-center gap-4 rounded-xl border bg-paper px-4 py-3.5 transition ${on ? "border-coal" : "border-rule hover:border-coal"}`} data-local-option={o.id}>
+                          <input type="radio" name="fulfillment" className="h-5 w-5 shrink-0 accent-[var(--s-brand)]" checked={on} onChange={() => (setMethod(o.id), setErrors((x) => ({ ...x, ship: "" })))} />
+                          <span className="min-w-0 flex-1">
+                            <span className="block font-medium">{o.name}</span>
+                            <span className="block text-sm text-stone">{o.sub}</span>
+                          </span>
+                          {o.price && <span className={`shrink-0 font-semibold tabular-nums ${o.price === "FREE" ? "text-brand" : ""}`}>{o.price}</span>}
+                        </label>
+                      );
+                    })}
+                  </div>
+                  {isLocal && (
+                    <div className="mt-4 grid gap-4" data-local-details>
+                      {local.windows.length > 0 && (
+                        <div>
+                          <label className="s-label" htmlFor="co-time">
+                            Preferred time
+                          </label>
+                          <select id="co-time" className={`s-input pr-8 ${errors.localTime ? "!border-brand" : ""}`} value={localTime} aria-invalid={!!errors.localTime} onChange={(e) => (setLocalTime(e.target.value), setErrors((x) => ({ ...x, localTime: "" })))}>
+                            <option value="">Select a time</option>
+                            {local.windows.map((w) => (
+                              <option key={w}>{w}</option>
+                            ))}
+                          </select>
+                          {errors.localTime && <span className="s-error">{errors.localTime}</span>}
+                        </div>
+                      )}
+                      <div>
+                        <label className="s-label" htmlFor="co-local-notes">
+                          Notes (optional)
+                        </label>
+                        <textarea id="co-local-notes" className="s-input min-h-20 py-3" maxLength={500} value={localNotes} onChange={(e) => setLocalNotes(e.target.value)} placeholder={method === "pickup" ? "Anything we should know?" : "Gate code, where to leave it…"} />
+                      </div>
+                      <p className="text-sm text-stone">We’ll text you to confirm the exact time.</p>
+                    </div>
+                  )}
+                </div>
+              )}
+              {isLocal ? null : options.length === 0 ? (
                 <div className="h-28 animate-pulse rounded-xl bg-soft" />
               ) : (
                 <div role="radiogroup" aria-label="Shipping method" className="space-y-2.5" data-invalid={!!errors.ship}>
@@ -414,7 +493,7 @@ export function CheckoutView({ account: initial, states, ack, preview }: { accou
                   })}
                 </div>
               )}
-              <p className="s-hint mt-3">You pay after placing the order. The next page shows exactly where to send the payment and your order number for the memo.</p>
+              <p className="s-hint mt-3">{pay === "pickup" ? "You pay in person at the handover, in cash or by Zelle." : "You pay after placing the order. The next page shows exactly where to send the payment and your order number for the memo."}</p>
             </Step>
 
             <section className="border-t border-rule pt-8">

@@ -13,6 +13,7 @@ const TABS = [
   { id: "shipping", label: "Shipping" },
   { id: "email", label: "Email" },
   { id: "referrals", label: "Referrals" },
+  { id: "local", label: "Local orders" },
   { id: "backups", label: "Backups" },
   { id: "business", label: "Business and account" },
 ] as const;

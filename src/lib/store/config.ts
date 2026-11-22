@@ -45,6 +45,31 @@ export interface StoreSettings {
   lowStockAlerts: boolean;
   /** Referral rewards and customer invite links. */
   referrals: ReferralSettings;
+  /** Local pickup and local delivery (Settings > Local orders). */
+  local: LocalSettings;
+}
+
+export interface PickupSpot {
+  /** A PUBLIC meetup place, e.g. "Target parking lot". Only shown after an order is placed. */
+  name: string;
+  street1: string;
+  city: string;
+  state: string;
+  zip: string;
+  instructions: string;
+}
+
+export interface LocalSettings {
+  /** Home ZIP code the radius is measured from. Private: never sent to customers. */
+  homeZip: string;
+  radiusMiles: number;
+  pickup: { enabled: boolean } & PickupSpot;
+  /** Delivery fee in cents. freeOverCents: free when the order (after discounts) is at least this; null = never free. */
+  delivery: { enabled: boolean; feeCents: number; freeOverCents: number | null };
+  /** Local orders may choose "pay at pickup / delivery" (cash or Zelle). */
+  payAtPickup: boolean;
+  /** Time windows the customer picks from, e.g. "Weekdays 5–9pm". */
+  windows: string[];
 }
 
 export interface ReferralSettings {
@@ -120,6 +145,14 @@ export const DEFAULT_STORE: StoreSettings = {
   unpaidReminder: true,
   lowStockAlerts: true,
   referrals: { percent: 10, buyerDiscountPercent: 0, allowStacking: true, inviteDays: 14 },
+  local: {
+    homeZip: "",
+    radiusMiles: 15,
+    pickup: { enabled: false, name: "", street1: "", city: "", state: "", zip: "", instructions: "" },
+    delivery: { enabled: false, feeCents: 200, freeOverCents: null },
+    payAtPickup: false,
+    windows: [],
+  },
 };
 
 export type SectionId = "bestsellers" | "groups" | "products" | "quality" | "reviews" | "faq";
@@ -379,7 +412,31 @@ export function parseStore(json: string | null | undefined): StoreSettings {
   s.unpaidReminder = s.unpaidReminder !== false;
   s.lowStockAlerts = s.lowStockAlerts !== false;
   s.referrals = cleanReferrals(s.referrals);
+  s.local = cleanLocal(s.local);
   return s;
+}
+
+/** Local order settings with every value in range (missing or broken values get the default). */
+export function cleanLocal(v: Partial<LocalSettings> | null | undefined): LocalSettings {
+  const d = DEFAULT_STORE.local;
+  const str = (x: unknown, max = 200) => (typeof x === "string" ? x.trim().slice(0, max) : "");
+  const cents = (x: unknown, def: number) => (typeof x === "number" && Number.isFinite(x) ? Math.min(1_000_000, Math.max(0, Math.round(x))) : def);
+  const p = (v?.pickup ?? {}) as Partial<LocalSettings["pickup"]>;
+  const del = (v?.delivery ?? {}) as Partial<LocalSettings["delivery"]>;
+  const radius = typeof v?.radiusMiles === "number" && Number.isFinite(v.radiusMiles) ? Math.min(200, Math.max(1, Math.round(v.radiusMiles * 10) / 10)) : d.radiusMiles;
+  const zip = str(v?.homeZip, 10).replace(/\D/g, "").slice(0, 5);
+  return {
+    homeZip: zip.length === 5 ? zip : "",
+    radiusMiles: radius,
+    pickup: { enabled: p.enabled === true, name: str(p.name, 120), street1: str(p.street1, 160), city: str(p.city, 80), state: str(p.state, 2).toUpperCase(), zip: str(p.zip, 10), instructions: str(p.instructions, 1000) },
+    delivery: {
+      enabled: del.enabled === true,
+      feeCents: cents(del.feeCents, d.delivery.feeCents),
+      freeOverCents: del.freeOverCents === null || del.freeOverCents === undefined || (typeof del.freeOverCents === "number" && !(del.freeOverCents > 0)) ? null : cents(del.freeOverCents, 0) || null,
+    },
+    payAtPickup: v?.payAtPickup === true,
+    windows: (Array.isArray(v?.windows) ? v!.windows : []).map((w) => str(w, 60)).filter(Boolean).slice(0, 20),
+  };
 }
 
 /** Referral settings with every value in range (missing or broken values get the default). */

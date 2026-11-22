@@ -11,6 +11,7 @@ import {
   ExternalLink,
   HandCoins,
   LayoutDashboard,
+  MapPin,
   Menu,
   PackageCheck,
   PanelsTopLeft,
@@ -52,6 +53,7 @@ const TOP: NavItem[] = [
     ],
   },
   { href: "/admin/ship", label: "Ship queue", icon: PackageCheck, badges: (c) => [{ n: c.readyToShip, title: "ready to ship", tone: "accent" }] },
+  { href: "/admin/local", label: "Local", icon: MapPin, badges: (c) => [{ n: c.local, title: "local orders to hand over", tone: "accent" }] },
 ];
 const CRM: NavItem[] = [
   { href: "/admin/sell", label: "Sell", icon: ShoppingBag },

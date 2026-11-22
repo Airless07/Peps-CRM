@@ -126,6 +126,22 @@ export interface EmailOrder {
   shippingMethod: string;
   shipTo: string[];
   statusUrl: string;
+  /** Local pickup / delivery. Absent = a shipped order. */
+  local?: { method: "pickup" | "delivery"; spot: { name: string; address: string; instructions: string } | null; time: string; payAtPickup: boolean };
+}
+
+export const TEXT_CONFIRM_LINE = "We'll text you to confirm the exact time.";
+
+/** Pickup spot (pickup) or delivery address (delivery), the preferred time and the "we'll text you" line. */
+function localBlocks(o: EmailOrder): Block[] {
+  const l = o.local!;
+  const lines =
+    l.method === "pickup"
+      ? [...(l.spot ? [l.spot.name, l.spot.address] : []), ...(l.spot?.instructions ? [l.spot.instructions] : [])]
+      : o.shipTo;
+  if (l.time) lines.push(`Preferred time: ${l.time}`);
+  lines.push(TEXT_CONFIRM_LINE);
+  return [{ box: { title: l.method === "pickup" ? "Local pickup" : "Local delivery to", lines } }];
 }
 
 function totalsRows(o: EmailOrder): Block {
@@ -133,12 +149,13 @@ function totalsRows(o: EmailOrder): Block {
   rows.push(["Subtotal", money(o.subtotalCents)]);
   if (o.discountCents > 0) rows.push(["Discount", `-${money(o.discountCents)}`]);
   if ((o.creditCents ?? 0) > 0) rows.push(["Store credit", `-${money(o.creditCents!)}`]);
-  rows.push([`Shipping${o.shippingMethod ? ` (${o.shippingMethod})` : ""}`, o.shippingCents > 0 ? money(o.shippingCents) : "Free"]);
+  rows.push([o.local ? o.shippingMethod || "Local" : `Shipping${o.shippingMethod ? ` (${o.shippingMethod})` : ""}`, o.shippingCents > 0 ? money(o.shippingCents) : "Free"]);
   rows.push(["Total", money(o.totalCents)]);
   return { rows, strongLast: true };
 }
 
 export function orderReceivedEmail(store: StoreSettings, o: EmailOrder, pay: { name: string; sendTo: string; note: string } | null, expiresAt: Date | null): EmailContent {
+  if (o.local) return localOrderReceivedEmail(o, pay, expiresAt);
   const deadline = expiresAt ? expiresAt.toLocaleString("en-US", { weekday: "long", month: "long", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }) : "";
   const blocks: Block[] = [
     { p: `Thanks, ${o.name.split(" ")[0] || "there"}. We have your order. It ships as soon as your payment arrives.` },
@@ -157,6 +174,41 @@ export function orderReceivedEmail(store: StoreSettings, o: EmailOrder, pay: { n
   blocks.push({ button: { label: "View order and upload payment screenshot", url: o.statusUrl } }, totalsRows(o));
   if (o.shipTo.length) blocks.push({ box: { title: "Shipping to", lines: o.shipTo } });
   return { subject: `Order #${o.number} received: payment instructions`, preview: `Send ${money(o.totalCents)} and put ${o.number} in the memo.`, heading: "We got your order", blocks };
+}
+
+/** Order received for local pickup / delivery: where and when, and how to pay (online now, or at the handover). */
+export function localOrderReceivedEmail(o: EmailOrder, pay: { name: string; sendTo: string; note: string } | null, expiresAt: Date | null): EmailContent {
+  const l = o.local!;
+  const what = l.method === "pickup" ? "pickup" : "delivery";
+  const deadline = expiresAt ? expiresAt.toLocaleString("en-US", { weekday: "long", month: "long", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }) : "";
+  const blocks: Block[] = [
+    { p: `Thanks, ${o.name.split(" ")[0] || "there"}. We have your order for local ${what}.` },
+    { big: { label: "Order number", value: `#${o.number}` } },
+    ...localBlocks(o),
+  ];
+  if (l.payAtPickup) blocks.push({ box: { title: `Pay at ${what}`, lines: [`Bring ${money(o.totalCents)} in cash, or send it by Zelle when we meet.`] } });
+  else if (pay) {
+    blocks.push({ big: { label: "Amount to send", value: money(o.totalCents) } });
+    blocks.push({ box: { title: `Pay with ${pay.name}`, lines: [`Send exactly ${money(o.totalCents)} to: ${pay.sendTo}`, `Put your order number in the memo: ${o.number}`, ...(pay.note ? [pay.note] : [])] } });
+    if (deadline) blocks.push({ p: `Please pay by ${deadline}. Unpaid orders are canceled automatically after that.` });
+  }
+  blocks.push({ button: { label: "View order", url: o.statusUrl } }, totalsRows(o));
+  return { subject: `Order #${o.number} received: local ${what}`, preview: `Local ${what}. ${TEXT_CONFIRM_LINE}`, heading: "We got your order", blocks };
+}
+
+/** "Your order is ready for pickup / delivery". */
+export function readyEmail(_store: StoreSettings, o: EmailOrder): EmailContent {
+  const what = o.local?.method === "delivery" ? "delivery" : "pickup";
+  return {
+    subject: `Order #${o.number} is ready for ${what}`,
+    preview: `Your order is ready for ${what}. ${TEXT_CONFIRM_LINE}`,
+    heading: `Your order is ready for ${what}`,
+    blocks: [
+      { p: `Good news: order #${o.number} is ready for ${what}.${o.local?.payAtPickup ? ` Please have ${money(o.totalCents)} ready in cash or by Zelle.` : ""}` },
+      ...(o.local ? localBlocks(o) : []),
+      { button: { label: "View order", url: o.statusUrl } },
+    ],
+  };
 }
 
 /** "about 12 hours", "about 1 hour", "less than an hour". */
@@ -212,7 +264,11 @@ export function paymentConfirmedEmail(_store: StoreSettings, o: EmailOrder): Ema
     preview: "Your payment arrived. We are packing your order.",
     heading: "Payment confirmed",
     blocks: [
-      { p: `We received your payment of ${money(o.totalCents)} for order #${o.number}. Your order is being packed, and you will get another email with tracking when it ships.` },
+      {
+        p: o.local
+          ? `We received your payment of ${money(o.totalCents)} for order #${o.number}. We will email you when it is ready for ${o.local.method === "pickup" ? "pickup" : "delivery"}. ${TEXT_CONFIRM_LINE}`
+          : `We received your payment of ${money(o.totalCents)} for order #${o.number}. Your order is being packed, and you will get another email with tracking when it ships.`,
+      },
       totalsRows(o),
       { button: { label: "View order status", url: o.statusUrl } },
     ],

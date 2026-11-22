@@ -1,4 +1,4 @@
-import { DEFAULT_CONTENT, DEFAULT_STORE, type SiteContent, type StoreSettings } from "./store/config";
+import { DEFAULT_CONTENT, DEFAULT_STORE, type PickupSpot, type SiteContent, type StoreSettings } from "./store/config";
 import { defaultSellButtons, type SellButtons } from "./sell-buttons";
 // Plain data records shared by server and client. Dates are ISO strings, money is integer cents.
 
@@ -6,7 +6,8 @@ export type Partner = "A" | "B";
 /** Who sold an order: a partner, or "W" for the website. */
 export type Seller = Partner | "W";
 export type OrderSource = "inperson" | "online";
-export type OrderStatus = "completed" | "awaiting_payment" | "paid" | "label_purchased" | "shipped" | "delivered" | "canceled";
+/** Local orders use "ready" (paid and ready for pickup / delivery) and "picked_up". */
+export type OrderStatus = "completed" | "awaiting_payment" | "paid" | "label_purchased" | "shipped" | "ready" | "picked_up" | "delivered" | "canceled";
 export type TipHandling = "profit" | "seller" | "business";
 export type DiscountType = "$" | "%";
 export type AdjustmentReason = "breakage" | "freebie" | "correction";
@@ -201,6 +202,17 @@ export interface OrderRec {
   referralDiscountCents?: number;
   /** Money given back after the order counted (partial or full refund). */
   refundedCents?: number;
+  /** "ship" (default) | "pickup" | "delivery". */
+  fulfillment?: "ship" | "pickup" | "delivery";
+  /** Local orders: preferred time window and notes from checkout. */
+  localTime?: string;
+  localNotes?: string;
+  /** Local pickup: the pickup spot saved when the order was placed. */
+  localSpot?: PickupSpot | null;
+  /** Local orders paying at pickup / delivery (never auto-canceled). */
+  payAtPickup?: boolean;
+  /** Local orders: when marked ready. */
+  readyAt?: string | null;
 }
 
 /** A line of a saved order: an order line plus the product's regular price when it was saved. */
@@ -527,6 +539,8 @@ export const STATUS_LABEL: Record<OrderStatus, string> = {
   paid: "Paid, no label",
   label_purchased: "Label purchased",
   shipped: "Shipped",
+  ready: "Ready",
+  picked_up: "Picked up",
   delivered: "Delivered",
   canceled: "Canceled",
 };

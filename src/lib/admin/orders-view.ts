@@ -5,7 +5,7 @@ import type { AppData, OrderRec, OrderStatus } from "../types";
 import { STATUS_LABEL } from "../types";
 import { lineName } from "../size";
 
-export type NextStep = "mark-paid" | "buy-label" | "open-label" | "mark-shipped" | "mark-delivered" | null;
+export type NextStep = "mark-paid" | "buy-label" | "open-label" | "mark-shipped" | "mark-delivered" | "mark-ready" | "mark-handed-over" | null;
 
 export const STEP_LABEL: Record<Exclude<NextStep, null>, string> = {
   "mark-paid": "Mark paid",
@@ -13,11 +13,26 @@ export const STEP_LABEL: Record<Exclude<NextStep, null>, string> = {
   "open-label": "Open label",
   "mark-shipped": "Mark shipped",
   "mark-delivered": "Mark delivered",
+  "mark-ready": "Mark ready",
+  "mark-handed-over": "Mark handed over",
 };
+
+export const isLocalOrder = (o: Pick<OrderRec, "fulfillment">) => o.fulfillment === "pickup" || o.fulfillment === "delivery";
+
+/** "Mark picked up" or "Mark delivered" for a local order. */
+export const handOverLabel = (o: Pick<OrderRec, "fulfillment">) => (o.fulfillment === "pickup" ? "Mark picked up" : "Mark delivered");
 
 /** The one main button for an order. `labelOpened` = the label PDF was already opened on this device. */
 export function nextStep(o: OrderRec, labelOpened = false): NextStep {
   if (o.source !== "online" || o.archived) return null;
+  // Local pickup / delivery: Placed -> Paid -> Ready -> Picked up / Delivered. Never a label.
+  // Pay-at-pickup orders can be marked ready before they are paid (the money comes at the handover).
+  if (isLocalOrder(o)) {
+    if (o.status === "awaiting_payment") return o.payAtPickup && !o.readyAt ? "mark-ready" : "mark-paid";
+    if (o.status === "paid") return "mark-ready";
+    if (o.status === "ready") return "mark-handed-over";
+    return null;
+  }
   switch (o.status) {
     case "awaiting_payment":
       return "mark-paid";
@@ -38,11 +53,20 @@ export const STATUS_TONE: Record<OrderStatus, "neutral" | "warn" | "neg" | "pos"
   paid: "accent",
   label_purchased: "accent",
   shipped: "neutral",
+  ready: "accent",
+  picked_up: "pos",
   delivered: "pos",
   canceled: "neg",
 };
 
-export const statusLabel = (o: OrderRec) => (o.source === "inperson" ? "Completed" : STATUS_LABEL[o.status]);
+export const statusLabel = (o: OrderRec) => {
+  if (o.source === "inperson") return "Completed";
+  if (isLocalOrder(o)) {
+    if (o.status === "awaiting_payment") return o.readyAt ? "Ready · not paid" : o.payAtPickup ? "Placed · pays at handover" : "Awaiting payment";
+    if (o.status === "paid") return "Paid · not ready";
+  }
+  return STATUS_LABEL[o.status];
+};
 
 export const allOrders = (data: AppData): OrderRec[] =>
   [...data.orders, ...data.pendingOrders].sort((a, b) => orderTime(b) - orderTime(a) || (b.number ?? 0) - (a.number ?? 0));

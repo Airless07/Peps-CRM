@@ -16,7 +16,7 @@ function shortName(full: string): string {
 export default async function ReviewPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
   const order = token.length >= 16 ? await prisma.order.findUnique({ where: { reviewToken: token }, include: { review: true } }) : null;
-  const valid = order && order.status === "delivered";
+  const valid = order && (order.status === "delivered" || order.status === "picked_up");
   return (
     <div className="s-wrap pb-8 pt-10 sm:pt-16">
       <div className="mx-auto max-w-xl">

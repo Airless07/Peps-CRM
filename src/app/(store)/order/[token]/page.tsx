@@ -4,7 +4,7 @@ import { OrderStatus } from "@/components/storefront/order-status";
 import { ShareCodeBanner } from "@/components/storefront/referrals-view";
 import { currentAccount } from "@/lib/account";
 import { prisma } from "@/lib/db";
-import { PUBLIC_STATUS, publicOrderByToken } from "@/lib/store/order-view";
+import { localStatusText, PUBLIC_STATUS, publicOrderByToken } from "@/lib/store/order-view";
 import { storeSnapshot } from "@/lib/store/server";
 
 export const metadata: Metadata = { title: "Your order", robots: { index: false, follow: false } };
@@ -21,7 +21,7 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
   const code = me ? me.referralCodeDisplay || me.referralCode || null : null;
   return (
     <>
-      <OrderStatus order={view} placed={q.placed === "1"} reviewToken={reviewToken} statusText={PUBLIC_STATUS[view.status]} />
+      <OrderStatus order={view} placed={q.placed === "1"} reviewToken={reviewToken} statusText={localStatusText(view) ?? PUBLIC_STATUS[view.status]} />
       <ShareCodeBanner code={code} percent={data.store.referrals.percent} />
     </>
   );

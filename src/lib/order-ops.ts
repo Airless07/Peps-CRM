@@ -9,6 +9,7 @@ import {
   adminScreenshotEmail,
   canceledEmail,
   deliveredEmail,
+  readyEmail,
   orderReceivedEmail,
   outcomeText,
   paymentConfirmedEmail,
@@ -33,6 +34,8 @@ import { creditAvailable, rememberReferrer, syncOrderCredit } from "./credit-ops
 import { fmtMoney } from "./format";
 import { resolveReferral, STACKING_TEXT, type ReferralBuyer } from "./store/referral";
 import { countsInMoney } from "./types";
+import { FULFILLMENT_LABEL, isLocalMethod, localOffer, PAY_AT_PICKUP, PAY_AT_PICKUP_NAME, spotOf, type Fulfillment } from "./local/rules";
+import { isLocalZip } from "./local/zips";
 
 type Tx = Prisma.TransactionClient;
 type Db = Tx | typeof prisma;
@@ -95,6 +98,18 @@ export function emailOrder(o: OrderRec, base: string): EmailOrder {
     shippingMethod: o.web?.shippingMethod ?? "",
     shipTo: addressLines(o.web?.shipTo ?? null),
     statusUrl: `${base}/order/${o.web?.token ?? ""}`,
+    local:
+      o.fulfillment === "pickup" || o.fulfillment === "delivery"
+        ? {
+            method: o.fulfillment,
+            spot:
+              o.fulfillment === "pickup" && o.localSpot
+                ? { name: o.localSpot.name, address: [o.localSpot.street1, `${o.localSpot.city}, ${o.localSpot.state} ${o.localSpot.zip}`.trim()].filter(Boolean).join(", "), instructions: o.localSpot.instructions }
+                : null,
+            time: o.localTime ?? "",
+            payAtPickup: !!o.payAtPickup,
+          }
+        : undefined,
   };
 }
 
@@ -119,8 +134,14 @@ export interface CheckoutInput {
   shipTo: Address;
   items: CartItemInput[];
   code: string;
-  tier: ShippingTierId;
+  /** Shipping option (shipped orders). Ignored for local pickup / delivery. */
+  tier: ShippingTierId | "";
   payChoice: string;
+  /** "ship" (default), "pickup" or "delivery". Local methods are re-checked here: ZIP in the radius and turned on. */
+  fulfillment?: Fulfillment;
+  /** Local orders: preferred time window (one of Settings' windows) and notes. */
+  localTime?: string;
+  localNotes?: string;
   /** Total the customer saw. The order is refused if the price changed meanwhile. */
   expectedTotalCents: number;
   origin: string;
@@ -167,7 +188,10 @@ export async function quoteCheckout(
     else liveNote = res.error;
   }
   const shipping = shippingOptions(data.store, pricing.freeTiers, live);
-  return { pricing, shipping, liveNote, variants, referral, referralError, conflict };
+  // Local pickup / delivery: only when the address ZIP is inside the radius and a method is on.
+  // The delivery fee's free-over threshold uses the items after discounts (not store credit, not shipping).
+  const local = localOffer(data.store.local, isLocalZip(data.store.local, to?.zip), pricing.subtotalCents - pricing.discountCents);
+  return { pricing, shipping, liveNote, variants, referral, referralError, conflict, local };
 }
 
 export async function placeOrder(input: CheckoutInput): Promise<{ id: string; token: string; number: number }> {
@@ -175,7 +199,7 @@ export async function placeOrder(input: CheckoutInput): Promise<{ id: string; to
   const { store } = data;
   if (!store.open) throw new HttpError(403, "The store is not open for orders yet.");
   const ledger = computeLedger(data);
-  const { pricing, shipping, referral, referralError, conflict } = await quoteCheckout(data, {
+  const { pricing, shipping, referral, referralError, conflict, local } = await quoteCheckout(data, {
     items: input.items,
     code: input.code,
     email: input.email,
@@ -189,10 +213,30 @@ export async function placeOrder(input: CheckoutInput): Promise<{ id: string; to
   if (conflict) throw new HttpError(409, STACKING_TEXT);
   const soldOut = pricing.lines.filter((l) => (ledger.stock.get(l.variantId)?.stock ?? 0) <= 0);
   if (soldOut.length) throw new HttpError(409, `${soldOut.map((l) => l.name).join(", ")} just sold out. Remove ${soldOut.length === 1 ? "it" : "them"} from your cart to continue.`);
-  const ship = shipping.find((s) => s.tier === input.tier);
-  if (!ship) throw new HttpError(400, "That shipping option is no longer available. Pick another one.");
-  const method = checkoutMethods(store.payments).find((m) => m.id === input.payChoice && m.available);
+  // How it gets to the customer. Local methods are checked again here (never trust the browser):
+  // the ZIP must be inside the radius and the method turned on in Settings.
+  const fulfillment: Fulfillment = input.fulfillment ?? "ship";
+  let ship: { cents: number; tier: string; method: string; free: boolean };
+  if (isLocalMethod(fulfillment)) {
+    if (!local) throw new HttpError(400, "Local pickup and delivery are only for addresses near us. Pick a shipping option instead.");
+    if (fulfillment === "pickup" && !local.pickup) throw new HttpError(400, "Local pickup is not available right now. Pick another option.");
+    if (fulfillment === "delivery" && !local.delivery) throw new HttpError(400, "Local delivery is not available right now. Pick another option.");
+    if (input.phone.replace(/\D/g, "").length < 10) throw new HttpError(400, "Enter a phone number so we can text you about the pickup or delivery time.");
+    if (local.windows.length && !local.windows.includes((input.localTime ?? "").trim())) throw new HttpError(400, "Pick a preferred time.");
+    const cents = fulfillment === "delivery" ? local.delivery!.cents : 0;
+    ship = { cents, tier: "", method: FULFILLMENT_LABEL[fulfillment], free: cents === 0 };
+  } else {
+    const s = shipping.find((x) => x.tier === input.tier);
+    if (!s) throw new HttpError(400, "That shipping option is no longer available. Pick another one.");
+    ship = { cents: s.cents, tier: s.tier, method: s.service ? `${s.name} (${s.service})` : s.name, free: s.free };
+  }
+  // "Pay at pickup / delivery" exists only for local orders, and only when it is turned on.
+  const payAtPickup = input.payChoice === PAY_AT_PICKUP;
+  if (payAtPickup && !(isLocalMethod(fulfillment) && local?.payAtPickup)) throw new HttpError(400, "Pay at pickup is only for local pickup or delivery orders. Pick another payment method.");
+  const method = payAtPickup ? { id: PAY_AT_PICKUP, name: PAY_AT_PICKUP_NAME } : checkoutMethods(store.payments).find((m) => m.id === input.payChoice && m.available);
   if (!method) throw new HttpError(400, "That payment method is not available. Pick another one.");
+  // Free shipping rules only apply to shipped orders: a local order never uses one up.
+  const applied = isLocalMethod(fulfillment) ? pricing.applied.filter((a) => a.kind !== "free_shipping") : pricing.applied;
   const customer = await prisma.customer.findUnique({ where: { id: input.customerId } });
   if (!customer) throw new HttpError(401, "Sign in again to place your order.");
 
@@ -211,7 +255,7 @@ export async function placeOrder(input: CheckoutInput): Promise<{ id: string; to
   const now = new Date();
   const id = randomUUID();
   const token = newToken();
-  const promo: PromoSnapshot = { code: pricing.code, promotionIds: pricing.applied.map((a) => a.id), labels: pricing.applied.map((a) => a.label), freeShipping: ship.free };
+  const promo: PromoSnapshot = { code: pricing.code, promotionIds: applied.map((a) => a.id), labels: applied.map((a) => a.label), freeShipping: ship.free && !isLocalMethod(fulfillment) };
 
   const number = await prisma.$transaction(async (tx) => {
     const n = await nextOrderNumber(tx);
@@ -221,13 +265,20 @@ export async function placeOrder(input: CheckoutInput): Promise<{ id: string; to
         number: n,
         date: now,
         placedAt: now,
-        expiresAt: new Date(now.getTime() + store.autoCancelHours * 3600_000),
+        // Pay at pickup: no deadline (the money comes at the handover), so it is never auto-canceled.
+        expiresAt: payAtPickup ? null : new Date(now.getTime() + store.autoCancelHours * 3600_000),
         source: "online",
         status: "awaiting_payment",
         soldBy: "W",
         customer: customer.name,
         customerId: customer.id,
-        paymentMethod: payMethod(input.payChoice)?.saleName ?? "Unknown",
+        paymentMethod: payAtPickup ? "Unknown" : payMethod(input.payChoice)?.saleName ?? "Unknown",
+        fulfillment,
+        localTime: isLocalMethod(fulfillment) ? (input.localTime ?? "").trim().slice(0, 60) : "",
+        localNotes: isLocalMethod(fulfillment) ? (input.localNotes ?? "").trim().slice(0, 500) : "",
+        // The pickup spot as it is now (shared on the confirmation; later Settings edits don't change this order).
+        localJson: fulfillment === "pickup" ? JSON.stringify(spotOf(store.local)) : "",
+        payAtPickup,
         payChoice: input.payChoice,
         discountType: "$",
         discountValue: pricing.discountCents,
@@ -242,9 +293,10 @@ export async function placeOrder(input: CheckoutInput): Promise<{ id: string; to
         email: input.email.trim().toLowerCase(),
         phone: input.phone.trim(),
         shipToJson: JSON.stringify(input.shipTo),
+        // Local delivery fee is charged like shipping (no label is ever bought for it).
         shippingCents: ship.cents,
         shippingTier: ship.tier,
-        shippingMethod: ship.service ? `${ship.name} (${ship.service})` : ship.name,
+        shippingMethod: ship.method,
         promoJson: JSON.stringify(promo),
         token,
         lines: {
@@ -266,13 +318,13 @@ export async function placeOrder(input: CheckoutInput): Promise<{ id: string; to
         },
       },
     });
-    for (const a of pricing.applied) {
+    for (const a of applied) {
       await tx.promotionUse.create({ data: { id: randomUUID(), promotionId: a.id, orderId: id, email: input.email.trim().toLowerCase() } });
     }
     await rememberReferrer(tx, customer.id, referredById);
     // Placed with a referral code: the code owner gets PENDING credit (spendable once the order is paid).
     await syncOrderCredit(tx, id, { by: "Website order" });
-    await logEvent(tx, id, "status", "Order placed. Waiting for payment.", `${method.name} · total $${(total / 100).toFixed(2)}${referral ? ` · referral code ${referral.display}` : ""}`);
+    await logEvent(tx, id, "status", payAtPickup ? "Order placed. Pays at the handover." : "Order placed. Waiting for payment.", `${isLocalMethod(fulfillment) ? `${FULFILLMENT_LABEL[fulfillment]} · ` : ""}${method.name} · total $${(total / 100).toFixed(2)}${referral ? ` · referral code ${referral.display}` : ""}`);
     return n;
   });
 
@@ -283,7 +335,7 @@ export async function placeOrder(input: CheckoutInput): Promise<{ id: string; to
   const { order } = await loadOrder(id);
   const base = siteUrl(store, input.origin);
   const view = emailOrder(order, base);
-  await mailOrder(store, id, view.email, "Order received email", orderReceivedEmail(store, view, payInstructions(store, input.payChoice), order.web?.expiresAt ? new Date(order.web.expiresAt) : null));
+  await mailOrder(store, id, view.email, "Order received email", orderReceivedEmail(store, view, payAtPickup ? null : payInstructions(store, input.payChoice), order.web?.expiresAt ? new Date(order.web.expiresAt) : null));
   if (store.alertEmails.length) await mailOrder(store, id, store.alertEmails, "New order alert", adminNewOrderEmail(store, view, `${base}/admin/orders/${id}`));
   return { id, token, number };
 }
@@ -341,7 +393,8 @@ export async function markPaid(orderId: string, opts: { paymentMethod: string; o
     }
     await tx.order.update({
       where: { id: orderId },
-      data: { status: "paid", date: now, paidAt: now, soldBy: "W", paymentMethod: opts.paymentMethod.trim() || "Unknown", customerId, customer: customerName },
+      // A local order already marked ready (pay at pickup) goes straight to "ready" once paid.
+      data: { status: order.readyAt ? "ready" : "paid", date: now, paidAt: now, soldBy: "W", paymentMethod: opts.paymentMethod.trim() || "Unknown", customerId, customer: customerName },
     });
     // Paid: the store credit it used comes off the balance now, and the referrer earns their reward.
     await syncOrderCredit(tx, orderId, { by: "Website order" });
@@ -460,6 +513,7 @@ export async function labelRates(orderId: string) {
   const data = await loadAll();
   const order = data.orders.find((o) => o.id === orderId);
   if (!order || order.source !== "online") throw new HttpError(404, "That order was not found, or it is not a paid website order.");
+  if (isLocalMethod(order.fulfillment)) throw new HttpError(400, `Order #${order.number} is a local ${order.fulfillment} order. Local orders never need a shipping label.`);
   const to = order.web?.shipTo;
   if (!to) throw new HttpError(409, `Order #${order.number} has no shipping address. Edit the order and add one.`);
   if (!data.store.shipFrom.email.trim()) throw new HttpError(409, "The ship-from address has no email, and Shippo will not sell a label without one. Add it in Settings, under Shipping.");
@@ -481,6 +535,7 @@ export async function labelRates(orderId: string) {
 export async function buyLabel(orderId: string, rateId?: string, origin?: string) {
   const { order } = await loadOrder(orderId);
   if (order.source !== "online") throw new HttpError(400, "Labels can only be bought for website orders.");
+  if (isLocalMethod(order.fulfillment)) throw new HttpError(400, `Order #${order.number} is a local ${order.fulfillment} order. Local orders never need a shipping label.`);
   if (order.status === "awaiting_payment") throw new HttpError(409, `Order #${order.number} is not paid yet. Mark it paid first.`);
   if (order.status === "canceled") throw new HttpError(409, `Order #${order.number} is canceled.`);
   if (order.web?.labelUrl) throw new HttpError(409, `A label was already bought for order #${order.number}. Use "Open label".`);
@@ -524,6 +579,7 @@ export async function buyLabel(orderId: string, rateId?: string, origin?: string
 // ---------------------------------------------------------------- Shipped / delivered
 export async function markShipped(orderId: string, opts: { trackingNumber?: string; carrier?: string; at?: Date; origin?: string; auto?: boolean } = {}) {
   const { order } = await loadOrder(orderId);
+  if (isLocalMethod(order.fulfillment)) throw new HttpError(400, `Order #${order.number} is a local order. Use Mark ready, then ${order.fulfillment === "pickup" ? "Mark picked up" : "Mark delivered"}.`);
   if (order.source !== "online" || !["paid", "label_purchased"].includes(order.status)) {
     if (order.status === "shipped") return;
     throw new HttpError(409, `Order #${order.number} can't be marked shipped from "${order.status.replace("_", " ")}".`);
@@ -546,6 +602,7 @@ export async function markShipped(orderId: string, opts: { trackingNumber?: stri
 export async function markDelivered(orderId: string, opts: { at?: Date; origin?: string; auto?: boolean } = {}) {
   const { order, row } = await loadOrder(orderId);
   if (order.status === "delivered") return;
+  if (isLocalMethod(order.fulfillment)) return markHandedOver(orderId, opts);
   if (order.source !== "online" || !["paid", "label_purchased", "shipped"].includes(order.status)) {
     throw new HttpError(409, `Order #${order.number} can't be marked delivered from "${order.status.replace("_", " ")}".`);
   }
@@ -560,6 +617,47 @@ export async function markDelivered(orderId: string, opts: { at?: Date; origin?:
     const base = siteUrl(store, opts.origin);
     await mailOrder(store, orderId, order.web.email, "Review request email", deliveredEmail(store, emailOrder(order, base), `${base}/review/${reviewToken}`));
   }
+}
+
+// ---------------------------------------------------------------- Local pickup / delivery
+/**
+ * Mark a local order ready for pickup / delivery and email the customer. Paid orders become "ready";
+ * a pay-at-pickup order can be ready before it is paid (it stays unpaid until marked paid at the handover).
+ */
+export async function markReady(orderId: string, opts: { origin?: string; notify?: boolean } = {}) {
+  const { order } = await loadOrder(orderId);
+  if (order.source !== "online" || !isLocalMethod(order.fulfillment)) throw new HttpError(400, "Only local pickup and delivery orders are marked ready.");
+  if (order.readyAt || order.status === "ready") throw new HttpError(409, `Order #${order.number} is already marked ready.`);
+  const unpaidOk = order.status === "awaiting_payment" && order.payAtPickup;
+  if (order.status !== "paid" && !unpaidOk) {
+    throw new HttpError(409, order.status === "awaiting_payment" ? `Order #${order.number} is not paid yet. Mark it paid first.` : `Order #${order.number} can't be marked ready from "${order.status.replace("_", " ")}".`);
+  }
+  const now = new Date();
+  await prisma.$transaction(async (tx) => {
+    const done = await tx.order.updateMany({ where: { id: orderId, readyAt: null, status: order.status }, data: { readyAt: now, ...(order.status === "paid" ? { status: "ready" } : {}) } });
+    if (done.count !== 1) throw new HttpError(409, `Order #${order.number} was just changed. Reload the page.`);
+    await logEvent(tx, orderId, "status", `Marked ready for ${order.fulfillment}.`);
+  });
+  if (opts.notify !== false && order.web?.email) {
+    const { store } = await getStore();
+    const { order: fresh } = await loadOrder(orderId);
+    await mailOrder(store, orderId, order.web.email, "Ready email", readyEmail(store, emailOrder(fresh, siteUrl(store, opts.origin))));
+  }
+}
+
+/** Mark a local order picked up (pickup) or delivered (delivery). It must be paid first. */
+export async function markHandedOver(orderId: string, opts: { at?: Date } = {}) {
+  const { order, row } = await loadOrder(orderId);
+  if (order.source !== "online" || !isLocalMethod(order.fulfillment)) throw new HttpError(400, "Only local pickup and delivery orders are handed over.");
+  const final = order.fulfillment === "pickup" ? "picked_up" : "delivered";
+  if (order.status === final) return;
+  if (order.status === "awaiting_payment") throw new HttpError(409, `Order #${order.number} is not paid yet. Mark it paid first${order.payAtPickup ? " (when you receive the money)" : ""}.`);
+  if (!["paid", "ready"].includes(order.status)) throw new HttpError(409, `Order #${order.number} can't be handed over from "${order.status.replace("_", " ")}".`);
+  const at = opts.at ?? new Date();
+  await prisma.$transaction(async (tx) => {
+    await tx.order.update({ where: { id: orderId }, data: { status: final, deliveredAt: at, readyAt: row.readyAt ?? at, reviewToken: row.reviewToken ?? newToken() } });
+    await logEvent(tx, orderId, "status", order.fulfillment === "pickup" ? "Marked picked up." : "Marked delivered.");
+  });
 }
 
 /** Apply what the carrier says to the order. Returns a plain sentence about what happened. */

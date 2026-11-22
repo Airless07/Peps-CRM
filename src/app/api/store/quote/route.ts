@@ -20,7 +20,7 @@ export const POST = route(
     const account = await currentAccount();
     const to = input.shipTo && input.shipTo.street1 && input.shipTo.zip ? ({ name: "", street2: "", city: "", state: "", country: "US", ...input.shipTo } as Address) : null;
     const buyer = { customerId: account?.id ?? null, email: account?.email ?? "", shipTo: to };
-    const { pricing, shipping, liveNote, referral, referralError, conflict } = await quoteCheckout(data, {
+    const { pricing, shipping, liveNote, referral, referralError, conflict, local } = await quoteCheckout(data, {
       items: input.items,
       code: input.code,
       email: account?.email ?? "",
@@ -44,6 +44,8 @@ export const POST = route(
       referral: referral ? { code: referral.display, discountPercent: referral.buyerDiscountPercent, cents: pricing.referralCents } : null,
       referralError,
       conflict: conflict ? { message: STACKING_TEXT, discountCode: pricing.code, referralCode: input.referralCode.trim().toUpperCase() } : null,
+      // Local pickup / delivery for this address (null = not local). Only the pickup TOWN, never the spot or home ZIP.
+      local,
       // "You used CODE last time. Use it again?" (only when that code still exists and isn't theirs).
       lastReferral: account && !input.referralCode.trim() ? lastReferralCode(data, buyer) : null,
     };

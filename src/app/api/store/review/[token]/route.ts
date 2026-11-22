@@ -11,7 +11,7 @@ export const POST = route(
     const { token } = await ctx.params;
     const input = await body(req, reviewInput);
     const order = await prisma.order.findUnique({ where: { reviewToken: token }, include: { review: true } });
-    if (!order || order.status !== "delivered") throw new HttpError(404, "This review link is not valid.");
+    if (!order || (order.status !== "delivered" && order.status !== "picked_up")) throw new HttpError(404, "This review link is not valid.");
     if (order.review) throw new HttpError(409, "A review was already left for this order. Thank you.");
     await prisma.review.create({ data: { id: randomUUID(), orderId: order.id, ...input, status: "pending" } });
     return { ok: true };

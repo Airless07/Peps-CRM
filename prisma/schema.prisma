@@ -233,6 +233,17 @@ model Order {
   referralDiscountCents Int        @default(0)
   /// Money given back to the customer after the order counted (partial or full refund). Lowers revenue.
   refundedCents    Int             @default(0)
+  /// "ship" | "pickup" | "delivery". Local orders never go to the ship queue or buy a label.
+  fulfillment      String          @default("ship")
+  /// Local orders: preferred time window picked at checkout, and the customer's notes.
+  localTime        String          @default("")
+  localNotes       String          @default("")
+  /// Local pickup: JSON { name, street1, city, state, zip, instructions } of the pickup spot at order time.
+  localJson        String          @default("")
+  /// Local orders: "pay at pickup / delivery" (no auto-cancel; marked paid when the money is received).
+  payAtPickup      Boolean         @default(false)
+  /// Local orders: when it was marked ready for pickup / delivery.
+  readyAt          DateTime?
   lines            OrderLine[]
   splitItems       SplitItem[]
   labels           LabelPurchase[]

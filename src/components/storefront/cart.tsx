@@ -61,6 +61,8 @@ export interface Quote {
   payMethods: { id: string; name: string; blurb: string; available: boolean }[];
   /** Signed-in customer's store credit. Null when signed out. */
   credit?: { balanceCents: number; availableCents: number } | null;
+  /** Local pickup / delivery for the address entered (null = not local). Never the pickup address. */
+  local?: { pickup: { town: string } | null; delivery: { cents: number; feeCents: number; freeOverCents: number | null } | null; windows: string[]; payAtPickup: boolean } | null;
   /** Buyer referral discount (inside discountCents) and its label. */
   referralCents?: number;
   referralLabel?: string;
@@ -540,7 +542,7 @@ export function CartTotals({ shippingCents, shippingLabel, creditCents = 0 }: { 
       )}
       {shippingCents !== undefined && (
         <div className="flex justify-between gap-4">
-          <dt className="min-w-0 truncate">Shipping{shippingLabel ? ` (${shippingLabel})` : ""}</dt>
+          <dt className="min-w-0 truncate">{shippingLabel?.startsWith("Local ") ? shippingLabel : `Shipping${shippingLabel ? ` (${shippingLabel})` : ""}`}</dt>
           <dd className="shrink-0 tabular-nums">{shippingCents === null ? "Calculated next" : shippingCents === 0 ? "Free" : money(shippingCents)}</dd>
         </div>
       )}

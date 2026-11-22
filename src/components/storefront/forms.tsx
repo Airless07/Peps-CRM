@@ -462,7 +462,7 @@ export function AccountView({ account, orders, statusText, credit }: { account: 
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[15px]">{o.lines.map((l) => `${l.quantity > 1 ? `${l.quantity}× ` : ""}${l.name}`).join(", ")}</span>
                       <span className="block text-sm text-stone">
-                        {date(o.placedAt)} · <span className={o.status === "awaiting_payment" ? "font-medium text-brand" : ""}>{statusText[o.status]}</span>
+                        {date(o.placedAt)} · {o.local ? `${o.local.method === "pickup" ? "Pickup" : "Delivery"} · ` : ""}<span className={o.status === "awaiting_payment" && !o.local?.payAtPickup ? "font-medium text-brand" : ""}>{o.local?.ready && o.status === "awaiting_payment" ? "Ready" : statusText[o.status]}</span>
                         {o.tracking ? ` · ${o.tracking.carrier} ${o.tracking.number}` : ""}
                       </span>
                     </span>
