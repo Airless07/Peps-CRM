@@ -507,6 +507,8 @@ const g = globalThis as unknown as { __labelOffers?: Map<string, { at: number; r
 const offers = (g.__labelOffers ??= new Map());
 const buying = (g.__labelBuying ??= new Set());
 const OFFER_TTL_MS = 30 * 60_000;
+/** A label lock older than this is from a crashed request and can be taken again. */
+const LABEL_LOCK_MS = 10 * 60_000;
 
 /** Rates a label can be bought at for this order's own address, cheapest first, with the suggested one. */
 export async function labelRates(orderId: string) {
@@ -541,6 +543,16 @@ export async function buyLabel(orderId: string, rateId?: string, origin?: string
   if (order.web?.labelUrl) throw new HttpError(409, `A label was already bought for order #${order.number}. Use "Open label".`);
   if (buying.has(orderId)) throw new HttpError(409, "A label purchase for this order is already in progress. Wait a moment.");
   buying.add(orderId);
+  // Database lock, taken before Shippo is called: only one request can hold it, and only while the order
+  // has no label. A double click, a second tab or a refresh mid-purchase can never buy a second label.
+  const lock = await prisma.order.updateMany({
+    where: { id: orderId, labelUrl: "", OR: [{ labelLockAt: null }, { labelLockAt: { lt: new Date(Date.now() - LABEL_LOCK_MS) } }] },
+    data: { labelLockAt: new Date() },
+  });
+  if (lock.count !== 1) {
+    buying.delete(orderId);
+    throw new HttpError(409, `A label for order #${order.number} was already bought or is being bought right now. Reload the page.`);
+  }
   try {
     let offer = offers.get(orderId);
     if (!offer || Date.now() - offer.at > OFFER_TTL_MS) {
@@ -573,6 +585,7 @@ export async function buyLabel(orderId: string, rateId?: string, origin?: string
     return label;
   } finally {
     buying.delete(orderId);
+    await prisma.order.updateMany({ where: { id: orderId }, data: { labelLockAt: null } }).catch(() => {});
   }
 }
 
