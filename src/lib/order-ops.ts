@@ -213,6 +213,11 @@ export async function placeOrder(input: CheckoutInput): Promise<{ id: string; to
   if (conflict) throw new HttpError(409, STACKING_TEXT);
   const soldOut = pricing.lines.filter((l) => (ledger.stock.get(l.variantId)?.stock ?? 0) <= 0);
   if (soldOut.length) throw new HttpError(409, `${soldOut.map((l) => l.name).join(", ")} just sold out. Remove ${soldOut.length === 1 ? "it" : "them"} from your cart to continue.`);
+  // More than is in stock: refused with how many there are (the cart caps signed-in carts already).
+  const wantBy = new Map<string, { name: string; qty: number }>();
+  for (const l of pricing.lines) wantBy.set(l.variantId, { name: l.name, qty: (wantBy.get(l.variantId)?.qty ?? 0) + l.quantity });
+  const short = [...wantBy].filter(([id, w]) => w.qty > (ledger.stock.get(id)?.stock ?? 0));
+  if (short.length) throw new HttpError(409, short.map(([id, w]) => `Only ${ledger.stock.get(id)?.stock ?? 0} ${w.name} left.`).join(" ") + " Lower the quantity in your cart to continue.");
   // How it gets to the customer. Local methods are checked again here (never trust the browser):
   // the ZIP must be inside the radius and the method turned on in Settings.
   const fulfillment: Fulfillment = input.fulfillment ?? "ship";

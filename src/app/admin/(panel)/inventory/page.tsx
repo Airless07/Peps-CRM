@@ -121,7 +121,7 @@ export default function InventoryPage() {
           setDrag(null);
           setOver(null);
         }}
-        className={cx("rounded-2xl border bg-surface p-4", sortable && "cursor-grab", sortable && over === i && drag !== null && drag !== i ? "border-accent ring-2 ring-accent/30" : "border-line", drag === i && "opacity-40")}
+        className={cx("min-w-0 rounded-2xl border bg-surface p-4", sortable && "cursor-grab", sortable && over === i && drag !== null && drag !== i ? "border-accent ring-2 ring-accent/30" : "border-line", drag === i && "opacity-40")}
       >
         <div className="flex items-start gap-2">
           {sortable && <GripVertical size={18} className="mt-0.5 hidden shrink-0 text-muted sm:block" />}
@@ -237,7 +237,7 @@ export default function InventoryPage() {
         />
       ) : (
         <>
-          <div className={cx("grid gap-3", reorder ? "md:grid-cols-1" : "md:grid-cols-2")}>{shown.map((r, i) => card(r, i, reorder))}</div>
+          <div className={cx("grid grid-cols-[minmax(0,1fr)] gap-3", reorder ? "md:grid-cols-[minmax(0,1fr)]" : "md:grid-cols-[repeat(2,minmax(0,1fr))]")}>{shown.map((r, i) => card(r, i, reorder))}</div>
           {shown.length === 0 && (
             <p className="rounded-2xl border border-dashed border-line px-4 py-10 text-center text-sm text-muted">
               {webFilter === "on" ? "No products are on the website yet. Open a product, go to the Website tab and switch on “Show on website”." : "Every product is on the website."}
@@ -254,7 +254,7 @@ export default function InventoryPage() {
               >
                 Archived ({archived.length})
               </SectionTitle>
-              {showArchived && <div className="grid gap-3 md:grid-cols-2">{archived.map((r, i) => card(r, i, false))}</div>}
+              {showArchived && <div className="grid grid-cols-[minmax(0,1fr)] gap-3 md:grid-cols-[repeat(2,minmax(0,1fr))]">{archived.map((r, i) => card(r, i, false))}</div>}
             </>
           )}
 

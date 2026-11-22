@@ -204,6 +204,17 @@ describe("prices are worked out on the server for the account signed in now", ()
     expect(await prisma.order.count()).toBe(0);
   });
 
+  it("a guest-built cart with more than is in stock is refused at checkout", async () => {
+    await signIn("ben@example.com");
+    const items = [{ variantId: "reta10", quantity: 6 }]; // 5 in stock
+    const q = await quote({ items, shipTo });
+    const total = q.json.subtotalCents - q.json.discountCents + q.json.shipping[0].cents;
+    const r = await call(checkoutRoute.POST, "/api/store/checkout", "POST", { accountId: B, phone: "", shipTo, items, code: "", tier: q.json.shipping[0].tier, payChoice: "zelle", expectedTotalCents: total, ackResearch: true, ackPolicies: true });
+    expect(r.status).toBe(409);
+    expect(r.json.error).toMatch(/^Only 5 Retatrutide 10mg left\./);
+    expect(await prisma.order.count()).toBe(0);
+  });
+
   it("owner price never applies to a website order: not for the owner, not for anyone, whatever the browser sends", async () => {
     // Ann is also the admin (owner) and is signed in to both. The web cart is priced at the normal price.
     await signIn("ann@example.com");

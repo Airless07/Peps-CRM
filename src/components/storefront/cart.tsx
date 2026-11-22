@@ -168,7 +168,6 @@ function clearLocal() {
   try {
     localStorage.removeItem(GUEST_KEY);
     localStorage.removeItem(LEGACY_KEY);
-    sessionStorage.removeItem("bl-checkout");
   } catch {}
 }
 async function cartApi(body: Record<string, unknown>) {

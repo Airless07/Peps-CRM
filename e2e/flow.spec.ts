@@ -138,6 +138,12 @@ test("4. sign up inside checkout, Priority shipping, place the order", async () 
   await shop.locator("form", { has: shop.locator("#au-email") }).locator('button[type="submit"]').click();
 
   await expect(shop.locator("#co-street1")).toBeVisible();
+  // Codes are never carried from the guest cart into an account: the customer applies it again (re-checked for this account).
+  await expect(shop.locator("[data-applied-discount]")).toHaveCount(0);
+  await shop.getByRole("button", { name: "Add a discount or referral code" }).click();
+  await shop.getByLabel("Discount or referral code").fill("welcome10");
+  await shop.getByRole("button", { name: "Apply", exact: true }).click();
+  await expect(shop.locator("[data-applied-discount]")).toHaveText(/WELCOME10/);
   await shop.locator("#co-name").fill("Dana E2E Reed");
   await shop.locator("#co-street1").fill("500 Oak Avenue");
   await shop.locator("#co-city").fill("Denver");

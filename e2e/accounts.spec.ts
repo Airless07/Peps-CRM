@@ -72,7 +72,7 @@ test.beforeAll(async ({ browser, playwright }) => {
   single = catalog.find((p) => p.variants.length === 1 && p.stock !== "out")!;
   reta = catalog.find((p) => p.name === "Retatrutide")!;
   expect(single, "a single-size product").toBeTruthy();
-  expect(reta?.variants.map((v) => v.label)).toEqual(["10mg", "20mg"]);
+  expect(reta?.variants.length, "Retatrutide has two sizes").toBe(2);
   // Ben used Cora's referral code on an earlier order.
   const db = new DatabaseSync(DB);
   cCode = (db.prepare(`select coalesce("referralCodeDisplay", "referralCode") c from "Customer" where email = ?`).get(C.email) as { c: string }).c;
@@ -132,7 +132,7 @@ test("1. A adds items and a code; sign out empties the cart; B sees only B's car
 test("2. a guest cart merges into the account at sign in, and codes are not carried over", async () => {
   await signOut(shop);
   await shop.goto(`/product/${reta.slug}`);
-  await shop.getByRole("radio", { name: /^10mg/ }).click();
+  await shop.getByRole("radio", { name: new RegExp(`^${reta.variants[0].label}`) }).click();
   await shop.getByRole("button", { name: /^Add to cart ·/ }).click();
   const drawer = shop.getByRole("dialog", { name: "Your cart" });
   await drawer.getByRole("button", { name: "Add a discount or referral code" }).click();
@@ -227,16 +227,20 @@ test("5. quick add on desktop: single size and Retatrutide 10mg / 20mg", async (
   await rcard.scrollIntoViewIfNeeded();
   await rcard.hover();
   const rbar = shop.locator(`[data-quick-add="${reta.slug}"] .qa-bar`);
-  await expect(rbar.locator("[data-quick-size]")).toHaveText(["10mg", "20mg"]);
-  await rbar.locator('[data-quick-size="20mg"]').click();
+  await expect(rbar.locator("[data-quick-size]")).toHaveText(reta.variants.map((v) => v.label));
+  // Sold-out sizes are shown but can't be picked; pick an in-stock one (the second when it is in stock).
+  for (const [i, v] of reta.variants.entries()) if (v.stock === "out") await expect(rbar.locator("[data-quick-size]").nth(i)).toBeDisabled();
+  const pick = reta.variants[1].stock !== "out" ? 1 : reta.variants.findIndex((v) => v.stock !== "out");
+  const picked = reta.variants[pick];
+  await rbar.locator("[data-quick-size]").nth(pick).click();
   await rbar.getByRole("button", { name: "Increase quantity" }).click();
   await expect(rbar.locator("[data-quick-qty]")).toHaveText("2");
   await shop.waitForTimeout(500);
   await shot(shop, "12-quick-add-retatrutide");
-  const before = (await serverCart()).items.find((i) => i.variantId === reta.variants[1].id)?.quantity ?? 0;
+  const before = (await serverCart()).items.find((i) => i.variantId === picked.id)?.quantity ?? 0;
   await rbar.locator("[data-quick-add-button]").click();
   await expect(shop.getByRole("dialog", { name: "Your cart" })).toBeVisible();
-  await expect.poll(async () => (await serverCart()).items.find((i) => i.variantId === reta.variants[1].id)?.quantity).toBe(before + 2);
+  await expect.poll(async () => (await serverCart()).items.find((i) => i.variantId === picked.id)?.quantity).toBe(before + 2);
   await shot(shop, "13-quick-add-added-drawer");
   await shop.getByRole("button", { name: "Close cart" }).click();
   // Clicking the photo outside the bar still opens the product page.

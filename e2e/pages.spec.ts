@@ -268,6 +268,8 @@ for (const w of WIDTHS) {
       await page.getByRole("radio", { name: /^All/ }).click();
       const card = page.locator("div.rounded-2xl", { hasText: "GHK-Cu 100mg" }).first();
       await expect(card.getByText("Size in name")).toBeVisible();
+      // At 390px the sticky header can sit over the button after scrolling: center it first.
+      await card.getByRole("button", { name: "Edit" }).evaluate((el) => el.scrollIntoView({ block: "center" }));
       await card.getByRole("button", { name: "Edit" }).click();
       const sheet = page.getByRole("dialog");
       await expect(sheet.getByRole("alert")).toContainText("The name includes a size (“100mg”)");
