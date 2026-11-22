@@ -66,8 +66,12 @@ export interface CartPricing {
   bogoCents: number;
   /** "Add 1 more GHK-Cu to get it free". */
   dealHints: { dealId: string; text: string }[];
-  /** Discount from a code and/or an automatic deal (an order-level "$" discount). */
+  /** Discount from a code, an automatic deal and/or the buyer referral discount (an order-level "$" discount). */
   discountCents: number;
+  /** Buyer referral discount (already inside discountCents). 0 when no referral code or 0%. */
+  referralCents: number;
+  /** "Referral SARAH-K: 5% off". Empty when none. */
+  referralLabel: string;
   /** Promotions that were applied (code, automatic deal, free shipping rule). */
   applied: { id: string; kind: PromotionRec["kind"]; label: string; cents: number }[];
   /** Why the typed code was not applied, in plain words. Empty when fine or no code. */
@@ -163,6 +167,8 @@ export function priceCart(input: {
   now?: Date;
   /** The store's shipping options, so free shipping text uses their current names. */
   shippingTiers?: Pick<ShippingTier, "id" | "name" | "enabled">[];
+  /** A valid referral code on the order and the buyer discount percent it gives (0 = none). */
+  referral?: { display: string; percent: number } | null;
 }): CartPricing {
   const now = input.now ?? new Date();
   const email = (input.email ?? "").trim();
@@ -262,7 +268,20 @@ export function priceCart(input: {
     remaining -= bestAuto.cents;
   }
 
-  // 3. Free shipping rules: date range + optional minimum, checked against the subtotal after discounts.
+  // 3. Buyer referral discount: a percent of what is left after the code and deal, rounded down to the cent.
+  //    It becomes part of the order's "$" discount, so it is spread over the lines like every other discount.
+  let referralCents = 0;
+  let referralLabel = "";
+  const refPct = input.referral?.percent ?? 0;
+  if (input.referral && refPct > 0 && remaining > 0) {
+    referralCents = Math.min(remaining, Math.floor((remaining * Math.min(100, refPct)) / 100 + 1e-9));
+    if (referralCents > 0) {
+      remaining -= referralCents;
+      referralLabel = `Referral ${input.referral.display}: ${refPct}% off`;
+    }
+  }
+
+  // 4. Free shipping rules: date range + optional minimum, checked against the subtotal after discounts.
   //    Each rule makes only its own shipping options free; several matching rules add up.
   const free = new Set<ShippingTierId>();
   for (const p of input.promotions) {
@@ -286,6 +305,8 @@ export function priceCart(input: {
     bogoCents,
     dealHints: hints,
     discountCents: subtotalCents - remaining,
+    referralCents,
+    referralLabel,
     applied,
     codeError,
     code: usedCode,

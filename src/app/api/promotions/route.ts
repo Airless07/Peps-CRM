@@ -1,5 +1,6 @@
 import { body, HttpError, route } from "@/lib/api";
 import { prisma } from "@/lib/db";
+import { codeOwner, isCodeClash } from "@/lib/referral-codes";
 import { promotionInput } from "@/lib/store/schemas";
 
 async function checked(req: Parameters<Parameters<typeof route>[0]>[0], exceptId?: string) {
@@ -8,6 +9,9 @@ async function checked(req: Parameters<Parameters<typeof route>[0]>[0], exceptId
     if (!p.code) throw new HttpError(400, "Enter the code customers will type, for example SAVE10.");
     const clash = await prisma.promotion.findFirst({ where: { kind: "code", code: p.code, NOT: { id: exceptId ?? "" } } });
     if (clash) throw new HttpError(409, `The code ${p.code} already exists. Edit that one or pick a different code.`);
+    // Discount codes and customer referral codes share one namespace.
+    const owner = await codeOwner(prisma, p.code);
+    if (owner?.kind === "referral") throw new HttpError(409, `${p.code} is already a customer's referral code. Pick a different code.`);
   } else p.code = "";
   const tiers = [...new Set(shippingTiers)];
   if (p.kind === "free_shipping" && tiers.length === 0) throw new HttpError(400, "Pick at least one shipping option this rule makes free.");
@@ -42,8 +46,13 @@ async function checked(req: Parameters<Parameters<typeof route>[0]>[0], exceptId
   };
 }
 
+const clashMessage = "That code is already used (by another discount code or a customer's referral code). Pick a different code.";
+
 export const POST = route(async (req) => {
-  await prisma.promotion.create({ data: await checked(req) });
+  const data = await checked(req);
+  await prisma.promotion.create({ data }).catch((e) => {
+    throw isCodeClash(e) ? new HttpError(409, clashMessage) : e;
+  });
   return { ok: true };
 });
 
@@ -52,7 +61,9 @@ export const PUT = route(async (req) => {
   const clone = req.clone();
   const { id } = (await clone.json()) as { id: string };
   const { id: _i, ...data } = await checked(req, id);
-  await prisma.promotion.update({ where: { id }, data });
+  await prisma.promotion.update({ where: { id }, data }).catch((e) => {
+    throw isCodeClash(e) ? new HttpError(409, clashMessage) : e;
+  });
   return { ok: true };
 });
 

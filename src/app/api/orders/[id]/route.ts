@@ -2,7 +2,7 @@ import { body, HttpError, route, type Ctx } from "@/lib/api";
 import { ensureOrderCustomer } from "@/lib/customer-ops";
 import { prisma } from "@/lib/db";
 import { orderInput } from "@/lib/schemas";
-import { checkReferrer, syncOrderCredit } from "@/lib/credit-ops";
+import { checkReferrer, referralSnapshot, syncOrderCredit } from "@/lib/credit-ops";
 import { cleanSale } from "@/lib/sell-ops";
 
 /** Replace the whole order (fields + lines). Line ids are kept so links stay intact. */
@@ -13,7 +13,10 @@ export const PUT = route(async (req, ctx: Ctx<{ id: string }>) => {
   await prisma.$transaction(async (tx) => {
     const customer = await ensureOrderCustomer(tx, order.customerId, order.customer);
     const referredById = await checkReferrer(tx, order.referredById, order.customerId);
-    await tx.order.update({ where: { id }, data: { ...order, referredById, customer } });
+    // Same referrer: keep the code and percent the order was placed with. New referrer: today's percent.
+    const prev = await tx.order.findUnique({ where: { id }, select: { referredById: true, referralCode: true, referralRatePct: true } });
+    const snap = await referralSnapshot(tx, referredById, prev);
+    await tx.order.update({ where: { id }, data: { ...order, referredById, referralCode: snap.referralCode, referralRatePct: snap.referralRatePct, customer } });
     await tx.orderLine.deleteMany({ where: { orderId: id, id: { notIn: lines.map((l) => l.id) } } });
     for (const [i, l] of lines.entries()) {
       const data = { ...l, orderId: id, sortOrder: i };

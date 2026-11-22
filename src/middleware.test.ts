@@ -46,7 +46,7 @@ describe("the route lists are complete", () => {
     expect(adminPages.length).toBeGreaterThanOrEqual(17);
     expect(adminApi.length).toBeGreaterThanOrEqual(30);
     expect(publicApi.map((r) => new URL(r.url).pathname).sort()).toEqual(
-      ["/api/auth/login", "/api/store/account", "/api/store/checkout", "/api/store/contact", "/api/store/lookup", "/api/store/order/sample-id/screenshot", "/api/store/products", "/api/store/quote", "/api/store/review/sample-id", "/api/store/track", "/api/webhooks/shippo"].sort(),
+      ["/api/auth/login", "/api/store/account", "/api/store/checkout", "/api/store/code", "/api/store/contact", "/api/store/lookup", "/api/store/order/sample-id/screenshot", "/api/store/products", "/api/store/quote", "/api/store/review/sample-id", "/api/store/track", "/api/webhooks/shippo"].sort(),
     );
     for (const r of apiRoutes) expect(r.methods.length, r.url).toBeGreaterThan(0);
     // The new admin routes of this pass are in the protected list.

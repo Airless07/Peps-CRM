@@ -35,6 +35,9 @@ function Hero({ hero }: { hero: SiteContent["hero"] }) {
             {hero.buttonText} <ArrowRight size={17} />
           </Link>
         )}
+        <Link href="/refer" data-hero-refer className={dark ? "s-btn border border-white/40 text-white hover:border-white" : "s-btn-line"}>
+          Refer &amp; Earn
+        </Link>
         <Link href="/testing" className={dark ? "s-btn border border-white/40 text-white hover:border-white" : "s-btn-line"}>
           See our testing
         </Link>

@@ -9,7 +9,7 @@ import { nextOrderNumber } from "./order-ops";
 import type { orderInput, savedOrderInput } from "./schemas";
 import { withLowStockAlert } from "./stock-alerts";
 import { isCash } from "./cash";
-import { assertCreditAvailable, checkReferrer, rememberReferrer, syncOrderCredit } from "./credit-ops";
+import { assertCreditAvailable, checkReferrer, referralSnapshot, syncOrderCredit } from "./credit-ops";
 import { orderTotals } from "./money";
 
 type Tx = Prisma.TransactionClient;
@@ -63,12 +63,16 @@ export async function recordSale(input: SaleInput, origin: string, fromSavedId?:
         }
         const customer = await ensureOrderCustomer(tx, order.customerId, order.customer);
         const referredById = await checkReferrer(tx, order.referredById, order.customerId);
+        // The code and reward percent at the time of the sale (later Settings changes never touch it).
+        const snap = await referralSnapshot(tx, referredById);
         // The saved order (if any) was removed above, so its own hold no longer counts against it.
         await assertCreditAvailable(tx, order.customerId, order.storeCreditCents);
         await tx.order.create({
           data: {
             ...order,
             referredById,
+            referralCode: snap.referralCode,
+            referralRatePct: snap.referralRatePct,
             customer,
             number: await nextOrderNumber(tx),
             source: "inperson",
@@ -76,7 +80,6 @@ export async function recordSale(input: SaleInput, origin: string, fromSavedId?:
             lines: { create: lines.map((l, i) => ({ ...l, sortOrder: i })) },
           },
         });
-        await rememberReferrer(tx, order.customerId, referredById);
         // Completed: the store credit used comes off the balance and the referrer earns their reward.
         await syncOrderCredit(tx, order.id, { by: await sellerName(tx, order.soldBy) });
         // One use of each BOGO deal the sale got (counts toward the deal's use limit).

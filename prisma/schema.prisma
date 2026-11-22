@@ -223,6 +223,16 @@ model Order {
   storeCreditCents Int             @default(0)
   /// Customer who referred this sale (earns referral credit once it counts). No relation on purpose.
   referredById     String?
+  /// Referral code as typed / shown at the time of the order (kept even if the owner changes their code later).
+  referralCode     String          @default("")
+  /// Referrer reward percent at the time of the order. Null = no referral. Later Settings changes never touch it.
+  referralRatePct  Float?
+  /// Buyer referral discount percent at the time of the order (already inside discountValue).
+  referralDiscountPct Float        @default(0)
+  /// The buyer referral discount in cents (already inside discountValue; kept for display).
+  referralDiscountCents Int        @default(0)
+  /// Money given back to the customer after the order counted (partial or full refund). Lowers revenue.
+  refundedCents    Int             @default(0)
   lines            OrderLine[]
   splitItems       SplitItem[]
   labels           LabelPurchase[]
@@ -288,12 +298,45 @@ model Customer {
   /// Set by "Set temporary password": the customer must choose a new one at next sign in.
   mustChangePassword Boolean  @default(false)
   lastLoginAt    DateTime?
-  /// Code this customer shares with friends. Filled in for every customer.
+  /// Code this customer shares with friends, normalized UPPERCASE. Filled in for every customer.
+  /// Unique across all referral codes AND discount codes (CodeClaim table, kept in sync by SQL triggers).
   referralCode   String?      @unique
+  /// The code as the customer typed it (e.g. "Sarah-K"). Null = show referralCode.
+  referralCodeDisplay String?
   /// Who referred this customer. No relation on purpose (a deleted referrer just unlinks).
   referredById   String?
   orders    Order[]
   credits   CreditEntry[]
+  codeChanges ReferralCodeChange[]
+}
+
+/// Every code a customer can type: referral codes and discount codes share ONE namespace.
+/// The primary key is the database-level uniqueness guarantee. Rows are written by SQL triggers on
+/// Customer.referralCode and Promotion.code (see migration 20261123120000_referral_program), never by app code.
+model CodeClaim {
+  /// Normalized uppercase code
+  code        String  @id
+  /// "referral" | "promo"
+  kind        String
+  customerId  String?
+  promotionId String?
+
+  @@index([customerId])
+  @@index([promotionId])
+}
+
+/// History of a customer's referral code changes (old code is freed immediately).
+model ReferralCodeChange {
+  id         String   @id
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  oldCode    String
+  newCode    String
+  /// "Customer" or the admin partner name
+  by         String   @default("")
+  at         DateTime @default(now())
+
+  @@index([customerId])
 }
 
 /// Store credit history. The balance is the sum of amountCents; nothing stores a running balance.
@@ -312,8 +355,10 @@ model CreditEntry {
   orderNumber    Int?
   /// Who did it: a partner name, "Website", "Automatic"...
   by             String   @default("")
-  /// Part of a reversal that could not be taken back because the balance would go below $0.
+  /// Part of a reversal that could not be taken back because the balance would go below $0 (old rule, history only).
   shortfallCents Int      @default(0)
+  /// Pending referral credit (order placed, not paid yet): visible but not spendable, not in the balance.
+  pending        Boolean  @default(false)
   createdAt      DateTime @default(now())
 
   @@index([customerId])

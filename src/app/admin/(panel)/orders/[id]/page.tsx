@@ -4,6 +4,7 @@ import { use, useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Mail, MessageSquareText, CircleDot } from "lucide-react";
 import { InternalNote } from "@/components/internal-note";
+import { OrderReferralCard, RefundCard } from "@/components/order-referral";
 import { StepButton, useOrderActions } from "@/components/order-actions";
 import { RowMenu } from "@/components/row-menu";
 import { api, useLoaded } from "@/components/store";
@@ -24,7 +25,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
   const [eventsError, setEventsError] = useState("");
   const order = s ? [...s.data.orders, ...s.data.pendingOrders].find((o) => o.id === id) : undefined;
   // Reload the timeline whenever the order changes.
-  const stamp = order ? `${order.status}|${order.archived}|${order.web?.trackingNumber}|${order.web?.hasScreenshot}|${order.web?.trackingStatus}` : "";
+  const stamp = order ? `${order.status}|${order.archived}|${order.web?.trackingNumber}|${order.web?.hasScreenshot}|${order.web?.trackingStatus}|${order.refundedCents ?? 0}` : "";
 
   useEffect(() => {
     if (!order) return;
@@ -127,7 +128,12 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
               )}
               {t.tip > 0 && <Row label="Tip">{fmtMoney(t.tip)}</Row>}
               {online && <Row label={`Shipping${w?.shippingMethod ? ` (${w.shippingMethod})` : ""}`}>{t.shipping > 0 ? fmtMoney(t.shipping) : "Free"}</Row>}
-              <Row label="Total" strong>
+              {t.refunded > 0 && (
+                <Row label="Refunded">
+                  <span className="text-neg">-{fmtMoney(t.refunded)}</span>
+                </Row>
+              )}
+              <Row label={t.refunded > 0 ? "Total after refunds" : "Total"} strong>
                 {fmtMoney(t.total)}
               </Row>
             </div>
@@ -151,6 +157,9 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
               <p className="mt-3 text-sm text-muted">This order does not count in stock or money{order.status === "canceled" ? " (canceled)." : " until it is marked paid."}</p>
             )}
           </Card>
+
+          <OrderReferralCard order={order} />
+          <RefundCard order={order} />
 
           <Card className="p-4 sm:p-5">
             <h2 className="mb-3 text-sm font-semibold">Timeline</h2>

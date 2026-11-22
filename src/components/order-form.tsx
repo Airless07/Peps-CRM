@@ -318,15 +318,15 @@ export function OrderForm({ draft, onChange, mode }: { draft: Draft; onChange: (
                   ...v,
                   // Credit belongs to one customer: picking another starts at none.
                   storeCreditCents: changed ? 0 : draft.storeCreditCents ?? 0,
-                  // The customer's own referrer is filled in when nobody is picked yet.
-                  referredById: draft.referredById && draft.referredById !== v.customerId ? draft.referredById : c?.referredById ?? null,
+                  // No lock-in: a referrer is picked for each order (never filled in from an earlier one).
+                  referredById: draft.referredById && draft.referredById !== v.customerId ? draft.referredById : null,
                 });
               }}
             />
             {recent.length > 0 && (
               <div data-recent-customers className="mt-2 flex flex-wrap gap-1.5">
                 {recent.map((c) => (
-                  <button key={c.id} type="button" className="h-10 max-w-[12rem] truncate rounded-full border border-line px-3 text-sm font-medium text-ink transition hover:bg-surface2 active:scale-95" onClick={() => onChange({ ...draft, customer: c.name, customerId: c.id, storeCreditCents: 0, referredById: draft.referredById ?? c.referredById ?? null })}>
+                  <button key={c.id} type="button" className="h-10 max-w-[12rem] truncate rounded-full border border-line px-3 text-sm font-medium text-ink transition hover:bg-surface2 active:scale-95" onClick={() => onChange({ ...draft, customer: c.name, customerId: c.id, storeCreditCents: 0, referredById: draft.referredById && draft.referredById !== c.id ? draft.referredById : null })}>
                     {c.name}
                   </button>
                 ))}

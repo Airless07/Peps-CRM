@@ -539,18 +539,18 @@ export function StoreSettingsTabs({ tab, onTab }: { tab: StoreTab; onTab: (t: st
       <div className="space-y-5" data-referral-settings>
         <SectionTitle>Referral credit</SectionTitle>
         <Card className="space-y-5 p-4">
-          <Field label="Referral credit for the referrer" hint={`When an order with "Referred by" is completed (in person) or marked paid (online), the person who referred it gets this much store credit. It is a percent of the order after discounts and store credit, without tips or shipping. Example: a ${fmtMoney(example)} order gives ${fmtMoney(Math.round((example * r.percent) / 100))}. Owner price orders give nothing, and nobody can refer themselves.`}>
-            <NumberInput className="w-40" value={r.percent} min={0} max={100} step={0.5} suffix="%" onChange={(n) => setR({ percent: n ?? 0 })} label="referral percent" />
+          <Field label="Referrer reward" hint={`Store credit the code owner earns on every order placed with their code. It is a percent of the order subtotal after all discounts (discount code and referral discount), without shipping or tips. Store credit the buyer spends does not lower it. Rounded down to the cent. Example: a ${fmtMoney(example)} order gives ${fmtMoney(Math.floor((example * r.percent) / 100))}. Owner price orders earn nothing, and nobody can use their own code.`}>
+            <NumberInput className="w-40" value={r.percent} min={0} max={100} step={0.5} suffix="%" onChange={(n) => setR({ percent: n ?? 0 })} label="referrer reward percent" />
           </Field>
           <div className="border-t border-line pt-4">
-            <Toggle checked={r.firstOrderOnly} onChange={(v) => setR({ firstOrderOnly: v })} label="Referral credit for first order only" hint="On: only the referred customer's first order earns referral credit. Off: every order they make keeps earning it for the person who referred them." />
-          </div>
-          <div className="border-t border-line pt-4">
-            <Field label="Reward for the new customer too" hint={`The customer who was referred also gets this percent of their own order as store credit, for their next order. 0% = no reward for them. Example: ${r.newCustomerPercent}% of ${fmtMoney(example)} is ${fmtMoney(Math.round((example * r.newCustomerPercent) / 100))}.`}>
-              <NumberInput className="w-40" value={r.newCustomerPercent} min={0} max={100} step={0.5} suffix="%" onChange={(n) => setR({ newCustomerPercent: n ?? 0 })} label="new customer percent" />
+            <Field label="Buyer referral discount" hint={`Discount the buyer gets for using a referral code. 0% = no discount (the code only earns credit for its owner). Example: ${r.buyerDiscountPercent}% of ${fmtMoney(example)} is ${fmtMoney(Math.floor((example * r.buyerDiscountPercent) / 100))} off.`}>
+              <NumberInput className="w-40" value={r.buyerDiscountPercent} min={0} max={100} step={0.5} suffix="%" onChange={(n) => setR({ buyerDiscountPercent: n ?? 0 })} label="buyer referral discount percent" />
             </Field>
           </div>
-          <p className="text-sm text-muted">If an order is canceled, deleted or refunded, its referral credit is taken back. A balance never goes below $0: anything that could not be taken back is noted in the customer's history.</p>
+          <div className="border-t border-line pt-4">
+            <Toggle checked={r.allowStacking} onChange={(v) => setR({ allowStacking: v })} label="Allow a referral code + a discount code on the same order" hint="On: a customer can use one referral code and one discount code together. Off: only one of the two; checkout asks which one to keep." />
+          </div>
+          <p className="text-sm text-muted">Changes apply to new orders only: every order keeps the percents it was placed with. Credit is pending while an order is unpaid and becomes spendable when it is marked paid. If an order is canceled or refunded, its referral credit is taken back automatically (in part for a partial refund). If the owner already spent it, their balance goes negative and future credit pays it off first.</p>
         </Card>
 
         <SectionTitle>Invite links</SectionTitle>

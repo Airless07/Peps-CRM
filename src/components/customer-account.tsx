@@ -2,8 +2,10 @@
 
 // Customer page sections: website account (invite, reset, temporary password), store credit, referrals.
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { Copy, Gift, KeyRound, Mail, Send, Share2 } from "lucide-react";
-import { balanceOf, CREDIT_REASONS } from "@/lib/credit";
+import { balanceOf, CREDIT_REASONS, pendingOf } from "@/lib/credit";
+import { CODE_PROBLEM_TEXT, codeProblem } from "@/lib/referral-rules";
 import { fmtDateTime, fmtMoney } from "@/lib/format";
 import { ACCOUNT_STATUS_LABEL, type CustomerRec } from "@/lib/types";
 import { ReferrerPicker } from "./credit-controls";
@@ -187,6 +189,7 @@ export function CreditSection({ c }: { c: CustomerRec }) {
   const { data, name } = s;
   const entries = (data.creditEntries ?? []).filter((e) => e.customerId === c.id);
   const balance = balanceOf(entries, c.id);
+  const pending = pendingOf(entries, c.id);
 
   async function save() {
     const cents = amount ?? 0;
@@ -202,10 +205,16 @@ export function CreditSection({ c }: { c: CustomerRec }) {
         <div className={headCls}>
           <Gift size={17} /> Store credit
         </div>
-        <div className="text-xl font-semibold tabular-nums" data-credit-balance>
+        <div className={cx("text-xl font-semibold tabular-nums", balance < 0 && "text-neg")} data-credit-balance>
           {fmtMoney(balance)}
         </div>
       </div>
+      {balance < 0 && (
+        <p className="mt-2 rounded-lg bg-neg/10 px-3 py-2 text-sm font-medium text-neg" data-negative-balance>
+          Negative balance: referral credit was reversed after it was spent. New credit pays this off first; they can't spend credit until it is positive.
+        </p>
+      )}
+      {pending > 0 && <p className="mt-1 text-sm text-muted" data-credit-pending>Pending referral credit {fmtMoney(pending)} (not spendable until those orders are paid).</p>}
       <p className="mt-1 text-sm text-muted">Used like a discount at checkout. Taken from the balance only when an order is completed (in person) or marked paid (online).</p>
       <div className="mt-3 flex gap-2">
         <Button size="sm" className="h-11" onClick={() => (setDir("add"), setAmount(null), setReason(""), setBy(data.settings.defaultSoldBy), setOpen(true))} data-add-credit>
@@ -220,7 +229,14 @@ export function CreditSection({ c }: { c: CustomerRec }) {
           {entries.map((e) => (
             <li key={e.id} className="flex items-start gap-3 px-3.5 py-2.5 text-sm">
               <div className="min-w-0 flex-1">
-                <div className="font-medium">{e.reason || (e.kind === "manual" ? "Adjustment" : "Store credit")}</div>
+                <div className="font-medium">
+                  {e.reason || (e.kind === "manual" ? "Adjustment" : "Store credit")}
+                  {e.pending && (
+                    <span className="ml-1.5 align-middle">
+                      <Badge tone="warn">Pending</Badge>
+                    </span>
+                  )}
+                </div>
                 <div className="text-xs text-muted">
                   {fmtDateTime(e.date)}
                   {e.orderNumber ? ` · order #${e.orderNumber}` : ""}
@@ -290,7 +306,9 @@ export function ReferralSection({ c }: { c: CustomerRec }) {
   const { data, mutate } = s;
   const referrer = c.referredById ? data.customers.find((x) => x.id === c.referredById) : undefined;
   const referred = data.customers.filter((x) => x.referredById === c.id).sort((a, b) => a.name.localeCompare(b.name));
-  const earned = (data.creditEntries ?? []).filter((e) => e.customerId === c.id && e.kind === "referral").reduce((x, e) => x + e.amountCents, 0);
+  const earned = (data.creditEntries ?? []).filter((e) => e.customerId === c.id && e.kind === "referral" && !e.pending).reduce((x, e) => x + e.amountCents, 0);
+  const uses = [...data.orders, ...(data.pendingOrders ?? [])].filter((o) => o.referredById === c.id).length;
+  const shown = c.referralCodeDisplay || c.referralCode || "";
 
   async function setReferrer(id: string | null) {
     const ok = await mutate(
@@ -306,20 +324,26 @@ export function ReferralSection({ c }: { c: CustomerRec }) {
         <div className={headCls}>
           <Share2 size={17} /> Referrals
         </div>
-        {c.referralCode && (
+        {shown && (
           <button
             type="button"
             className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-line px-2.5 font-mono text-sm font-semibold tracking-wider hover:bg-surface2"
-            onClick={async () => (await copyText(c.referralCode!)) && toast.show({ message: "Referral code copied" })}
+            onClick={async () => (await copyText(shown)) && toast.show({ message: "Referral code copied" })}
             title="Copy referral code"
             data-referral-code
           >
-            {c.referralCode} <Copy size={14} />
+            {shown} <Copy size={14} />
           </button>
         )}
       </div>
+      <CodeEditor c={c} />
+      <div className="mt-2 text-sm">
+        <Link href={`/admin/referrals/${c.id}`} className="font-medium text-accent underline underline-offset-4" data-referral-details>
+          Referral details: {uses} use{uses === 1 ? "" : "s"}, code history and ledger
+        </Link>
+      </div>
       <div className="mt-3">
-        <Field label="Referred by" hint={referrer ? undefined : "Who sent this customer to you. Their sales then earn that person referral credit."}>
+        <Field label="Referred by" hint={referrer ? "For your records only." : "For your records only. Orders earn referral credit only when a code is used on that order (or a referrer is picked on the Sell screen)."}>
           <ReferrerPicker value={c.referredById} exclude={c.id} onChange={setReferrer} />
         </Field>
       </div>
@@ -342,6 +366,58 @@ export function ReferralSection({ c }: { c: CustomerRec }) {
           </ul>
         )}
       </div>
+    </div>
+  );
+}
+
+/** Admin: change a customer's referral code. Same rules as the customer's own page (format, blocked words, unique). */
+function CodeEditor({ c }: { c: CustomerRec }) {
+  const s = useLoaded();
+  const toast = useToast();
+  const [open, setOpen] = useState(false);
+  const [code, setCode] = useState("");
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    const p = codeProblem(code);
+    if (p) return setMsg(code ? CODE_PROBLEM_TEXT[p] : "");
+    setMsg("");
+    const t = setTimeout(async () => {
+      const r = (await api(`/api/customers/${c.id}/referral-code`, "POST", { code, check: true }).catch(() => null)) as { message?: string } | null;
+      if (r?.message) setMsg(r.message);
+    }, 350);
+    return () => clearTimeout(t);
+  }, [code, open, c.id]);
+  if (!s) return null;
+  async function save() {
+    setBusy(true);
+    const ok = await s!.mutate(null, () => api(`/api/customers/${c.id}/referral-code`, "POST", { code, by: s!.name(s!.data.settings.defaultSoldBy) }));
+    setBusy(false);
+    if (ok) {
+      toast.show({ message: `Referral code changed to ${code.trim()}`, tone: "success" });
+      setOpen(false);
+    }
+  }
+  if (!open) {
+    return (
+      <button type="button" className="mt-2 text-sm font-medium text-muted underline underline-offset-4 hover:text-ink" onClick={() => (setCode(c.referralCodeDisplay || c.referralCode || ""), setOpen(true))} data-edit-referral-code>
+        Change code
+      </button>
+    );
+  }
+  return (
+    <div className="mt-3 space-y-2" data-referral-code-editor>
+      <div className="flex gap-2">
+        <Input value={code} maxLength={20} onChange={(e) => setCode(e.target.value)} aria-label="New referral code" className="font-mono" />
+        <Button size="sm" className="h-12 shrink-0" disabled={busy || !!msg || !code.trim()} onClick={save}>
+          Save
+        </Button>
+        <Button size="sm" variant="soft" className="h-12 shrink-0" onClick={() => setOpen(false)}>
+          Cancel
+        </Button>
+      </div>
+      <p className={cx("text-xs", msg ? "text-neg" : "text-muted")}>{msg || "3 to 20 letters, numbers or dashes. The old code stops working at once; earned credit stays."}</p>
     </div>
   );
 }

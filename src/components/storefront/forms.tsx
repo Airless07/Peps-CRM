@@ -7,6 +7,7 @@ import { useState } from "react";
 import type { PublicOrder } from "@/lib/store/order-view";
 import { accountApi, AuthPanel, cleanError, type AccountInfo } from "./auth-panel";
 import { money } from "./cart";
+import { AccountTabs } from "./referrals-view";
 
 async function post<T>(url: string, body: unknown): Promise<T> {
   const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -334,14 +335,14 @@ export function InviteForm({ token, needsEmail = false }: { token: string; needs
 // ---------------------------------------------------------------- Account
 export interface AccountCredit {
   balanceCents: number;
+  pendingCents: number;
   referralCode: string;
-  history: { id: string; date: string; amountCents: number; reason: string; orderNumber: number | null }[];
+  history: { id: string; date: string; amountCents: number; label: string; type: string }[];
 }
 
-export function AccountView({ account, orders, statusText, credit }: { account: AccountInfo | null; orders: PublicOrder[]; statusText: Record<string, string>; credit?: AccountCredit | null }) {
+/** Signed out: sign in / create account. Temporary password: choose a new one. Shared by every account page. */
+export function AccountGate({ account, title = "Your account", intro = "Sign in to see your orders and tracking, or create an account.", initial = "signin" }: { account: AccountInfo | null; title?: string; intro?: string; initial?: "signin" | "signup" }) {
   const router = useRouter();
-  const [addresses, setAddresses] = useState(account?.addresses ?? []);
-  const [copied, setCopied] = useState(false);
   if (account?.mustChangePassword) {
     return (
       <div className="mx-auto max-w-md">
@@ -353,20 +354,32 @@ export function AccountView({ account, orders, statusText, credit }: { account: 
       </div>
     );
   }
-  if (!account) {
-    return (
-      <div className="mx-auto max-w-md">
-        <h1 className="text-4xl font-semibold" style={{ letterSpacing: "-0.03em" }}>
-          Your account
-        </h1>
-        <p className="mb-7 mt-3 text-[1.0625rem] leading-relaxed text-stone">Sign in to see your orders and tracking, or create an account.</p>
-        <AuthPanel initial="signin" onDone={() => router.refresh()} />
-      </div>
-    );
-  }
+  return (
+    <div className="mx-auto max-w-md">
+      <h1 className="text-4xl font-semibold" style={{ letterSpacing: "-0.03em" }}>
+        {title}
+      </h1>
+      <p className="mb-7 mt-3 text-[1.0625rem] leading-relaxed text-stone">{intro}</p>
+      <AuthPanel initial={initial} onDone={() => router.refresh()} />
+    </div>
+  );
+}
+
+export function AccountView({ account, orders, statusText, credit }: { account: AccountInfo | null; orders: PublicOrder[]; statusText: Record<string, string>; credit?: AccountCredit | null }) {
+  const router = useRouter();
+  const [addresses, setAddresses] = useState(account?.addresses ?? []);
+  const [copied, setCopied] = useState(false);
+  if (!account || account.mustChangePassword) return <AccountGate account={account} />;
   const date = (iso: string) => new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
   return (
     <div>
+      <AccountTabs />
+      <Link href="/account/referrals" className="mb-8 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-brand-tint px-5 py-4 text-[15px] transition hover:bg-brand-tint/70" data-refer-banner>
+        <span>
+          <strong className="font-semibold text-brand-deep">Refer &amp; Earn.</strong> Share your code and earn store credit when friends order.
+        </span>
+        <span className="font-semibold text-brand-deep underline underline-offset-4">Go to Referrals</span>
+      </Link>
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-4xl font-semibold sm:text-5xl" style={{ letterSpacing: "-0.03em" }}>
@@ -390,10 +403,13 @@ export function AccountView({ account, orders, statusText, credit }: { account: 
         <div className="mt-10 grid gap-4 sm:grid-cols-2" data-account-credit>
           <div className="rounded-2xl bg-soft p-5">
             <div className="text-sm font-medium text-stone">Store credit</div>
-            <div className="mt-1 text-3xl font-semibold tabular-nums" data-account-balance>
+            <div className={`mt-1 text-3xl font-semibold tabular-nums ${credit.balanceCents < 0 ? "text-brand" : ""}`} data-account-balance>
               {money(credit.balanceCents)}
             </div>
-            <p className="mt-1 text-sm text-stone">Use it at checkout, all or part of it.</p>
+            <p className="mt-1 text-sm text-stone">
+              {credit.balanceCents < 0 ? "Below $0 because referral credit you used was reversed. New credit pays it off first." : "Use it at checkout, all or part of it."}
+              {credit.pendingCents > 0 ? ` ${money(credit.pendingCents)} pending from referrals.` : ""}
+            </p>
           </div>
           {credit.referralCode && (
             <div className="rounded-2xl border border-rule p-5">
@@ -415,7 +431,12 @@ export function AccountView({ account, orders, statusText, credit }: { account: 
                   {copied ? "Copied" : "Copy"}
                 </button>
               </div>
-              <p className="mt-1 text-sm text-stone">Friends enter it at checkout. You earn store credit when their order is paid.</p>
+              <p className="mt-1 text-sm text-stone">
+                Friends enter it at checkout. You earn store credit when their order is paid.{" "}
+                <Link href="/account/referrals" className="s-link">
+                  Referrals
+                </Link>
+              </p>
             </div>
           )}
         </div>
@@ -464,8 +485,10 @@ export function AccountView({ account, orders, statusText, credit }: { account: 
                   {credit.history.map((h) => (
                     <li key={h.id} className="flex items-start justify-between gap-4 py-3 text-[15px]">
                       <span className="min-w-0">
-                        <span className="block">{h.reason || "Store credit"}</span>
-                        <span className="block text-sm text-stone">{date(h.date)}</span>
+                        <span className="block">{h.label}</span>
+                        <span className="block text-sm text-stone">
+                          {h.type} · {date(h.date)}
+                        </span>
                       </span>
                       <span className={`shrink-0 font-semibold tabular-nums ${h.amountCents < 0 ? "" : "text-brand"}`}>
                         {h.amountCents < 0 ? `-${money(-h.amountCents)}` : `+${money(h.amountCents)}`}

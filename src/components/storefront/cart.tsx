@@ -12,6 +12,8 @@ import { Vial } from "./vial";
 
 export const money = (c: number) => `$${(c / 100).toFixed(2)}`;
 const KEY = "bp-cart";
+/** A typed code as kept in the cart: letters, numbers, dashes and underscores, as typed (the server ignores case). */
+const cleanTyped = (c: string) => c.trim().replace(/[^A-Za-z0-9_-]/g, "").slice(0, 30);
 
 export interface CartItem {
   variantId: string;
@@ -59,11 +61,25 @@ export interface Quote {
   payMethods: { id: string; name: string; blurb: string; available: boolean }[];
   /** Signed-in customer's store credit. Null when signed out. */
   credit?: { balanceCents: number; availableCents: number } | null;
+  /** Buyer referral discount (inside discountCents) and its label. */
+  referralCents?: number;
+  referralLabel?: string;
+  /** A valid referral code on this cart. Never says who owns it. */
+  referral?: { code: string; discountPercent: number; cents: number } | null;
+  /** Why the referral code can't be used ("That is your own code..."). */
+  referralError?: string;
+  /** Stacking is off and both codes apply: the customer picks one. */
+  conflict?: { message: string; discountCode: string; referralCode: string } | null;
+  /** "You used CODE last time" (signed in, no referral code on the cart yet). */
+  lastReferral?: string | null;
 }
 
 interface CartCtx {
   items: CartItem[];
   code: string;
+  /** Referral code slot (one per order), separate from the discount code slot. */
+  referral: string;
+  setReferral: (code: string) => void;
   count: number;
   ready: boolean;
   quote: Quote | null;
@@ -92,6 +108,7 @@ export const useCart = () => {
 export function CartProvider({ products, children }: { products: PublicProduct[]; children: React.ReactNode }) {
   const [items, setItems] = useState<CartItem[]>([]);
   const [code, setCodeState] = useState("");
+  const [referral, setReferralState] = useState("");
   const [ready, setReady] = useState(false);
   const [open, setOpen] = useState(false);
   const [quote, setQuote] = useState<Quote | null>(null);
@@ -102,17 +119,22 @@ export function CartProvider({ products, children }: { products: PublicProduct[]
 
   useEffect(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem(KEY) ?? "{}") as { items?: CartItem[]; code?: string };
+      const saved = JSON.parse(localStorage.getItem(KEY) ?? "{}") as { items?: CartItem[]; code?: string; referral?: string };
       if (Array.isArray(saved.items)) setItems(saved.items.filter((i) => i && typeof i.variantId === "string" && i.quantity > 0));
-      // "Apply now" in the promo bar links to ?code=XXXX
-      const fromUrl = new URLSearchParams(window.location.search).get("code");
+      // "Apply now" in the promo bar links to ?code=XXXX; a friend's share link to ?ref=THEIR-CODE.
+      const params = new URLSearchParams(window.location.search);
+      const fromUrl = params.get("code");
+      const refUrl = params.get("ref");
       const next = (fromUrl || saved.code || "").toUpperCase().slice(0, 30);
       if (next) setCodeState(next);
-      if (fromUrl) {
+      const nextRef = cleanTyped(refUrl || saved.referral || "");
+      if (nextRef) setReferralState(nextRef);
+      if (fromUrl || refUrl) {
         const u = new URL(window.location.href);
         u.searchParams.delete("code");
+        u.searchParams.delete("ref");
         window.history.replaceState(null, "", u.pathname + u.search);
-        setOpen(true);
+        if (fromUrl) setOpen(true);
       }
     } catch {}
     setReady(true);
@@ -121,11 +143,11 @@ export function CartProvider({ products, children }: { products: PublicProduct[]
   useEffect(() => {
     if (!ready) return;
     try {
-      localStorage.setItem(KEY, JSON.stringify({ items, code }));
+      localStorage.setItem(KEY, JSON.stringify({ items, code, referral }));
     } catch {}
-  }, [items, code, ready]);
+  }, [items, code, referral, ready]);
 
-  const fetchQuote = useCallback(async (list: CartItem[], c: string, shipTo: Record<string, string> | null): Promise<Quote | null> => {
+  const fetchQuote = useCallback(async (list: CartItem[], c: string, ref: string, shipTo: Record<string, string> | null): Promise<Quote | null> => {
     if (list.length === 0) {
       setQuote(null);
       setQuoteError("");
@@ -134,7 +156,7 @@ export function CartProvider({ products, children }: { products: PublicProduct[]
     const n = ++seq.current;
     setQuoting(true);
     try {
-      const res = await fetch("/api/store/quote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: list, code: c, shipTo }) });
+      const res = await fetch("/api/store/quote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: list, code: c, referralCode: ref, shipTo }) });
       const json = await res.json().catch(() => ({}));
       if (n !== seq.current) return null;
       if (!res.ok) {
@@ -154,9 +176,9 @@ export function CartProvider({ products, children }: { products: PublicProduct[]
 
   useEffect(() => {
     if (!ready) return;
-    const t = setTimeout(() => fetchQuote(items, code, shipToRef.current), 140);
+    const t = setTimeout(() => fetchQuote(items, code, referral, shipToRef.current), 140);
     return () => clearTimeout(t);
-  }, [items, code, ready, fetchQuote]);
+  }, [items, code, referral, ready, fetchQuote]);
 
   // Drop items the store no longer sells, once the server says so.
   useEffect(() => {
@@ -187,21 +209,24 @@ export function CartProvider({ products, children }: { products: PublicProduct[]
   const clear = useCallback(() => {
     setItems([]);
     setCodeState("");
+    // No lock-in: the next order starts without a referral code (a one-click "use it again" is offered).
+    setReferralState("");
     setQuote(null);
   }, []);
   const setCode = useCallback((c: string) => setCodeState(c.toUpperCase().replace(/[^A-Z0-9_-]/g, "").slice(0, 30)), []);
+  const setReferral = useCallback((c: string) => setReferralState(cleanTyped(c)), []);
   const requote = useCallback(
     (shipTo?: Record<string, string> | null) => {
       shipToRef.current = shipTo ?? null;
-      return fetchQuote(items, code, shipToRef.current);
+      return fetchQuote(items, code, referral, shipToRef.current);
     },
-    [items, code, fetchQuote],
+    [items, code, referral, fetchQuote],
   );
 
   const count = items.reduce((s, i) => s + i.quantity, 0);
   const value = useMemo(
-    () => ({ items, code, count, ready, quote, quoting, quoteError, open, setOpen, add, setQty, swap, remove, setCode, clear, requote, products }),
-    [items, code, count, ready, quote, quoting, quoteError, open, add, setQty, swap, remove, setCode, clear, requote, products],
+    () => ({ items, code, referral, setReferral, count, ready, quote, quoting, quoteError, open, setOpen, add, setQty, swap, remove, setCode, clear, requote, products }),
+    [items, code, referral, setReferral, count, ready, quote, quoting, quoteError, open, add, setQty, swap, remove, setCode, clear, requote, products],
   );
   return (
     <Ctx.Provider value={value}>
@@ -317,56 +342,140 @@ export function PromoField() {
   const cart = useCart();
   const [text, setText] = useState("");
   const [openField, setOpenField] = useState(false);
-  const applied = cart.quote?.code;
-  const err = cart.code && cart.quote && !cart.quoting ? cart.quote.codeError : "";
+  const [checking, setChecking] = useState(false);
+  const [kindError, setKindError] = useState("");
+  const q = cart.quote;
+  const applied = q?.code;
+  const ref = q?.referral ?? null;
+  const settled = !!q && !cart.quoting;
+  const codeErr = cart.code && settled ? q!.codeError : "";
+  const refErr = cart.referral && settled ? q!.referralError ?? "" : "";
+  const err = kindError || codeErr || refErr;
+  const conflict = settled ? q!.conflict ?? null : null;
   useEffect(() => {
     if (err) setOpenField(true);
   }, [err]);
 
-  if (applied) {
-    return (
-      <div className="flex items-center justify-between gap-3 rounded-xl bg-brand-tint px-4 py-3">
-        <span className="flex min-w-0 items-center gap-2 text-sm">
-          <Tag size={15} className="shrink-0 text-brand" />
-          <span className="truncate">
-            Code <strong className="font-semibold tracking-wide">{applied}</strong> applied
-          </span>
-        </span>
-        <button type="button" onClick={() => cart.setCode("")} className="shrink-0 text-[13px] font-medium text-stone underline underline-offset-4 hover:text-coal">
-          Remove
-        </button>
-      </div>
-    );
+  // One box for both kinds: ask the server which one it is, then put it in that slot (one of each per order).
+  async function apply(typed: string) {
+    const value = typed.trim();
+    if (!value) return;
+    setChecking(true);
+    setKindError("");
+    try {
+      const res = await fetch("/api/store/code", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: value }) });
+      const json = (await res.json().catch(() => ({}))) as { kind?: string; error?: string };
+      if (!res.ok) throw new Error(json.error || "We couldn't check that code. Try again.");
+      if (json.kind === "discount") cart.setCode(value);
+      else if (json.kind === "referral") cart.setReferral(value);
+      else throw new Error(json.error || "That code was not found. Check the spelling and try again.");
+      setText("");
+      setOpenField(false);
+    } catch (e) {
+      setKindError((e as Error).message);
+    } finally {
+      setChecking(false);
+    }
   }
-  if (!openField && !cart.code) {
-    return (
-      <button type="button" onClick={() => setOpenField(true)} className="flex h-11 items-center gap-2 text-sm font-medium text-coal underline decoration-rule underline-offset-4 hover:decoration-coal">
-        <Tag size={15} /> Add a discount code
+
+  const chip = (label: React.ReactNode, onRemove: () => void, attr: Record<string, string>) => (
+    <div className="flex items-center justify-between gap-3 rounded-xl bg-brand-tint px-4 py-3" {...attr}>
+      <span className="flex min-w-0 items-center gap-2 text-sm">
+        <Tag size={15} className="shrink-0 text-brand" />
+        <span className="truncate">{label}</span>
+      </span>
+      <button type="button" onClick={onRemove} className="shrink-0 text-[13px] font-medium text-stone underline underline-offset-4 hover:text-coal">
+        Remove
       </button>
-    );
-  }
+    </div>
+  );
+  const both = !!applied && !!ref;
+
   return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (text.trim()) cart.setCode(text);
-      }}
-    >
-      <label className="s-label" htmlFor="promo-code">
-        Discount code
-      </label>
-      <div className="flex gap-2">
-        <input id="promo-code" className="s-input uppercase tracking-wide" value={text || (err ? cart.code : "")} onChange={(e) => setText(e.target.value.toUpperCase())} placeholder="Enter code" autoComplete="off" autoCapitalize="characters" spellCheck={false} aria-describedby={err ? "promo-error" : undefined} />
-        <button type="submit" className="s-btn-line shrink-0 px-5" disabled={cart.quoting || !(text || cart.code).trim()}>
-          {cart.quoting ? "Checking…" : "Apply"}
-        </button>
-      </div>
-      {err && (
-        <p id="promo-error" className="s-error" role="alert">
-          {err}
-        </p>
+    <div className="space-y-2.5">
+      {applied && chip(<>Code <strong className="font-semibold tracking-wide">{applied}</strong> applied</>, () => cart.setCode(""), { "data-applied-discount": applied })}
+      {ref &&
+        chip(
+          <>
+            Referral code <strong className="font-semibold tracking-wide">{ref.code}</strong> applied{ref.discountPercent > 0 ? ` · ${ref.discountPercent}% off` : ""}
+          </>,
+          () => cart.setReferral(""),
+          { "data-applied-referral": ref.code },
+        )}
+      {conflict && (
+        <div className="rounded-xl border border-brand/40 bg-paper p-4 text-sm" role="alert" data-code-conflict>
+          <p className="font-medium text-coal">{conflict.message}</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button type="button" className="s-btn-line h-10 px-4 text-sm" onClick={() => cart.setReferral("")}>
+              Keep {conflict.discountCode}
+            </button>
+            <button type="button" className="s-btn-line h-10 px-4 text-sm" onClick={() => cart.setCode("")}>
+              Keep referral {conflict.referralCode}
+            </button>
+          </div>
+        </div>
       )}
-    </form>
+      {!both && !conflict && (!openField && !err ? (
+        <button type="button" onClick={() => setOpenField(true)} className="flex h-11 items-center gap-2 text-sm font-medium text-coal underline decoration-rule underline-offset-4 hover:decoration-coal">
+          <Tag size={15} /> {applied || ref ? "Add another code" : "Add a discount or referral code"}
+        </button>
+      ) : (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void apply(text || (codeErr ? cart.code : refErr ? cart.referral : ""));
+          }}
+        >
+          <label className="s-label" htmlFor="promo-code">
+            Discount or referral code
+          </label>
+          <div className="flex gap-2">
+            <input
+              id="promo-code"
+              className="s-input uppercase tracking-wide"
+              value={text || (codeErr ? cart.code : refErr ? cart.referral : "")}
+              onChange={(e) => (setText(e.target.value), setKindError(""))}
+              placeholder="Enter code"
+              autoComplete="off"
+              autoCapitalize="characters"
+              spellCheck={false}
+              maxLength={30}
+              aria-describedby={err ? "promo-error" : undefined}
+            />
+            <button type="submit" className="s-btn-line shrink-0 px-5" disabled={checking || cart.quoting || !(text || cart.code || cart.referral).trim()}>
+              {checking || cart.quoting ? "Checking…" : "Apply"}
+            </button>
+          </div>
+          {err && (
+            <p id="promo-error" className="s-error" role="alert">
+              {err}{" "}
+              {!kindError && (
+                <button type="button" className="underline underline-offset-4" onClick={() => (codeErr ? cart.setCode("") : cart.setReferral(""), setText(""))}>
+                  Clear
+                </button>
+              )}
+            </p>
+          )}
+        </form>
+      ))}
+    </div>
+  );
+}
+
+/** Signed-in buyer who used a referral code before: "You used CODE last time. Use it again?" One click applies it. */
+export function LastReferralPrompt() {
+  const cart = useCart();
+  const last = cart.quote?.lastReferral;
+  if (!last || cart.referral || cart.quote?.referral) return null;
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rule px-4 py-3 text-sm" data-last-referral={last}>
+      <span>
+        You used <strong className="font-semibold tracking-wide">{last}</strong> last time. Use it again?
+      </span>
+      <button type="button" className="s-btn-line h-9 px-4 text-sm" onClick={() => cart.setReferral(last)}>
+        Apply {last}
+      </button>
+    </div>
   );
 }
 
@@ -417,6 +526,12 @@ export function CartTotals({ shippingCents, shippingLabel, creditCents = 0 }: { 
             <dd className="shrink-0 tabular-nums">-{money(a.cents)}</dd>
           </div>
         ))}
+      {(quote.referralCents ?? 0) > 0 && (
+        <div data-referral-row className="flex justify-between gap-4 text-brand">
+          <dt className="min-w-0 truncate">{quote.referralLabel || "Referral discount"}</dt>
+          <dd className="shrink-0 tabular-nums">-{money(quote.referralCents ?? 0)}</dd>
+        </div>
+      )}
       {creditCents > 0 && (
         <div data-credit-row className="flex justify-between gap-4 text-brand">
           <dt>Store credit</dt>

@@ -117,7 +117,8 @@ export function normalizeBackup(raw: Loose & { orders: Loose[] }, makeId: () => 
       // Accounts, credit and referrals: missing in older backups (then the database defaults apply).
       ...(c.lastLoginAt ? { lastLoginAt: c.lastLoginAt } : {}),
       ...(c.mustChangePassword ? { mustChangePassword: true } : {}),
-      ...(typeof c.referralCode === "string" && c.referralCode ? { referralCode: c.referralCode } : {}),
+      ...(typeof c.referralCode === "string" && c.referralCode ? { referralCode: c.referralCode.toUpperCase() } : {}),
+      ...(typeof c.referralCodeDisplay === "string" && c.referralCodeDisplay ? { referralCodeDisplay: c.referralCodeDisplay } : {}),
       ...(typeof c.referredById === "string" && c.referredById ? { referredById: c.referredById } : {}),
     }));
     const ids = new Set(customers.map((c) => c.id));

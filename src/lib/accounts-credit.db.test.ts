@@ -492,30 +492,33 @@ describe("store credit", () => {
 
 // ---------------------------------------------------------------- Referrals
 describe("referrals", () => {
-  it("in person: 10% of the order after discounts and store credit, without the tip", async () => {
+  it("in person: 10% of the order after discounts (store credit spent doesn't lower it), without the tip, rounded down", async () => {
     await give("dana", 1000);
     await sell.recordSale(sale({ id: "r1", referredById: "sam", discountValue: 555, storeCreditCents: 1000, tipCents: 2000 }), ORIGIN);
-    // 10000 - 5.55 - 10.00 = 84.45; 10% = 8.445 -> $8.45 (rounded to cents)
-    expect(await balance("sam")).toBe(845);
+    // 10000 - 5.55 = 94.45; 10% = 9.445 -> $9.44 (rounded down)
+    expect(await balance("sam")).toBe(944);
     const e = await prisma.creditEntry.findFirst({ where: { customerId: "sam" } });
-    expect(e).toMatchObject({ kind: "referral", orderId: "r1", by: "Ahmad" });
-    expect(e!.reason).toMatch(/^Referral: Dana Reed's order #\d+ \(10%\)$/);
-    // The customer now remembers who referred them.
-    expect((await prisma.customer.findUnique({ where: { id: "dana" } }))!.referredById).toBe("sam");
+    expect(e).toMatchObject({ kind: "referral", orderId: "r1", by: "Ahmad", pending: false });
+    // Only a first name and last initial of the buyer.
+    expect(e!.reason).toMatch(/^Referral: Dana R\.'s order #\d+ \(10%\)$/);
+    // The order keeps the code and the percent of the day.
+    expect(await prisma.order.findUnique({ where: { id: "r1" } })).toMatchObject({ referralCode: "SAMM3333", referralRatePct: 10 });
   });
 
-  it("online: only when marked paid, without shipping; the referral code sets Referred by", async () => {
+  it("online: pending when placed, available when marked paid, without shipping; reversed when canceled", async () => {
     await expect(checkout({ referralCode: "NOPE9999" })).rejects.toThrow(/wasn't found/);
     await expect(checkout({ referralCode: "kimp4444" })).rejects.toThrow(/your own referral code/);
     const web = await checkout({ referralCode: " samm3333 " });
     expect((await prisma.order.findUnique({ where: { id: web.id } }))!.referredById).toBe("sam");
-    expect(await balance("sam")).toBe(0); // unpaid: nothing yet
+    expect(await balance("sam")).toBe(0); // unpaid: not spendable
+    expect(await creditOps.creditPending(prisma, "sam")).toBe(1000); // but visible as pending
     await ops.markPaid(web.id, { paymentMethod: "Zelle", notify: false });
     expect(await balance("sam")).toBe(1000); // 10% of $100, not of $106.95
+    expect(await creditOps.creditPending(prisma, "sam")).toBe(0);
     // Canceled after paying: taken back.
     await ops.cancelOrder(web.id, "Canceled: refunded", { notify: false });
     expect(await balance("sam")).toBe(0);
-    expect(await prisma.creditEntry.findFirst({ where: { customerId: "sam", amountCents: -1000 } })).toMatchObject({ reason: expect.stringMatching(/Referral reversed: order #\d+ canceled/) });
+    expect(await prisma.creditEntry.findFirst({ where: { customerId: "sam", amountCents: -1000, pending: false } })).toMatchObject({ reason: expect.stringMatching(/Referral reversed: order #\d+ canceled/) });
   });
 
   it("no self-referral and none on owner price", async () => {
@@ -524,7 +527,7 @@ describe("referrals", () => {
     expect(await balance("sam")).toBe(0);
   });
 
-  it("a reversal stops at $0 and notes the shortfall", async () => {
+  it("a reversal of credit already spent takes the balance negative", async () => {
     await sell.recordSale(sale({ id: "r2", referredById: "sam" }), ORIGIN);
     expect(await balance("sam")).toBe(1000);
     // Sam spends $7 of it.
@@ -533,19 +536,24 @@ describe("referrals", () => {
     await adminCookie();
     const { DELETE } = await import("../app/api/orders/[id]/route");
     await DELETE(req("/api/orders/r2", "DELETE", undefined), { params: Promise.resolve({ id: "r2" }) });
-    expect(await balance("sam")).toBe(0);
+    expect(await balance("sam")).toBe(-700);
     const rev = await prisma.creditEntry.findFirst({ where: { orderId: "r2", amountCents: { lt: 0 } } });
-    expect(rev).toMatchObject({ amountCents: -300, shortfallCents: 700 });
-    expect(rev!.reason).toMatch(/\$7\.00 could not be taken back/);
+    expect(rev).toMatchObject({ amountCents: -1000, shortfallCents: 0 });
   });
 
-  it("first order only, and the new customer's own reward, follow Settings", async () => {
-    await prisma.settings.update({ where: { id: 1 }, data: { storeJson: JSON.stringify({ open: true, siteUrl: "https://shop.test", payments: { zelle: { enabled: true, details: "x" } }, qtyDeals: [], referrals: { percent: 10, firstOrderOnly: true, newCustomerPercent: 5 } }) } });
+  it("every order with the code earns; a Settings change only applies to new orders", async () => {
+    await sell.recordSale(sale({ id: "f1", referredById: "sam" }), ORIGIN);
+    await prisma.settings.update({ where: { id: 1 }, data: { storeJson: JSON.stringify({ open: true, siteUrl: "https://shop.test", payments: { zelle: { enabled: true, details: "x" } }, qtyDeals: [], referrals: { percent: 20 } }) } });
     try {
-      await sell.recordSale(sale({ id: "f1", referredById: "sam" }), ORIGIN);
       await sell.recordSale(sale({ id: "f2", referredById: "sam", date: new Date("2026-03-02T12:00:00Z") }), ORIGIN);
-      expect(await balance("sam")).toBe(1000); // only the first order
-      expect(await balance("dana")).toBe(500); // 5% of her first order
+      expect(await balance("sam")).toBe(1000 + 2000);
+      // Editing the old order keeps its 10%.
+      const { PUT } = await import("../app/api/orders/[id]/route");
+      await adminCookie();
+      const f1 = sale({ id: "f1", referredById: "sam", note: "edited" });
+      await PUT(req("/api/orders/f1", "PUT", { ...f1, date: f1.date.toISOString() }), { params: Promise.resolve({ id: "f1" }) });
+      expect((await prisma.order.findUnique({ where: { id: "f1" } }))!.referralRatePct).toBe(10);
+      expect(await balance("sam")).toBe(3000);
     } finally {
       await prisma.settings.update({ where: { id: 1 }, data: { storeJson: JSON.stringify({ open: true, siteUrl: "https://shop.test", payments: { zelle: { enabled: true, details: "pay@buckshot.test" } }, qtyDeals: [] }) } });
     }

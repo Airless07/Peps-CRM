@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { requestOrigin } from "@/lib/order-ops";
 import { clearFailures, clientIp, lockedFor, rateLimit, recordFailure } from "@/lib/ratelimit";
 import { HttpError } from "@/lib/api";
+import { changeReferralCode, codeAvailability } from "@/lib/referral-codes";
 import { accountAction } from "@/lib/store/schemas";
 
 export const dynamic = "force-dynamic";
@@ -63,6 +64,18 @@ export const POST = route(
         const a = await requireAccount();
         await setAddresses(a.id, input.addresses.map((x) => ({ ...x, street2: x.street2 ?? "" })));
         return { ok: true };
+      }
+      case "check-code": {
+        rateLimit(req, "check-code", 60, 60_000);
+        const a = await requireAccount();
+        const message = await codeAvailability(prisma, input.code, a.id);
+        return { ok: !message, message };
+      }
+      case "referral-code": {
+        rateLimit(req, "referral-code", 10, 10 * 60_000);
+        const a = await requireAccount();
+        const r = await changeReferralCode(a.id, input.code, "Customer");
+        return { ok: true, code: r.display };
       }
       case "profile": {
         const a = await requireAccount();

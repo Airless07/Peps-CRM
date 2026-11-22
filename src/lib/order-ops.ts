@@ -28,9 +28,11 @@ import { checkoutMethods, payInstructions, payMethod } from "./store/payments";
 import { orderLinesOf, priceCart, shippingOptions, type CartItemInput } from "./store/pricing";
 import type { Address, AppData, OrderRec, PromoSnapshot } from "./types";
 import { track } from "./analytics";
-import { clampCredit } from "./credit";
+import { clampCredit, refundableOf } from "./credit";
 import { creditAvailable, rememberReferrer, syncOrderCredit } from "./credit-ops";
-import { customerByReferralCode } from "./referral-codes";
+import { fmtMoney } from "./format";
+import { resolveReferral, STACKING_TEXT, type ReferralBuyer } from "./store/referral";
+import { countsInMoney } from "./types";
 
 type Tx = Prisma.TransactionClient;
 type Db = Tx | typeof prisma;
@@ -129,9 +131,31 @@ export interface CheckoutInput {
 }
 
 /** Price a cart exactly like the order will be saved. Shared by the quote API and placeOrder. */
-export async function quoteCheckout(data: AppData, input: { items: CartItemInput[]; code: string; email: string; shipTo?: Address | null }) {
+export async function quoteCheckout(
+  data: AppData,
+  input: { items: CartItemInput[]; code: string; email: string; shipTo?: Address | null; referralCode?: string; buyer?: ReferralBuyer },
+) {
   const variants = pricedVariants(data);
-  const pricing = priceCart({ items: input.items, variants, promotions: data.promotions, code: input.code, email: input.email, shippingTiers: data.store.shippingTiers });
+  // Referral code: checked against the buyer (no self-referral by account, email or address).
+  const ref = input.referralCode?.trim() ? resolveReferral(data, input.referralCode, { email: input.email, shipTo: input.shipTo, ...input.buyer }) : null;
+  const okRef = ref?.ok ? ref : null;
+  const price = (withRef: boolean) =>
+    priceCart({
+      items: input.items,
+      variants,
+      promotions: data.promotions,
+      code: input.code,
+      email: input.email,
+      shippingTiers: data.store.shippingTiers,
+      referral: withRef && okRef ? { display: okRef.display, percent: okRef.buyerDiscountPercent } : null,
+    });
+  let pricing = price(true);
+  // Stacking off: a referral code and a discount code that both apply can't be used together. The
+  // cart keeps the discount code priced and asks the customer which one to keep.
+  const conflict = !!okRef && !!pricing.code && !data.store.referrals.allowStacking;
+  if (conflict) pricing = price(false);
+  const referral = okRef && !conflict ? okRef : null;
+  const referralError = ref && !ref.ok ? ref.error : "";
   let live: ReturnType<typeof ratesByTier> | undefined;
   let liveNote = "";
   const to = input.shipTo;
@@ -143,7 +167,7 @@ export async function quoteCheckout(data: AppData, input: { items: CartItemInput
     else liveNote = res.error;
   }
   const shipping = shippingOptions(data.store, pricing.freeTiers, live);
-  return { pricing, shipping, liveNote, variants };
+  return { pricing, shipping, liveNote, variants, referral, referralError, conflict };
 }
 
 export async function placeOrder(input: CheckoutInput): Promise<{ id: string; token: string; number: number }> {
@@ -151,9 +175,18 @@ export async function placeOrder(input: CheckoutInput): Promise<{ id: string; to
   const { store } = data;
   if (!store.open) throw new HttpError(403, "The store is not open for orders yet.");
   const ledger = computeLedger(data);
-  const { pricing, shipping } = await quoteCheckout(data, { items: input.items, code: input.code, email: input.email, shipTo: input.shipTo });
+  const { pricing, shipping, referral, referralError, conflict } = await quoteCheckout(data, {
+    items: input.items,
+    code: input.code,
+    email: input.email,
+    shipTo: input.shipTo,
+    referralCode: input.referralCode,
+    buyer: { customerId: input.customerId, email: input.email, shipTo: input.shipTo },
+  });
   if (pricing.lines.length === 0) throw new HttpError(400, "Your cart is empty. Add a product before checking out.");
   if (input.code.trim() && pricing.codeError) throw new HttpError(400, pricing.codeError);
+  if (referralError) throw new HttpError(400, referralError);
+  if (conflict) throw new HttpError(409, STACKING_TEXT);
   const soldOut = pricing.lines.filter((l) => (ledger.stock.get(l.variantId)?.stock ?? 0) <= 0);
   if (soldOut.length) throw new HttpError(409, `${soldOut.map((l) => l.name).join(", ")} just sold out. Remove ${soldOut.length === 1 ? "it" : "them"} from your cart to continue.`);
   const ship = shipping.find((s) => s.tier === input.tier);
@@ -163,14 +196,8 @@ export async function placeOrder(input: CheckoutInput): Promise<{ id: string; to
   const customer = await prisma.customer.findUnique({ where: { id: input.customerId } });
   if (!customer) throw new HttpError(401, "Sign in again to place your order.");
 
-  // Referral code: who referred this order. A typed code wins; else the customer's own referrer.
-  let referredById = customer.referredById;
-  if (input.referralCode?.trim()) {
-    const ref = await customerByReferralCode(prisma, input.referralCode);
-    if (!ref) throw new HttpError(400, "That referral code wasn't found. Check it, or leave the field empty.");
-    if (ref.id === customer.id) throw new HttpError(400, "That is your own referral code. Share it with friends instead.");
-    referredById = ref.id;
-  }
+  // Referral: only a code typed on THIS order counts. A buyer is never tied to an earlier referrer.
+  const referredById = referral?.ownerId ?? null;
 
   // Store credit: never more than what is free to spend (other unpaid orders hold theirs) or the total after discounts.
   const wanted = Math.max(0, Math.round(input.storeCreditCents ?? 0));
@@ -207,6 +234,11 @@ export async function placeOrder(input: CheckoutInput): Promise<{ id: string; to
         // Held until the order is paid; only then does it come off the balance.
         storeCreditCents: credit,
         referredById,
+        // The code as shown and today's percents: later code or Settings changes never touch this order.
+        referralCode: referral?.display ?? "",
+        referralRatePct: referral ? referral.ratePercent : null,
+        referralDiscountPct: referral ? referral.buyerDiscountPercent : 0,
+        referralDiscountCents: pricing.referralCents,
         email: input.email.trim().toLowerCase(),
         phone: input.phone.trim(),
         shipToJson: JSON.stringify(input.shipTo),
@@ -238,7 +270,9 @@ export async function placeOrder(input: CheckoutInput): Promise<{ id: string; to
       await tx.promotionUse.create({ data: { id: randomUUID(), promotionId: a.id, orderId: id, email: input.email.trim().toLowerCase() } });
     }
     await rememberReferrer(tx, customer.id, referredById);
-    await logEvent(tx, id, "status", "Order placed. Waiting for payment.", `${method.name} · total $${(total / 100).toFixed(2)}`);
+    // Placed with a referral code: the code owner gets PENDING credit (spendable once the order is paid).
+    await syncOrderCredit(tx, id, { by: "Website order" });
+    await logEvent(tx, id, "status", "Order placed. Waiting for payment.", `${method.name} · total $${(total / 100).toFixed(2)}${referral ? ` · referral code ${referral.display}` : ""}`);
     return n;
   });
 
@@ -318,6 +352,36 @@ export async function markPaid(orderId: string, opts: { paymentMethod: string; o
     const { order: fresh } = await loadOrder(orderId);
     await mailOrder(data.store, orderId, email, "Payment confirmed email", paymentConfirmedEmail(data.store, emailOrder(fresh, siteUrl(data.store, opts.origin))));
   }
+}
+
+// ---------------------------------------------------------------- Refund
+/**
+ * Record money given back on an order that counts (paid / completed / shipped...). Partial or full.
+ * Revenue goes down by the refund (items first, then shipping), and the referral credit the order earned
+ * goes down in proportion, with a ledger entry. `expectedRefundedCents` is what the screen showed as
+ * already refunded: a double click or a second device can never record the same refund twice.
+ */
+export async function refundOrder(orderId: string, input: { amountCents: number; reason?: string; expectedRefundedCents: number; by?: string }) {
+  const amount = Math.round(input.amountCents);
+  if (!(amount > 0)) throw new HttpError(400, "Enter the amount you refunded.");
+  await prisma.$transaction(async (tx) => {
+    const o = await tx.order.findUnique({ where: { id: orderId }, include: { lines: true } });
+    if (!o) throw new HttpError(404, "That order was not found. Reload the page.");
+    const label = o.number ? `Order #${o.number}` : "This order";
+    if (!countsInMoney(o.status as OrderRec["status"])) {
+      throw new HttpError(409, o.status === "canceled" ? `${label} is canceled, so there is nothing to refund.` : `${label} is not paid yet. Cancel it instead of refunding.`);
+    }
+    if (o.refundedCents !== input.expectedRefundedCents) throw new HttpError(409, `${label} already has ${fmtMoney(o.refundedCents)} refunded. Reload the page to see the latest.`);
+    const cap = refundableOf({ ...o, discountType: o.discountType as "$" | "%" });
+    const left = cap - o.refundedCents;
+    if (left <= 0) throw new HttpError(409, `${label} is already fully refunded.`);
+    if (amount > left) throw new HttpError(400, `At most ${fmtMoney(left)} can be refunded on ${label.toLowerCase()} (what the customer paid, without tips, minus earlier refunds).`);
+    const next = o.refundedCents + amount;
+    const updated = await tx.order.updateMany({ where: { id: orderId, refundedCents: o.refundedCents }, data: { refundedCents: next } });
+    if (updated.count !== 1) throw new HttpError(409, `${label} was just changed. Reload the page and try again.`);
+    await syncOrderCredit(tx, orderId, { by: input.by ?? "Admin", why: next >= cap ? "refunded" : "partly refunded" });
+    await logEvent(tx, orderId, "status", next >= cap ? `Refunded in full (${fmtMoney(next)}).` : `Refunded ${fmtMoney(amount)} (${fmtMoney(next)} of ${fmtMoney(cap)} in total).`, input.reason?.trim() ?? "");
+  });
 }
 
 // ---------------------------------------------------------------- Cancel

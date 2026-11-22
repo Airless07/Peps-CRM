@@ -45,6 +45,8 @@ export const cartItems = z
 export const quoteInput = z.object({
   items: cartItems,
   code: text(40).default(""),
+  /** Referral code (separate slot: one referral code and one discount code per order at most). */
+  referralCode: text(40).default(""),
   shipTo: address.partial().nullable().optional(),
 });
 
@@ -83,6 +85,9 @@ export const accountAction = z.discriminatedUnion("action", [
     .refine((v) => v.confirm === undefined || v.confirm === v.password, { message: "The two passwords don't match", path: ["confirm"] }),
   /** Choose a new password while signed in (required after a temporary password). */
   z.object({ action: z.literal("change-password"), password }),
+  /** Referral code: check if a code is free (live message), or change to it. */
+  z.object({ action: z.literal("check-code"), code: z.string().max(40) }),
+  z.object({ action: z.literal("referral-code"), code: z.string().max(40) }),
 ]);
 
 export const lookupInput = z.object({ number: z.coerce.number().int().min(1001).max(99_999_999), email });
@@ -116,6 +121,8 @@ export const orderAction = z.discriminatedUnion("action", [
   z.object({ action: z.literal("note"), note: text(500).min(1) }),
   // Internal note for the team (may be empty to clear it). Never shown to the customer.
   z.object({ action: z.literal("admin-note"), note: text(2000) }),
+  // Money given back (partial or full). expectedRefundedCents guards against recording the same refund twice.
+  z.object({ action: z.literal("refund"), amountCents: cents.min(1, "Enter the amount you refunded"), expectedRefundedCents: cents, reason: text(200).default("") }),
 ]);
 
 const qtyDeals = z.array(z.object({ minQty: z.number().int().min(2).max(1000), percentOff: z.number().gt(0).lt(100) })).max(8);

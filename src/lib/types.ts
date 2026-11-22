@@ -115,8 +115,10 @@ export interface CustomerRec {
   lastLoginAt?: string | null;
   /** True after "Set temporary password" until they choose their own. */
   mustChangePassword?: boolean;
-  /** Code they share with friends (set for every customer). */
+  /** Code they share with friends (set for every customer), normalized uppercase. */
   referralCode?: string;
+  /** The code as they typed it ("Sarah-K"). */
+  referralCodeDisplay?: string;
   /** Who referred them. */
   referredById?: string | null;
   /** The invite link: open (with dates), expired, or claimed (when, with which email). The link itself is never stored. */
@@ -148,8 +150,10 @@ export interface CreditEntryRec {
   orderId: string | null;
   orderNumber: number | null;
   by: string;
-  /** Part of a reversal that could not be taken back (the balance can't go below $0). */
+  /** Part of a reversal that could not be taken back under the old $0 floor (history only). */
   shortfallCents: number;
+  /** Pending referral credit: visible, not spendable, not in the balance. */
+  pending?: boolean;
   createdAt: string;
 }
 
@@ -186,8 +190,17 @@ export interface OrderRec {
   cashTo?: Partner | null;
   /** Store credit used on this order. Works like a discount. Absent = 0. */
   storeCreditCents?: number;
-  /** Customer who referred this sale. */
+  /** Customer who referred this sale (the referral code owner). */
   referredById?: string | null;
+  /** Referral code used, as shown at the time of the order. */
+  referralCode?: string;
+  /** Referrer reward percent saved when the order was placed. Null = no referral. */
+  referralRatePct?: number | null;
+  /** Buyer referral discount percent and cents (already inside discountValue). */
+  referralDiscountPct?: number;
+  referralDiscountCents?: number;
+  /** Money given back after the order counted (partial or full refund). */
+  refundedCents?: number;
 }
 
 /** A line of a saved order: an order line plus the product's regular price when it was saved. */

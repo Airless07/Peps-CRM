@@ -127,6 +127,11 @@ export function toOrder(o: OrderWithLines): OrderRec {
     cashTo: partnerOrNull(o.cashTo),
     storeCreditCents: o.storeCreditCents,
     referredById: o.referredById,
+    referralCode: o.referralCode,
+    referralRatePct: o.referralRatePct,
+    referralDiscountPct: o.referralDiscountPct,
+    referralDiscountCents: o.referralDiscountCents,
+    refundedCents: o.refundedCents,
     web: online
       ? {
           email: o.email,
@@ -241,6 +246,7 @@ export function toCustomer(c: CustomerRow): CustomerRec {
     lastLoginAt: isoN(c.lastLoginAt),
     mustChangePassword: c.mustChangePassword,
     referralCode: c.referralCode ?? "",
+    referralCodeDisplay: c.referralCodeDisplay || c.referralCode || "",
     referredById: c.referredById,
     invite: inviteStatusOf(c),
   };
@@ -265,6 +271,7 @@ export const toCreditEntry = (e: Prisma.CreditEntryGetPayload<object>): CreditEn
   orderNumber: e.orderNumber,
   by: e.by,
   shortfallCents: e.shortfallCents,
+  pending: e.pending,
   createdAt: iso(e.createdAt),
 });
 

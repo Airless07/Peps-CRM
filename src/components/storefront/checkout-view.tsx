@@ -7,7 +7,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, CreditCard, Landmark, Lock } from "lucide-react";
 import { AuthPanel, cleanError, type AccountInfo } from "./auth-panel";
 import { resetCheckoutStart, trackCheckoutStart } from "./analytics";
-import { CartTotals, money, PromoField, useCart, useLineInfo } from "./cart";
+import { CartTotals, LastReferralPrompt, money, PromoField, useCart, useLineInfo } from "./cart";
 
 type Addr = AccountInfo["addresses"][number];
 const BLANK: Addr = { name: "", street1: "", street2: "", city: "", state: "", zip: "", country: "US" };
@@ -73,7 +73,6 @@ export function CheckoutView({ account: initial, states, ack, preview }: { accou
   const [busy, setBusy] = useState(false);
   const [creditWanted, setCreditWanted] = useState(0);
   const [creditCustom, setCreditCustom] = useState(false);
-  const [referralCode, setReferralCode] = useState("");
   const errorRef = useRef<HTMLDivElement>(null);
   const { quote, requote } = cart;
 
@@ -143,7 +142,7 @@ export function CheckoutView({ account: initial, states, ack, preview }: { accou
       const res = await fetch("/api/store/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone, shipTo: { ...a, zip: a.zip.trim() }, items: cart.items, code: quote?.code ?? "", tier, payChoice: pay, expectedTotalCents: total, ackResearch: true, ackPolicies: true, saveAddress: true, storeCreditCents: creditUsed, referralCode: referralCode.trim() }),
+        body: JSON.stringify({ phone, shipTo: { ...a, zip: a.zip.trim() }, items: cart.items, code: quote?.code ?? "", tier, payChoice: pay, expectedTotalCents: total, ackResearch: true, ackPolicies: true, saveAddress: true, storeCreditCents: creditUsed, referralCode: quote?.referral ? cart.referral : "" }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -207,7 +206,8 @@ export function CheckoutView({ account: initial, states, ack, preview }: { accou
         ))}
       </ul>
       <div className="mt-4">{quote ? <CartTotals shippingCents={ship ? ship.cents : null} shippingLabel={ship?.name} creditCents={creditUsed} /> : <div className="h-24 animate-pulse rounded-xl bg-rule/60" />}</div>
-      <div className="mt-5 border-t border-rule pt-4">
+      <div className="mt-5 space-y-2.5 border-t border-rule pt-4">
+        <LastReferralPrompt />
         <PromoField />
       </div>
       {account && creditAvail > 0 && (
@@ -251,14 +251,6 @@ export function CheckoutView({ account: initial, states, ack, preview }: { accou
               Credit used <strong className="font-semibold text-coal tabular-nums">{money(creditUsed)}</strong>, remaining after this order <strong className="font-semibold text-coal tabular-nums">{money(creditAvail - creditUsed)}</strong>
             </p>
           )}
-        </div>
-      )}
-      {account && (
-        <div className="mt-5 border-t border-rule pt-4">
-          <label className="s-label" htmlFor="co-ref">
-            Referral code (optional)
-          </label>
-          <input id="co-ref" className="s-input uppercase" autoCapitalize="characters" spellCheck={false} maxLength={40} value={referralCode} onChange={(e) => setReferralCode(e.target.value)} placeholder="From a friend" />
         </div>
       )}
       <Link href="/cart" className="mt-4 block text-center text-sm font-medium text-stone underline decoration-rule underline-offset-4 hover:text-coal">
@@ -449,7 +441,7 @@ export function CheckoutView({ account: initial, states, ack, preview }: { accou
                 )}
               </div>
 
-              <button type="button" onClick={place} disabled={busy || preview || soldOut.length > 0 || total === null || methods.every((m) => !m.available)} className="s-btn-primary mt-5 h-14 w-full text-base">
+              <button type="button" onClick={place} disabled={busy || preview || soldOut.length > 0 || total === null || methods.every((m) => !m.available) || !!quote?.conflict} className="s-btn-primary mt-5 h-14 w-full text-base">
                 <Lock size={17} /> {busy ? "Placing your order…" : total !== null ? `Place order · ${money(total)}` : "Place order"}
               </button>
               <p className="mt-3 text-center text-[13px] text-stone">No payment is taken on this site. You will get payment instructions right after.</p>

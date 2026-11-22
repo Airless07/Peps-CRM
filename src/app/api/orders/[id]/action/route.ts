@@ -1,6 +1,6 @@
 import { body, HttpError, route, type Ctx } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { buyLabel, cancelOrder, checkTracking, logEvent, markDelivered, markPaid, markShipped, requestOrigin } from "@/lib/order-ops";
+import { buyLabel, cancelOrder, checkTracking, logEvent, markDelivered, markPaid, markShipped, refundOrder, requestOrigin } from "@/lib/order-ops";
 import { withLowStockAlert } from "@/lib/stock-alerts";
 import { orderAction } from "@/lib/store/schemas";
 
@@ -46,6 +46,9 @@ export const POST = route(async (req, ctx: Ctx<{ id: string }>) => {
     case "note":
       await logEvent(prisma, id, "note", input.note);
       return { ok: true, message: "Note added." };
+    case "refund":
+      await refundOrder(id, { amountCents: input.amountCents, expectedRefundedCents: input.expectedRefundedCents, reason: input.reason });
+      return { ok: true, message: `Refund of $${(input.amountCents / 100).toFixed(2)} recorded. Any referral credit was adjusted.` };
     case "admin-note":
       // Stored on the order only. It is not part of any email, the order status page or the account page.
       await prisma.order.update({ where: { id }, data: { adminNote: input.note.trim() } });

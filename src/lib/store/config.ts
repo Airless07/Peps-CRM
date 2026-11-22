@@ -48,12 +48,13 @@ export interface StoreSettings {
 }
 
 export interface ReferralSettings {
-  /** Store credit the referrer earns, in percent of the order after discounts and store credit (no tips, no shipping). */
+  /** Store credit the code owner earns, in percent of the order subtotal after ALL discounts (discount code and
+   *  referral discount), without shipping or tips. Store credit the buyer spends does not lower it. */
   percent: number;
-  /** Only the referred customer's first order earns referral credit. */
-  firstOrderOnly: boolean;
-  /** Store credit the referred customer earns on their own order, in percent. 0 = none. */
-  newCustomerPercent: number;
+  /** Discount the buyer gets for using a referral code, in percent. 0 = none. */
+  buyerDiscountPercent: number;
+  /** A referral code and a discount code can be used on the same order. */
+  allowStacking: boolean;
   /** How many days an invite or claim link works. */
   inviteDays: number;
 }
@@ -118,7 +119,7 @@ export const DEFAULT_STORE: StoreSettings = {
   siteUrl: "",
   unpaidReminder: true,
   lowStockAlerts: true,
-  referrals: { percent: 10, firstOrderOnly: false, newCustomerPercent: 0, inviteDays: 14 },
+  referrals: { percent: 10, buyerDiscountPercent: 0, allowStacking: true, inviteDays: 14 },
 };
 
 export type SectionId = "bestsellers" | "groups" | "products" | "quality" | "reviews" | "faq";
@@ -386,7 +387,9 @@ export function cleanReferrals(v: Partial<ReferralSettings> | null | undefined):
   const d = DEFAULT_STORE.referrals;
   const pct = (x: unknown, def: number) => (typeof x === "number" && Number.isFinite(x) ? Math.min(100, Math.max(0, x)) : def);
   const days = typeof v?.inviteDays === "number" && Number.isFinite(v.inviteDays) ? Math.min(90, Math.max(1, Math.round(v.inviteDays))) : d.inviteDays;
-  return { percent: pct(v?.percent, d.percent), firstOrderOnly: v?.firstOrderOnly === true, newCustomerPercent: pct(v?.newCustomerPercent, d.newCustomerPercent), inviteDays: days };
+  // firstOrderOnly / newCustomerPercent (older settings) are dropped: every order with a code earns credit,
+  // and the buyer's reward is now a discount at checkout.
+  return { percent: pct(v?.percent, d.percent), buyerDiscountPercent: pct(v?.buyerDiscountPercent, d.buyerDiscountPercent), allowStacking: v?.allowStacking !== false, inviteDays: days };
 }
 
 export function parseContent(json: string | null | undefined): SiteContent {

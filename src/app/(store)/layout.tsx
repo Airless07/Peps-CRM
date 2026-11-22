@@ -122,6 +122,7 @@ export default async function StoreLayout({ children }: { children: React.ReactN
                   links={[
                     ["/order-lookup", "Order lookup"],
                     ["/account", "Your account"],
+                    ["/refer", "Refer & Earn"],
                     ["/contact", "Contact"],
                     ["/faq", "FAQ"],
                     ["/about", "About"],

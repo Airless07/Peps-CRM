@@ -90,7 +90,52 @@ const NAV = [
   { href: "/testing", label: "Testing" },
   { href: "/about", label: "About" },
   { href: "/faq", label: "FAQ" },
+  { href: "/refer", label: "Refer & Earn" },
 ];
+
+/** The account icon: a link when signed out; signed in, a small menu with the account pages. */
+function AccountMenu({ signedIn, className }: { signedIn: boolean; className: string }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const path = usePathname();
+  useEffect(() => setOpen(false), [path]);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent | KeyboardEvent) => {
+      if (e instanceof KeyboardEvent ? e.key === "Escape" : !ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", close);
+    return () => (document.removeEventListener("mousedown", close), document.removeEventListener("keydown", close));
+  }, [open]);
+  if (!signedIn) {
+    return (
+      <Link href="/account" className={`${className} hidden sm:flex`} aria-label="Sign in">
+        <User size={20} strokeWidth={1.75} />
+      </Link>
+    );
+  }
+  return (
+    <div ref={ref} className="relative hidden sm:block">
+      <button type="button" className={className} aria-label="Your account" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)} data-account-menu>
+        <User size={20} strokeWidth={1.75} />
+      </button>
+      {open && (
+        <div role="menu" className="absolute right-0 top-full z-50 mt-2 w-52 overflow-hidden rounded-2xl border border-rule bg-paper py-1.5 shadow-lg">
+          {[
+            ["/account", "Your account"],
+            ["/account/referrals", "Referrals"],
+            ["/refer", "Refer & Earn"],
+          ].map(([href, label]) => (
+            <Link key={href} href={href} role="menuitem" className="block px-4 py-2.5 text-[15px] font-medium text-coal hover:bg-soft">
+              {label}
+            </Link>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function Wordmark({ name, logo, className = "" }: { name: string; logo: string; className?: string }) {
   if (logo) {
@@ -142,9 +187,7 @@ export function Header({ name, logo, signedIn }: { name: string; logo: string; s
           <button type="button" className={icon} aria-label="Search products" onClick={() => setSearch(true)}>
             <Search size={20} strokeWidth={1.75} />
           </button>
-          <Link href="/account" className={`${icon} hidden sm:flex`} aria-label={signedIn ? "Your account" : "Sign in"}>
-            <User size={20} strokeWidth={1.75} />
-          </Link>
+          <AccountMenu signedIn={signedIn} className={icon} />
           <button type="button" className={icon} aria-label={`Cart, ${cart.count} ${cart.count === 1 ? "item" : "items"}`} onClick={() => cart.setOpen(true)}>
             <ShoppingBag size={20} strokeWidth={1.75} />
             {cart.ready && cart.count > 0 && <span className="absolute right-1 top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-brand px-1 text-[11px] font-semibold tabular-nums text-white">{cart.count}</span>}
@@ -172,6 +215,9 @@ export function Header({ name, logo, signedIn }: { name: string; logo: string; s
             <div className="mt-8 grid gap-1 text-[17px] text-stone">
               <Link href="/account" className="py-2.5">
                 {signedIn ? "Your account" : "Sign in or create an account"}
+              </Link>
+              <Link href="/account/referrals" className="py-2.5 pl-4" data-mobile-referrals>
+                Referrals
               </Link>
               <Link href="/order-lookup" className="py-2.5">
                 Order lookup

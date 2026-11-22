@@ -1,13 +1,13 @@
 // Store credit and referral rules. Pure tests (no database).
 import { describe, expect, it } from "vitest";
-import { availableCredit, balanceOf, clampCredit, creditSummary, creditTargets, makeReferralCode, percentOf, planCreditSync, referralBase, reservedCredit } from "./credit";
+import { availableCredit, balanceOf, clampCredit, creditSummary, creditTargets, makeReferralCode, pendingOf, percentOf, planCreditSync, referralBase, referralCredit, refundableOf, reservedCredit } from "./credit";
 import { computeLedger, orderTotals } from "./money";
 import { cleanReferrals, DEFAULT_STORE } from "./store/config";
 import { defaultSellButtons } from "./sell-buttons";
 import { ORDER_DEFAULTS, PRODUCT_DEFAULTS, emptyStoreData, type AppData, type OrderRec } from "./types";
 
 const day = (n: number) => new Date(Date.UTC(2026, 0, n, 12)).toISOString();
-const REF = { percent: 10, firstOrderOnly: false, newCustomerPercent: 0, inviteDays: 14 };
+const REF = { percent: 10, buyerDiscountPercent: 0, allowStacking: true, inviteDays: 14 };
 
 function order(id: string, over: Partial<OrderRec> = {}): OrderRec {
   return {
@@ -116,56 +116,83 @@ describe("available credit", () => {
 });
 
 describe("referral credit", () => {
-  const ctx = { counts: true, referrals: REF, isFirstOrder: true, referrerExists: true };
+  const ctx = { referrerExists: true };
+  const ref = (over: Partial<OrderRec> = {}) => order("o", { referredById: "sam", referralRatePct: 10, ...over });
 
-  it("is the referral % of the order after discounts and store credit, excluding tips and shipping, rounded to cents", () => {
-    const o = order("o", { referredById: "sam", discountValue: 1555, storeCreditCents: 1000, tipCents: 2000, shippingCents: 695 });
-    // 10000 - 1555 - 1000 = 7445; 10% = 744.5 -> 745
-    expect(referralBase(o)).toBe(7445);
+  it("is the reward % of the subtotal after all discounts, excluding tips, shipping and store credit spent, rounded down", () => {
+    const o = ref({ discountValue: 1555, storeCreditCents: 1000, tipCents: 2000, shippingCents: 695 });
+    // 10000 - 1555 = 8445 (store credit spent does NOT lower it); 10% = 844.5 -> 844 (round down)
+    expect(referralBase(o)).toBe(8445);
+    expect(referralCredit(o)).toBe(844);
     expect(creditTargets(o, ctx)).toEqual([
-      { kind: "order", customerId: "dana", amountCents: -1000 },
-      { kind: "referral", customerId: "sam", amountCents: 745 },
+      { kind: "order", customerId: "dana", amountCents: -1000, pending: false },
+      { kind: "referral", customerId: "sam", amountCents: 844, pending: false },
     ]);
-    expect(percentOf(7445, 10)).toBe(745);
+    expect(percentOf(8445, 10)).toBe(844);
+    expect(percentOf(999, 10)).toBe(99);
   });
 
-  it("no self-referral, none on owner price, none while the order doesn't count", () => {
-    expect(creditTargets(order("o", { referredById: "dana" }), ctx)).toEqual([]);
-    expect(creditTargets(order("o", { referredById: "sam", owner: "A" }), ctx)).toEqual([]);
-    expect(creditTargets(order("o", { referredById: "sam" }), { ...ctx, counts: false })).toEqual([]);
-    expect(creditTargets(order("o", { referredById: "sam" }), { ...ctx, referrerExists: false })).toEqual([]);
+  it("uses the percent saved on the order, not today's Settings", () => {
+    expect(referralCredit(ref({ referralRatePct: 7 }))).toBe(700);
+    expect(referralCredit(ref({ referralRatePct: null }))).toBe(0);
   });
 
-  it("first order only, and the optional reward for the new customer", () => {
-    const o = order("o", { referredById: "sam" });
-    expect(creditTargets(o, { ...ctx, referrals: { ...REF, firstOrderOnly: true }, isFirstOrder: false })).toEqual([]);
-    expect(creditTargets(o, { ...ctx, referrals: { ...REF, firstOrderOnly: true }, isFirstOrder: true })).toEqual([{ kind: "referral", customerId: "sam", amountCents: 1000 }]);
-    expect(creditTargets(o, { ...ctx, referrals: { ...REF, newCustomerPercent: 5 } })).toEqual([
-      { kind: "referral", customerId: "sam", amountCents: 1000 },
-      { kind: "referral_new", customerId: "dana", amountCents: 500 },
-    ]);
+  it("is PENDING while unpaid, AVAILABLE once it counts, gone when canceled", () => {
+    expect(creditTargets(ref({ status: "awaiting_payment", source: "online" }), ctx)).toEqual([{ kind: "referral", customerId: "sam", amountCents: 1000, pending: true }]);
+    expect(creditTargets(ref({ status: "paid", source: "online" }), ctx)).toEqual([{ kind: "referral", customerId: "sam", amountCents: 1000, pending: false }]);
+    expect(creditTargets(ref({ status: "canceled", source: "online" }), ctx)).toEqual([]);
+    expect(creditTargets(null, ctx)).toEqual([]);
   });
 
-  it("settings default to 10%, off, 0% and 14 days, and are kept in range", () => {
+  it("no self-referral, none on owner price, none without the referrer", () => {
+    expect(creditTargets(ref({ referredById: "dana" }), ctx)).toEqual([]);
+    expect(creditTargets(ref({ owner: "A" }), ctx)).toEqual([]);
+    expect(creditTargets(ref(), { referrerExists: false })).toEqual([]);
+  });
+
+  it("a partial refund lowers it in proportion; a full refund takes it all", () => {
+    // Paid 10000 + 695 shipping = 10695. Refund half of it.
+    const half = ref({ shippingCents: 695, refundedCents: 5347 });
+    expect(refundableOf(half)).toBe(10695);
+    expect(referralCredit(half)).toBe(Math.floor((1000 * (10695 - 5347)) / 10695)); // 500
+    expect(referralCredit(ref({ shippingCents: 695, refundedCents: 10695 }))).toBe(0);
+  });
+
+  it("old rewards for the referred customer are kept while the order counts, never created anew", () => {
+    const legacyNew = new Map([["dana", 500]]);
+    expect(creditTargets(ref(), { ...ctx, legacyNew })).toContainEqual({ kind: "referral_new", customerId: "dana", amountCents: 500, pending: false });
+    expect(creditTargets(ref({ status: "canceled" }), { ...ctx, legacyNew })).toEqual([]);
+  });
+
+  it("settings default to 10%, 0% buyer discount, stacking on and 14 days, and are kept in range", () => {
     expect(DEFAULT_STORE.referrals).toEqual(REF);
-    expect(cleanReferrals({ percent: 250, newCustomerPercent: -3, inviteDays: 0, firstOrderOnly: true })).toEqual({ percent: 100, newCustomerPercent: 0, inviteDays: 1, firstOrderOnly: true });
+    expect(cleanReferrals({ percent: 250, buyerDiscountPercent: -3, inviteDays: 0, allowStacking: false })).toEqual({ percent: 100, buyerDiscountPercent: 0, inviteDays: 1, allowStacking: false });
     expect(cleanReferrals(undefined)).toEqual(REF);
+    // Older saved settings: the dropped switches are ignored, stacking defaults on.
+    expect(cleanReferrals({ percent: 12, firstOrderOnly: true, newCustomerPercent: 5 } as never)).toEqual({ ...REF, percent: 12 });
   });
 });
 
 describe("syncing an order's credit history", () => {
   const bal = (m: Record<string, number>) => (id: string) => m[id] ?? 0;
-  const t = (kind: "order" | "referral" | "referral_new", customerId: string, amountCents: number) => ({ kind, customerId, amountCents });
-  const e = (kind: string, customerId: string, amountCents: number, shortfallCents = 0) => ({ kind, customerId, amountCents, shortfallCents });
+  const t = (kind: "order" | "referral" | "referral_new", customerId: string, amountCents: number, pending = false) => ({ kind, customerId, amountCents, pending });
+  const e = (kind: string, customerId: string, amountCents: number, pending = false, shortfallCents = 0) => ({ kind, customerId, amountCents, shortfallCents, pending });
+  const w = (customerId: string, kind: string, amountCents: number, pending = false) => ({ customerId, kind, amountCents, pending });
 
   it("completing takes the credit and pays the referrer; running it again writes nothing", () => {
     const first = planCreditSync([t("order", "dana", -2000), t("referral", "sam", 800)], [], bal({ dana: 2000 }));
-    expect(first.writes).toEqual([
-      { customerId: "dana", kind: "order", amountCents: -2000, shortfallCents: 0 },
-      { customerId: "sam", kind: "referral", amountCents: 800, shortfallCents: 0 },
-    ]);
+    expect(first.writes).toEqual([w("dana", "order", -2000), w("sam", "referral", 800)]);
     const again = planCreditSync([t("order", "dana", -2000), t("referral", "sam", 800)], [e("order", "dana", -2000), e("referral", "sam", 800)], bal({ dana: 0, sam: 800 }));
     expect(again.writes).toEqual([]);
+  });
+
+  it("pending becomes available when paid, with two ledger entries; idempotent", () => {
+    const placed = planCreditSync([t("referral", "sam", 800, true)], [], bal({}));
+    expect(placed.writes).toEqual([w("sam", "referral", 800, true)]);
+    const paid = planCreditSync([t("referral", "sam", 800)], [e("referral", "sam", 800, true)], bal({}));
+    expect(paid.writes).toEqual([w("sam", "referral", 800), w("sam", "referral", -800, true)]);
+    const twice = planCreditSync([t("referral", "sam", 800)], [e("referral", "sam", 800, true), e("referral", "sam", 800), e("referral", "sam", -800, true)], bal({ sam: 800 }));
+    expect(twice.writes).toEqual([]);
   });
 
   it("refuses credit the customer doesn't have", () => {
@@ -176,26 +203,29 @@ describe("syncing an order's credit history", () => {
 
   it("canceling refunds the credit used and reverses the referral", () => {
     const r = planCreditSync([], [e("order", "dana", -2000), e("referral", "sam", 800)], bal({ dana: 0, sam: 800 }));
-    expect(r.writes).toEqual([
-      { customerId: "dana", kind: "order", amountCents: 2000, shortfallCents: 0 },
-      { customerId: "sam", kind: "referral", amountCents: -800, shortfallCents: 0 },
-    ]);
+    expect(r.writes).toEqual([w("dana", "order", 2000), w("sam", "referral", -800)]);
   });
 
-  it("a reversal stops at $0 and notes the shortfall, and is never retried", () => {
-    // Sam already spent $5 of the $8 reward.
+  it("a reversal of credit already spent takes the balance below $0 (no shortfall any more)", () => {
     const r = planCreditSync([], [e("referral", "sam", 800)], bal({ sam: 300 }));
-    expect(r.writes).toEqual([{ customerId: "sam", kind: "referral", amountCents: -300, shortfallCents: 500 }]);
-    const again = planCreditSync([], [e("referral", "sam", 800), e("referral", "sam", -300, 500)], bal({ sam: 1000 }));
-    expect(again.writes).toEqual([]);
+    expect(r.writes).toEqual([w("sam", "referral", -800)]);
+    // Old entries written under the $0 floor keep counting at their effective value and are never retried.
+    const legacy = planCreditSync([], [e("referral", "sam", 800), e("referral", "sam", -300, false, 500)], bal({ sam: 1000 }));
+    expect(legacy.writes).toEqual([]);
   });
 
   it("an edit writes only the difference", () => {
     const r = planCreditSync([t("order", "dana", -1500), t("referral", "sam", 600)], [e("order", "dana", -2000), e("referral", "sam", 800)], bal({ dana: 0, sam: 800 }));
-    expect(r.writes).toEqual([
-      { customerId: "dana", kind: "order", amountCents: 500, shortfallCents: 0 },
-      { customerId: "sam", kind: "referral", amountCents: -200, shortfallCents: 0 },
-    ]);
+    expect(r.writes).toEqual([w("dana", "order", 500), w("sam", "referral", -200)]);
+  });
+
+  it("pending credit is not in the spendable balance", () => {
+    const entries = [
+      { customerId: "sam", amountCents: 800, pending: true },
+      { customerId: "sam", amountCents: 300, pending: false },
+    ];
+    expect(balanceOf(entries, "sam")).toBe(300);
+    expect(pendingOf(entries, "sam")).toBe(800);
   });
 });
 
