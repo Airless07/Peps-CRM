@@ -164,7 +164,10 @@ describe("migration 20261116120000_labs_review on stored values", () => {
     expect(c.about).toEqual(DEFAULT_CONTENT.about);
     expect(c.seo).toEqual(DEFAULT_CONTENT.seo);
     expect(c.sections).toEqual(DEFAULT_CONTENT.sections);
-    expect(c.policies).toEqual(DEFAULT_CONTENT.policies);
+    // The policies this migration wrote are the ones the startup policy update (data-migrations.ts,
+    // "policies-and-contact-2026-11") recognizes and replaces with today's defaults.
+    const before = (await import("./policies-before-2026-11.json")).default;
+    expect(c.policies).toEqual(before);
   });
 
   it("hand-edited text that still makes an old claim is replaced; other hand-edited text is kept", () => {
