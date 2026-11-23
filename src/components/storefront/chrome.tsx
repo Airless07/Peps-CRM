@@ -390,34 +390,56 @@ export function AgeGate({ name }: { name: string }) {
 }
 
 // ---------------------------------------------------------------- Scroll reveal
-/** Fade and slide sections in as they scroll into view. Content is visible without it. */
+/**
+ * Fade and slide sections in as they scroll into view. Content is visible without it.
+ *
+ * Elements added AFTER this runs (a client-side page change that renders after the effect, search
+ * results, a new sort, a filter) are picked up by a MutationObserver. Before that existed, those
+ * elements stayed at opacity 0 forever: the shop said "11 products" over an empty grid.
+ * Every element also has its own safety timer, so nothing can stay hidden.
+ */
 export function RevealInit() {
   const path = usePathname();
   useEffect(() => {
-    if (!("IntersectionObserver" in window) || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    if (!("IntersectionObserver" in window) || !("MutationObserver" in window) || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     const root = document.documentElement;
-    const els = [...document.querySelectorAll<HTMLElement>("[data-reveal]")];
-    if (els.length === 0) return;
-    // Anything already on screen stays put; only what is below the fold animates in.
-    for (const el of els) if (el.getBoundingClientRect().top < window.innerHeight * 0.92) el.classList.add("is-in");
-    root.classList.add("reveal-ready");
+    const timers = new Set<ReturnType<typeof setTimeout>>();
+    const show = (el: Element) => el.classList.add("is-in");
     const io = new IntersectionObserver(
       (entries) => {
         for (const e of entries) {
           if (e.isIntersecting) {
-            e.target.classList.add("is-in");
+            show(e.target);
             io.unobserve(e.target);
           }
         }
       },
       { rootMargin: "0px 0px -8% 0px", threshold: 0.05 },
     );
-    els.forEach((el) => !el.classList.contains("is-in") && io.observe(el));
-    // Safety net: never leave anything hidden.
-    const t = setTimeout(() => els.forEach((el) => el.classList.add("is-in")), 4000);
+    const seen = new WeakSet<Element>();
+    const take = (el: HTMLElement) => {
+      if (seen.has(el) || el.classList.contains("is-in")) return;
+      seen.add(el);
+      // Anything already on screen shows at once; only what is below the fold animates in.
+      if (el.getBoundingClientRect().top < window.innerHeight * 0.92) return show(el);
+      io.observe(el);
+      const t = setTimeout(() => (show(el), timers.delete(t)), 2500);
+      timers.add(t);
+    };
+    const scan = (node: ParentNode) => {
+      if (node instanceof HTMLElement && node.hasAttribute("data-reveal")) take(node);
+      node.querySelectorAll<HTMLElement>("[data-reveal]").forEach(take);
+    };
+    scan(document);
+    root.classList.add("reveal-ready");
+    const mo = new MutationObserver((records) => {
+      for (const r of records) r.addedNodes.forEach((n) => n instanceof HTMLElement && scan(n));
+    });
+    mo.observe(document.body, { childList: true, subtree: true });
     return () => {
+      mo.disconnect();
       io.disconnect();
-      clearTimeout(t);
+      timers.forEach(clearTimeout);
       root.classList.remove("reveal-ready");
     };
   }, [path]);

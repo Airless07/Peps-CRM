@@ -42,6 +42,8 @@ export default defineConfig({
     { name: "owner", testMatch: /owner\.spec\.ts/, dependencies: ["mobile"] },
     // Per-account carts, referral prompt, quick add, bulk shipping. Stands on its own: npx playwright test --project=accounts --no-deps
     { name: "accounts", testMatch: /accounts\.spec\.ts/, dependencies: ["owner"] },
+    // The shop grid never shows a count over an empty grid. Stands on its own: npx playwright test --project=grid --no-deps
+    { name: "grid", testMatch: /grid\.spec\.ts/, dependencies: ["accounts"] },
   ],
   webServer: {
     command: `npx next start -p ${PORT}`,

@@ -87,7 +87,7 @@ export function ShopBrowser({ products, groups, fixedGroup }: { products: Public
         </div>
       )}
 
-      <p className="mb-6 mt-7 text-sm text-stone" aria-live="polite">
+      <p className="mb-6 mt-7 text-sm text-stone" aria-live="polite" data-shop-count={list.length}>
         {list.length} {list.length === 1 ? "product" : "products"}
         {q.trim() ? ` for “${q.trim()}”` : ""}
       </p>

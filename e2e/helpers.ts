@@ -58,3 +58,14 @@ export async function adminState(request: APIRequestContext): Promise<AdminState
 
 export const usd = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 export const ORIGIN = { origin: BASE };
+
+/** The entry gate was answered on this browser earlier (the gate itself is tested in gate.spec.ts). */
+export async function enteredSite(ctx: import("@playwright/test").BrowserContext) {
+  const until = String(Date.now() + 30 * 86400000);
+  await ctx.addCookies([{ name: "bl_entry", value: until, url: BASE }]);
+  await ctx.addInitScript((v) => {
+    try {
+      localStorage.setItem("bp-age", v);
+    } catch {}
+  }, until);
+}
