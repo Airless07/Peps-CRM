@@ -11,13 +11,14 @@
  *    the new CustomerCart table is empty, and the SQL triggers on codes still exist.
  */
 import { execFileSync } from "node:child_process";
-import { copyFileSync, cpSync, mkdirSync, rmSync } from "node:fs";
+import { copyFileSync, cpSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 const root = path.resolve(import.meta.dirname, "..");
-const NEW = "20261125120000_customer_carts";
+/** The migration to prove: MIGRATION=<folder name> (default: the newest one). */
+const NEW = process.env.MIGRATION ?? readdirSync(path.join(root, "prisma", "migrations")).filter((n) => /^\d{14}_/.test(n)).sort().at(-1)!;
 const work = path.join(tmpdir(), `cart-proof-${Date.now()}`);
 mkdirSync(work, { recursive: true });
 const prismaCli = path.join(root, "node_modules", "prisma", "build", "index.js");
@@ -31,7 +32,7 @@ function deploy(prismaDir: string) {
 // The schema folder as it was before this migration.
 const before = path.join(work, "prisma-before");
 cpSync(path.join(root, "prisma"), before, { recursive: true });
-rmSync(path.join(before, "migrations", NEW), { recursive: true, force: true });
+for (const n of readdirSync(path.join(before, "migrations"))) if (n >= NEW && /^\d{14}_/.test(n)) rmSync(path.join(before, "migrations", n), { recursive: true, force: true });
 
 if (process.env.PROOF_DB) {
   copyFileSync(process.env.PROOF_DB, db);
@@ -64,19 +65,27 @@ if (process.env.PROOF_DB) {
 }
 
 type Snap = Map<string, string[]>;
+/** Columns of each table before the migration: rows are compared on these only (new columns are added). */
+let keep: Map<string, Set<string>> | null = null;
 function snapshot(file: string): Snap {
   const s = new DatabaseSync(file, { readOnly: true });
   const tables = (s.prepare(`select name from sqlite_master where type = 'table' and name not like '\\_%' escape '\\' and name not like 'sqlite_%'`).all() as { name: string }[]).map((t) => t.name).sort();
   const out: Snap = new Map();
   for (const t of tables) {
     const rows = s.prepare(`select * from "${t}"`).all() as Record<string, unknown>[];
-    out.set(t, rows.map((r) => { const { labelLockAt: _ignored, ...rest } = r; return JSON.stringify(rest, (_k, v) => (typeof v === "bigint" ? String(v) : v)); }).sort());
+    const cols = keep?.get(t);
+    out.set(t, rows.map((r) => JSON.stringify(Object.fromEntries(Object.entries(r).filter(([k]) => !cols || cols.has(k))), (_k, v) => (typeof v === "bigint" ? String(v) : v))).sort());
   }
   s.close();
   return out;
 }
 
 const a = snapshot(db);
+{
+  const s0 = new DatabaseSync(db, { readOnly: true });
+  keep = new Map([...a.keys()].map((t) => [t, new Set((s0.prepare(`pragma table_info("${t}")`).all() as { name: string }[]).map((c) => c.name))]));
+  s0.close();
+}
 deploy(path.join(root, "prisma"));
 const b = snapshot(db);
 
@@ -91,11 +100,17 @@ for (const [t, rows] of a) {
 }
 const added = [...b.keys()].filter((t) => !a.has(t));
 console.log(`new tables: ${added.join(", ")}`);
-if (added.join() !== "CustomerCart") fail(`unexpected new tables: ${added.join()}`);
-if ((b.get("CustomerCart") ?? []).length !== 0) fail("CustomerCart is not empty");
+const EXPECT: Record<string, { tables: string[]; orderCols: string[] }> = {
+  "20261125120000_customer_carts": { tables: ["CustomerCart"], orderCols: ["labelLockAt"] },
+  "20261126120000_order_consent": { tables: [], orderCols: ["consentAt", "consentText", "consentIp"] },
+};
+const want = EXPECT[NEW] ?? { tables: [], orderCols: [] };
+if (added.join() !== want.tables.join()) fail(`unexpected new tables: ${added.join()}`);
+for (const t of added) if ((b.get(t) ?? []).length !== 0) fail(`${t} is not empty`);
 const s = new DatabaseSync(db, { readOnly: true });
 const cols = (s.prepare(`pragma table_info("Order")`).all() as { name: string }[]).map((c) => c.name);
-if (!cols.includes("labelLockAt")) fail("Order.labelLockAt missing");
+for (const c of want.orderCols) if (!cols.includes(c)) fail(`Order.${c} missing`);
+console.log(`migration proved: ${NEW}`);
 const triggers = (s.prepare(`select name from sqlite_master where type = 'trigger'`).all() as { name: string }[]).length;
 console.log(`code triggers still in place: ${triggers}`);
 const applied = (s.prepare(`select migration_name from _prisma_migrations where finished_at is not null order by migration_name`).all() as { migration_name: string }[]).map((m) => m.migration_name);
