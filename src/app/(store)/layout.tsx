@@ -2,13 +2,16 @@ import type { Metadata, Viewport } from "next";
 import Link from "next/link";
 import { GeistSans } from "geist/font/sans";
 import { currentAccount } from "@/lib/account";
-import { AgeGate, Header, PromoBar, RevealInit, StandaloneRedirect, Wordmark, type PromoItem } from "@/components/storefront/chrome";
+import { EntryGate, Header, PromoBar, RevealInit, StandaloneRedirect, Wordmark, type PromoItem } from "@/components/storefront/chrome";
 import { TrackVisit } from "@/components/storefront/analytics";
 import { CartProvider } from "@/components/storefront/cart";
 import { siteUrl } from "@/lib/order-ops";
 import { DEFAULT_ACCENT, RESEARCH_LINE, TAGLINE, type SiteContent, type StoreSettings } from "@/lib/store/config";
 import { promoHeadlines } from "@/lib/store/pricing";
 import { isAdmin, storeSnapshot } from "@/lib/store/server";
+import { ENTRY_COOKIE, entryCookieValid } from "@/lib/store/entry-gate";
+import { isBot } from "@/lib/analytics";
+import { cookies, headers } from "next/headers";
 import type { PromotionRec } from "@/lib/types";
 import "./store.css";
 
@@ -50,6 +53,9 @@ export default async function StoreLayout({ children }: { children: React.ReactN
   const [{ data, catalog }, admin, account] = await Promise.all([storeSnapshot(), isAdmin(), currentAccount()]);
   const { store, content } = data;
   const live = store.open || admin;
+  // Entry gate: drawn by the server (no flash) unless answered in the last 30 days, or a crawler.
+  const [jar, hdrs] = await Promise.all([cookies(), headers()]);
+  const gate = live && store.entryGate.enabled && !entryCookieValid(jar.get(ENTRY_COOKIE)?.value) && !isBot(hdrs.get("user-agent"));
   const promos = live ? promoItems(content, data.promotions, new Date(), data.store.shippingTiers) : [];
   const accent = /^#[0-9a-fA-F]{6}$/.test(store.accentColor) ? store.accentColor : DEFAULT_ACCENT;
   const year = new Date().getFullYear();
@@ -161,7 +167,7 @@ export default async function StoreLayout({ children }: { children: React.ReactN
               </div>
             </div>
           </footer>
-          {live && <AgeGate name={store.storeName} />}
+          {gate && <EntryGate name={store.storeName} logo={store.logo} minAge={store.entryGate.minAge} />}
           <RevealInit />
           {store.open && !admin && <TrackVisit />}
         </CartProvider>

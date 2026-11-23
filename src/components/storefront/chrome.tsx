@@ -7,6 +7,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, Copy, Menu, Search, ShoppingBag, User, X } from "lucide-react";
 import type { PublicProduct } from "@/lib/store/catalog";
 import { money, useCart } from "./cart";
+import { ENTRY_COOKIE, ENTRY_DAYS, gateExempt } from "@/lib/store/entry-gate";
 import { Vial } from "./vial";
 
 export interface PromoItem {
@@ -309,81 +310,93 @@ export function searchProducts(products: PublicProduct[], query: string, groupNa
   });
 }
 
-// ---------------------------------------------------------------- Age gate
-const AGE_KEY = "bp-age";
-const AGE_DAYS = 30;
-
-export function AgeGate({ name }: { name: string }) {
+// ---------------------------------------------------------------- Entry gate
+/**
+ * Full-screen gate on the first visit: 21+ (or the minimum age in Settings) and research use only.
+ * The server decides whether to draw it (no cookie, not a crawler, gate on in Settings), so there is
+ * no flash and no layout shift. "Yes" sets a 30-day cookie. It cannot be closed with Escape or by
+ * clicking outside, and Tab stays inside it. Policy pages and email links never show it.
+ */
+export function EntryGate({ name, logo, minAge }: { name: string; logo: string; minAge: number }) {
   const path = usePathname();
-  const router = useRouter();
-  const [need, setNeed] = useState(false);
-  const [age, setAge] = useState(false);
-  const [terms, setTerms] = useState(false);
+  const [open, setOpen] = useState(true);
   const box = useRef<HTMLDivElement>(null);
-  // Policy pages stay readable so the Terms can be read before agreeing.
-  const exempt = /^\/(exit|terms|privacy|shipping|refunds|research-use)$/.test(path);
+  const exempt = gateExempt(path);
+  const shown = open && !exempt;
 
   useEffect(() => {
-    try {
-      const until = Number(localStorage.getItem(AGE_KEY) ?? 0);
-      setNeed(!(until > Date.now()));
-    } catch {
-      setNeed(true);
-    }
-  }, []);
-  useEffect(() => {
-    if (need && !exempt) {
-      document.body.style.overflow = "hidden";
-      box.current?.focus();
-      return () => void (document.body.style.overflow = "");
-    }
-  }, [need, exempt]);
+    if (!shown) return;
+    const el = box.current;
+    el?.querySelector<HTMLElement>("[data-gate-yes]")?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+      if (e.key !== "Tab" || !el) return;
+      const items = [...el.querySelectorAll<HTMLElement>("a[href], button:not([disabled])")];
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (!el.contains(document.activeElement)) {
+        e.preventDefault();
+        first.focus();
+      } else if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [shown]);
 
-  if (!need || exempt) return null;
-  const check = (on: boolean, set: (v: boolean) => void, children: React.ReactNode) => (
-    <label className={`flex cursor-pointer items-start gap-3 rounded-xl border px-4 py-3.5 text-left text-[15px] leading-snug transition ${on ? "border-coal bg-soft" : "border-rule"}`}>
-      <input type="checkbox" checked={on} onChange={(e) => set(e.target.checked)} className="mt-0.5 h-5 w-5 shrink-0 accent-[var(--s-brand)]" />
-      <span>{children}</span>
-    </label>
-  );
+  if (!shown) return null;
+  const enter = () => {
+    const until = Date.now() + ENTRY_DAYS * 86400000;
+    const secure = location.protocol === "https:" ? "; secure" : "";
+    document.cookie = `${ENTRY_COOKIE}=${until}; max-age=${ENTRY_DAYS * 86400}; path=/; samesite=lax${secure}`;
+    setOpen(false);
+  };
   return (
-    <div className="fixed inset-0 z-[90] flex items-end justify-center bg-night/60 p-0 backdrop-blur-sm sm:items-center sm:p-6">
-      <div ref={box} role="dialog" aria-modal="true" aria-labelledby="age-title" tabIndex={-1} className="w-full max-w-md animate-rise-in rounded-t-3xl bg-paper px-6 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] pt-8 text-center shadow-2xl outline-none sm:rounded-3xl sm:px-9 sm:pb-9" style={{ animationDuration: ".5s" }}>
-        <div className="text-sm font-extrabold uppercase tracking-[0.2em]">{name}</div>
-        <h2 id="age-title" className="mt-5 text-2xl font-semibold tracking-tight">
-          Please confirm before you enter
-        </h2>
-        <p className="mt-2 text-[15px] leading-relaxed text-stone">Products on this site are sold for laboratory research use only. They are not for human consumption.</p>
-        <div className="mt-6 space-y-2.5">
-          {check(age, setAge, <>I am 21 years of age or older.</>)}
-          {check(
-            terms,
-            setTerms,
-            <>
-              I agree to the{" "}
-              <Link href="/terms" className="s-link">
-                Terms
-              </Link>
-              .
-            </>,
-          )}
+    <div data-entry-gate className="fixed inset-0 z-[90] flex items-center justify-center overflow-y-auto overscroll-contain bg-night/70 p-4 backdrop-blur-md sm:p-6">
+      <div
+        ref={box}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="gate-title"
+        aria-describedby="gate-line"
+        className="w-full max-w-md rounded-3xl bg-paper px-6 pb-7 pt-9 text-center shadow-2xl sm:px-9 sm:pb-9"
+      >
+        <div className="flex justify-center">
+          <Wordmark name={name} logo={logo} />
         </div>
-        <button
-          type="button"
-          disabled={!age || !terms}
-          className="s-btn-primary mt-5 w-full"
-          onClick={() => {
-            try {
-              localStorage.setItem(AGE_KEY, String(Date.now() + AGE_DAYS * 86400000));
-            } catch {}
-            setNeed(false);
-          }}
-        >
-          Enter site
-        </button>
-        <button type="button" className="mt-2 h-11 w-full text-[15px] font-medium text-stone underline decoration-rule underline-offset-4 hover:text-coal" onClick={() => router.push("/exit")}>
-          No, I am under 21
-        </button>
+        <h2 id="gate-title" className="mt-6 text-[22px] font-semibold leading-snug tracking-tight sm:text-2xl">
+          Are you {minAge} or older, and purchasing for laboratory research use only?
+        </h2>
+        <p id="gate-line" className="mt-3 text-[15px] leading-relaxed text-stone">
+          All products are sold for laboratory research use only. Not for human consumption.
+        </p>
+        <div className="mt-7 grid gap-2.5">
+          <button type="button" data-gate-yes className="s-btn-primary w-full" onClick={enter}>
+            Yes, enter
+          </button>
+          <button type="button" className="s-btn-line w-full" onClick={() => window.location.assign("https://www.google.com")}>
+            No, leave
+          </button>
+        </div>
+        <p className="mt-6 text-[13px] text-stone">
+          <Link href="/terms" className="s-link">
+            Terms
+          </Link>
+          {" · "}
+          <Link href="/research-use" className="s-link">
+            Research Use Policy
+          </Link>
+        </p>
       </div>
     </div>
   );

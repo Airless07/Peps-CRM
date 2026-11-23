@@ -6,7 +6,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { SHOTS } from "../playwright.config";
-import { adminLogin } from "./helpers";
+import { adminLogin, enteredSite } from "./helpers";
 
 const DB = path.join(__dirname, ".tmp", "e2e.db");
 const WIDTHS = [
@@ -124,11 +124,11 @@ function seedData() {
   return { delivered, any, awaiting, listing, plain, withCas, group, variant };
 }
 
-const agePassed = `localStorage.setItem("bp-age", String(Date.now() + 86400000 * 30));`;
 
 async function storeContext(browser: Browser, w: (typeof WIDTHS)[number], cart: string | null): Promise<BrowserContext> {
   const ctx = await browser.newContext({ viewport: w.viewport, deviceScaleFactor: 1, isMobile: w.mobile, hasTouch: w.mobile });
-  await ctx.addInitScript(`${agePassed}${cart ? `localStorage.setItem("bp-cart", ${JSON.stringify(cart)});` : ""}`);
+  await enteredSite(ctx);
+  if (cart) await ctx.addInitScript(`localStorage.setItem("bp-cart", ${JSON.stringify(cart)});`);
   return ctx;
 }
 
@@ -143,7 +143,7 @@ for (const w of WIDTHS) {
       const first = await browser.newContext({ viewport: w.viewport, isMobile: w.mobile, hasTouch: w.mobile });
       const gate = await first.newPage();
       await gate.goto("/");
-      await expect(gate.getByRole("dialog", { name: "Please confirm before you enter" })).toBeVisible();
+      await expect(gate.getByRole("dialog", { name: /Are you \d+ or older/ })).toBeVisible();
       await shoot(gate, "store-00-age-gate", w);
       await first.close();
 

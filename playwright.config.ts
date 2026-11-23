@@ -44,6 +44,8 @@ export default defineConfig({
     { name: "accounts", testMatch: /accounts\.spec\.ts/, dependencies: ["owner"] },
     // The shop grid never shows a count over an empty grid. Stands on its own: npx playwright test --project=grid --no-deps
     { name: "grid", testMatch: /grid\.spec\.ts/, dependencies: ["accounts"] },
+    // Entry gate, checkout consent, policies, launch checklist. Stands on its own: npx playwright test --project=launch --no-deps
+    { name: "launch", testMatch: /(gate|launch)\.spec\.ts/, dependencies: ["grid"] },
   ],
   webServer: {
     command: `npx next start -p ${PORT}`,

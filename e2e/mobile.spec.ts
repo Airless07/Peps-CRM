@@ -7,13 +7,12 @@ import path from "node:path";
 import { mkdirSync } from "node:fs";
 import { chromium, devices, expect, test, type Page } from "@playwright/test";
 import { SHOTS } from "../playwright.config";
-import { adminLogin } from "./helpers";
+import { adminLogin, enteredSite } from "./helpers";
 
 test.use({ ...devices["iPhone 14"], hasTouch: true });
 
 const evidence = path.join(SHOTS, "mobile");
 mkdirSync(evidence, { recursive: true });
-const agePassed = `localStorage.setItem("bp-age", String(Date.now() + 86400000 * 30));`;
 
 /** What is really under a point on screen: the product card link it belongs to (or null) and the element. */
 async function under(page: Page, x: number, y: number) {
@@ -56,7 +55,7 @@ async function tapOpens(page: Page, from: string, where: "image" | "name" | "pri
 }
 
 test.beforeEach(async ({ context }) => {
-  await context.addInitScript(agePassed);
+  await enteredSite(context);
 });
 
 test("the device really is a touch phone with no hover", async ({ page }) => {

@@ -244,6 +244,25 @@ export function StoreSettingsTabs({ tab, onTab }: { tab: StoreTab; onTab: (t: st
           )}
         </Card>
 
+        <SectionTitle>Age and research use</SectionTitle>
+        <Card className="space-y-5 p-4" data-compliance-settings>
+          <Toggle
+            checked={form.entryGate.enabled}
+            onChange={(v) => set("entryGate", { ...form.entryGate, enabled: v })}
+            label="Entry gate on the first visit"
+            hint="Full-screen question before browsing: age and research use only. Remembered for 30 days. Never shown on admin, email links or to search engines."
+          />
+          <Field label="Minimum age" hint="Used in the entry gate question.">
+            <NumberInput className="w-40" value={form.entryGate.minAge} min={18} max={99} step={1} suffix="years" onChange={(n) => set("entryGate", { ...form.entryGate, minAge: Math.max(18, Math.min(99, n ?? 21)) })} label="minimum age" />
+          </Field>
+          <Toggle
+            checked={form.checkoutConsent}
+            onChange={(v) => set("checkoutConsent", v)}
+            label="Required checkbox at checkout"
+            hint="“I confirm I am 21 or older and this purchase is for laboratory research use only…”. Saved on each website order with the time and IP address."
+          />
+        </Card>
+
         <SectionTitle>Orders</SectionTitle>
         <Card className="space-y-5 p-4">
           <Field label="Cancel unpaid orders after" hint="An order that is not marked paid in this time is canceled automatically, and the customer is emailed.">

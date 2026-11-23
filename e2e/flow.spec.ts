@@ -44,12 +44,11 @@ test.afterAll(async () => {
   await admin?.close();
 });
 
-/** The age gate, answered like a real visitor: tick both boxes, then Enter site. */
+/** The age gate, answered like a real visitor: then "Yes, enter". */
 const passAgeGate = async (page: Page) => {
-  const gate = page.getByRole("dialog", { name: "Please confirm before you enter" });
+  const gate = page.getByRole("dialog", { name: /Are you \d+ or older/ });
   if (!(await gate.isVisible({ timeout: 3000 }).catch(() => false))) return;
-  for (const box of await gate.locator('input[type="checkbox"]').all()) await box.check();
-  await gate.getByRole("button", { name: "Enter site" }).click();
+  await gate.getByRole("button", { name: "Yes, enter" }).click();
   await expect(gate).toBeHidden();
 };
 

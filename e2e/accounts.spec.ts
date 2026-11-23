@@ -10,7 +10,7 @@ import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { PDFDocument } from "pdf-lib";
 import type { PublicProduct } from "../src/lib/store/catalog";
 import { BASE, SHOTS } from "../playwright.config";
-import { adminLogin, adminState, emails, ORIGIN, shippoCalls } from "./helpers";
+import { adminLogin, adminState, emails, enteredSite, ORIGIN, shippoCalls } from "./helpers";
 
 test.describe.configure({ mode: "serial" });
 
@@ -31,12 +31,10 @@ let single: PublicProduct;
 let reta: PublicProduct;
 
 /** The age gate was answered on this device earlier (it is tested in pages.spec.ts). */
-const ageOk = () => localStorage.setItem("bp-age", String(Date.now() + 30 * 86400000));
 const passAgeGate = async (page: Page) => {
-  const gate = page.getByRole("dialog", { name: "Please confirm before you enter" });
+  const gate = page.getByRole("dialog", { name: /Are you \d+ or older/ });
   if (!(await gate.isVisible({ timeout: 3000 }).catch(() => false))) return;
-  for (const box of await gate.locator('input[type="checkbox"]').all()) await box.check();
-  await gate.getByRole("button", { name: "Enter site" }).click();
+  await gate.getByRole("button", { name: "Yes, enter" }).click();
   await expect(gate).toBeHidden();
 };
 async function signIn(page: Page, who: { email: string; password: string; name: string }) {
@@ -83,7 +81,7 @@ test.beforeAll(async ({ browser, playwright }) => {
   );
   db.close();
   ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
-  await ctx.addInitScript(ageOk);
+  await enteredSite(ctx);
   shop = await ctx.newPage();
 });
 test.afterAll(async () => {
@@ -251,7 +249,7 @@ test("5. quick add on desktop: single size and Retatrutide 10mg / 20mg", async (
 
 test("6. no quick add on a 390px phone", async ({ browser }) => {
   const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
-  await phone.addInitScript(ageOk);
+  await enteredSite(phone);
   const p = await phone.newPage();
   await p.goto("/shop");
   await passAgeGate(p);
@@ -280,7 +278,7 @@ test("7. bulk shipping (Shippo TEST mode): buy 3 labels, combined label and slip
     numbers.push((await r.json()).number);
   }
   const admin = await browser.newContext({ viewport: { width: 1280, height: 900 } });
-  await admin.addInitScript(ageOk);
+  await enteredSite(admin);
   const adm = await admin.newPage();
   await adminLogin(adm);
   let st = await adminState(admin.request);

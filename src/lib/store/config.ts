@@ -47,6 +47,10 @@ export interface StoreSettings {
   referrals: ReferralSettings;
   /** Local pickup and local delivery (Settings > Local orders). */
   local: LocalSettings;
+  /** Full-screen gate on the first visit (age and research use). On by default. */
+  entryGate: { enabled: boolean; minAge: number };
+  /** Required "21+ and research use only" checkbox at checkout. On by default. */
+  checkoutConsent: boolean;
 }
 
 export interface PickupSpot {
@@ -145,6 +149,8 @@ export const DEFAULT_STORE: StoreSettings = {
   unpaidReminder: true,
   lowStockAlerts: true,
   referrals: { percent: 10, buyerDiscountPercent: 0, allowStacking: true, inviteDays: 14 },
+  entryGate: { enabled: true, minAge: 21 },
+  checkoutConsent: true,
   local: {
     homeZip: "",
     radiusMiles: 15,
@@ -413,6 +419,10 @@ export function parseStore(json: string | null | undefined): StoreSettings {
   s.lowStockAlerts = s.lowStockAlerts !== false;
   s.referrals = cleanReferrals(s.referrals);
   s.local = cleanLocal(s.local);
+  const gate = (s.entryGate ?? {}) as Partial<StoreSettings["entryGate"]>;
+  const age = Math.round(Number(gate.minAge));
+  s.entryGate = { enabled: gate.enabled !== false, minAge: Number.isFinite(age) && age >= 18 && age <= 99 ? age : 21 };
+  s.checkoutConsent = s.checkoutConsent !== false;
   return s;
 }
 

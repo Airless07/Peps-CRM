@@ -247,10 +247,9 @@ test("admin: unknown /admin address shows the admin 404; the search box is not a
 
 test("store password fields use the right autocomplete values", async ({ page }) => {
   await page.goto("/account");
-  const gate = page.getByRole("dialog", { name: "Please confirm before you enter" });
+  const gate = page.getByRole("dialog", { name: /Are you \d+ or older/ });
   if (await gate.isVisible({ timeout: 3000 }).catch(() => false)) {
-    for (const box of await gate.locator('input[type="checkbox"]').all()) await box.check();
-    await gate.getByRole("button", { name: "Enter site" }).click();
+    await gate.getByRole("button", { name: "Yes, enter" }).click();
   }
   const pass = page.locator("#au-pass");
   await expect(pass).toBeVisible();
