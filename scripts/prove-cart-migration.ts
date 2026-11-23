@@ -103,6 +103,7 @@ console.log(`new tables: ${added.join(", ")}`);
 const EXPECT: Record<string, { tables: string[]; orderCols: string[] }> = {
   "20261125120000_customer_carts": { tables: ["CustomerCart"], orderCols: ["labelLockAt"] },
   "20261126120000_order_consent": { tables: [], orderCols: ["consentAt", "consentText", "consentIp"] },
+  "20261128120000_revoked_sessions": { tables: ["RevokedSession"], orderCols: [] },
 };
 const want = EXPECT[NEW] ?? { tables: [], orderCols: [] };
 if (added.join() !== want.tables.join()) fail(`unexpected new tables: ${added.join()}`);

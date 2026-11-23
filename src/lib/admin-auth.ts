@@ -6,6 +6,7 @@
  */
 import { createHash } from "node:crypto";
 import { getSettingsRow } from "./serialize";
+import { isRevoked } from "./revoke";
 import { createSessionToken, sessionTokenGen } from "./session";
 
 const sha = (s: string) => createHash("sha256").update(s).digest("hex");
@@ -19,7 +20,9 @@ export async function adminGeneration(): Promise<string> {
 export async function isAdminToken(token: string | undefined | null): Promise<boolean> {
   const gen = await sessionTokenGen(token);
   if (!gen) return false;
-  return gen === (await adminGeneration());
+  if (gen !== (await adminGeneration())) return false;
+  // Signed out: this exact cookie is refused even though its signature is still right.
+  return !(await isRevoked(token!));
 }
 
 /** A new admin session token for the current generation. */

@@ -595,3 +595,13 @@ model Payout {
   split       Split?   @relation(fields: [splitId], references: [id], onDelete: Cascade)
   createdAt   DateTime @default(now())
 }
+
+/// Signed-out sessions (admin and customer). A cookie whose signature is listed here is refused until it
+/// would have expired anyway, so signing out ends that session on the server, not just in the browser.
+model RevokedSession {
+  /// sha256 of the cookie's signature
+  id        String   @id
+  expiresAt DateTime
+
+  @@index([expiresAt])
+}

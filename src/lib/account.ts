@@ -6,11 +6,12 @@ import { HttpError } from "./api";
 import { prisma } from "./db";
 import { allow } from "./ratelimit";
 import { creditBalance } from "./credit-ops";
+import { isRevoked, revokeToken } from "./revoke";
 import { inviteEmail, passwordResetEmail, sendEmail, type EmailOutcome } from "./email";
 import { getStore, siteUrl } from "./order-ops";
 import { uniqueReferralCode } from "./referral-codes";
 import { json } from "./serialize";
-import { SESSION_COOKIE, signValue, verifyValue } from "./session";
+import { SESSION_COOKIE, signValue, verifySessionToken, verifyValue } from "./session";
 import type { Address } from "./types";
 
 export const ACCOUNT_COOKIE = "peps_account";
@@ -50,14 +51,21 @@ async function setCookie(customerId: string, passwordHash: string | null) {
  */
 export async function signOut() {
   const jar = await cookies();
+  // Ended on the server too: a copy of either cookie stops working now, not when it expires.
+  // Only cookies with a real signature are listed (a made-up value can't add rows).
+  const acct = jar.get(ACCOUNT_COOKIE)?.value;
+  if (await verifyValue(acct)) await revokeToken(acct);
+  const admin = jar.get(SESSION_COOKIE)?.value;
+  if (await verifySessionToken(admin)) await revokeToken(admin);
   jar.set(ACCOUNT_COOKIE, "", { httpOnly: true, path: "/", maxAge: 0 });
   jar.set(SESSION_COOKIE, "", { httpOnly: true, path: "/", maxAge: 0 });
 }
 
 /** The signed-in customer, or null. */
 export async function currentAccount(): Promise<Account | null> {
-  const value = await verifyValue((await cookies()).get(ACCOUNT_COOKIE)?.value);
-  if (!value) return null;
+  const token = (await cookies()).get(ACCOUNT_COOKIE)?.value;
+  const value = await verifyValue(token);
+  if (!value || (await isRevoked(token!))) return null;
   const [id, print] = value.split(":");
   if (!id || !print) return null;
   const c = await prisma.customer.findUnique({ where: { id } });
@@ -265,7 +273,13 @@ export async function resetPassword(token: string, password: string): Promise<Ac
   if (!c || !c.resetExpiresAt || c.resetExpiresAt.getTime() < Date.now()) {
     throw new HttpError(400, "This reset link has expired or was already used. Ask for a new one.");
   }
-  const updated = await prisma.customer.update({ where: { id: c.id }, data: { passwordHash: await hashPassword(password), resetTokenHash: null, resetExpiresAt: null, mustChangePassword: false, lastLoginAt: new Date() } });
+  // Single use even if the link is submitted twice at once: only the request that clears this exact hash wins.
+  const done = await prisma.customer.updateMany({
+    where: { id: c.id, resetTokenHash: sha(token) },
+    data: { passwordHash: await hashPassword(password), resetTokenHash: null, resetExpiresAt: null, mustChangePassword: false, lastLoginAt: new Date() },
+  });
+  if (done.count !== 1) throw new HttpError(400, "This reset link has expired or was already used. Ask for a new one.");
+  const updated = await prisma.customer.findUniqueOrThrow({ where: { id: c.id } });
   await setCookie(c.id, updated.passwordHash);
   return toAccount(updated);
 }
