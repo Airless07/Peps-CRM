@@ -47,6 +47,40 @@ describe("policy update on start", () => {
   });
 });
 
+describe("policy [FILL IN] parts get neutral wording on start", () => {
+  it("every marker in the saved text is replaced, owner text and 'reviewed' are kept, old text saved, once", async () => {
+    // The live database holds exactly the earlier built-in text with its [FILL IN] markers.
+    const withMarkers = {
+      terms: { title: "Terms of Service", body: "## Governing law\n[FILL IN: the state whose laws govern these terms.]\n\nMy own line.", reviewed: false },
+      shipping: { title: "Shipping Policy", body: "Orders ship after payment is confirmed. [FILL IN: how many business days after payment an order usually ships.]\r\nIf your package arrives damaged or tracking shows a problem, email {support_email} within [FILL IN: number of days] days of delivery with your order number, and we will help resolve it.", reviewed: false },
+      refunds: { title: "Refunds", body: "we cannot accept returns of opened products. [FILL IN: whether unopened products can be returned, and within how many days.]\nemail {support_email} within [FILL IN: number of days] days of delivery with your order number and a photo. We will replace the item or refund it.\nApproved refunds are returned through the payment method you used. [FILL IN: how many business days a refund usually takes.] [FILL IN: whether shipping costs are refunded.]", reviewed: true },
+      privacy: { title: "Privacy", body: "No markers here.", reviewed: false },
+    };
+    await prisma.settings.update({ where: { id: 1 }, data: { contentJson: JSON.stringify({ policies: withMarkers }) } });
+    expect(await mig.neutralFillIns()).toEqual({ changed: ["terms", "shipping", "refunds"], leftover: [] });
+    const p = JSON.parse((await prisma.settings.findUniqueOrThrow({ where: { id: 1 } })).contentJson).policies;
+    for (const id of Object.keys(p)) expect(p[id].body, id).not.toContain("[FILL IN");
+    expect(p.terms.body).toBe("## Governing law\nContact {support_email} for details.\n\nMy own line.");
+    expect(p.shipping.body).toContain("email {support_email} with your order number, and we will help resolve it.");
+    expect(p.refunds.body).toContain("Contact {support_email} for details on refund timing and shipping costs.");
+    expect(p.refunds.reviewed).toBe(true);
+    expect(p.terms.reviewed).toBe(false);
+    expect(p.privacy).toEqual(withMarkers.privacy);
+    const row = await prisma.dataMigration.findUniqueOrThrow({ where: { id: mig.FILL_INS_ID } });
+    expect(JSON.parse(row.detail).before.terms).toBe(withMarkers.terms.body);
+    expect(await mig.neutralFillIns()).toBeNull();
+  });
+
+  it("the replacements turn the earlier built-in text into exactly today's built-in text", () => {
+    for (const id of cfg.POLICY_IDS) {
+      let body = (OLD as Record<string, { body: string }>)[id]?.body ?? "";
+      if (!body.includes("[FILL IN")) continue;
+      for (const [from, to] of mig.FILL_IN_REPLACEMENTS) body = body.split(from).join(to);
+      expect(body, id).not.toContain("[FILL IN");
+    }
+  });
+});
+
 describe("launch checklist: admin password", () => {
   it("default or short APP_PASSWORD, or a common password set in Settings, is not done; a real one is", async () => {
     const bcrypt = (await import("bcryptjs")).default;

@@ -312,7 +312,7 @@ You are responsible for the safe storage, handling, and use of the products, and
 Products are provided as is. To the fullest extent allowed by law, our liability is limited to the amount you paid for the order.
 
 ## Governing law
-[FILL IN: the state whose laws govern these terms.]
+Contact {support_email} for details.
 
 ## Changes
 We may update these terms. The version posted when you place an order applies to that order.
@@ -352,7 +352,7 @@ Questions about privacy: {support_email}.
 We ship within the United States.
 
 ## Processing time
-Orders ship after payment is confirmed. [FILL IN: how many business days after payment an order usually ships.]
+Orders ship after payment is confirmed. Contact {support_email} for details on processing times.
 
 ## Shipping options and prices
 These are the options and prices at checkout today:
@@ -369,7 +369,7 @@ You receive an email with a tracking number as soon as your label is created.
 Please check your address carefully. We are not responsible for packages sent to an incorrect address provided at checkout.
 
 ## Lost or damaged packages
-If your package arrives damaged or tracking shows a problem, email {support_email} within [FILL IN: number of days] days of delivery with your order number, and we will help resolve it.
+If your package arrives damaged or tracking shows a problem, email {support_email} with your order number, and we will help resolve it.
 `,
     ),
     refunds: policy(
@@ -379,13 +379,13 @@ If your package arrives damaged or tracking shows a problem, email {support_emai
 You can ask us to cancel an order any time before it ships by emailing {support_email}. Unpaid orders are canceled automatically after {pay_hours}. If a canceled order was already paid, we refund it. Store credit used on a canceled order goes back to your balance.
 
 ## Returns
-Because of the nature of research materials, we cannot accept returns of opened products. [FILL IN: whether unopened products can be returned, and within how many days.]
+Because of the nature of research materials, we cannot accept returns of opened products. Contact {support_email} for details about unopened products.
 
 ## Damaged or incorrect items
-If an item arrives damaged or you received the wrong item, email {support_email} within [FILL IN: number of days] days of delivery with your order number and a photo. We will replace the item or refund it.
+If an item arrives damaged or you received the wrong item, email {support_email} with your order number and a photo. We will replace the item or refund it.
 
 ## How refunds are sent
-Approved refunds are returned through the payment method you used. [FILL IN: how many business days a refund usually takes.] [FILL IN: whether shipping costs are refunded.]
+Approved refunds are returned through the payment method you used. Contact {support_email} for details on refund timing and shipping costs.
 
 ## Store credit and referral rewards
 Referral credit earned from an order is taken back if that order is refunded (in part for a partial refund) or canceled.

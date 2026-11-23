@@ -44,9 +44,10 @@ describe("policies match how the store works", () => {
     }
   });
 
-  it("every policy is there with its full name; unclear promises are marked [FILL IN]", () => {
+  it("every policy is there with its full name; no [FILL IN] placeholder is left (blanks point to support)", () => {
     expect(POLICY_IDS.map((id) => DEFAULT_CONTENT.policies[id].title)).toEqual(["Terms of Service", "Privacy Policy", "Shipping Policy", "Refund & Return Policy", "Research Use Policy"]);
-    expect(DEFAULT_CONTENT.policies.refunds.body).toMatch(/\[FILL IN: how many business days a refund usually takes\.\]/);
+    for (const id of POLICY_IDS) expect(DEFAULT_CONTENT.policies[id].body, id).not.toContain("[FILL IN");
+    expect(DEFAULT_CONTENT.policies.refunds.body).toContain("Contact {support_email} for details on refund timing and shipping costs.");
     expect(DEFAULT_CONTENT.contact.email).toBe("support@buckshotlabs.com");
   });
 });

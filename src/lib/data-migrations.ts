@@ -138,6 +138,48 @@ export async function updatePolicies(): Promise<{ replaced: string[]; kept: stri
   });
 }
 
+// ---------------------------------------------------------------- Policy [FILL IN] markers
+export const FILL_INS_ID = "policy-fill-ins-neutral-2026-11";
+/**
+ * Every [FILL IN] marker the built-in policies had, and the neutral wording that replaces it. The new
+ * wording promises nothing new: it points to the support email. Only these exact pieces of text are
+ * changed, so anything the owner wrote stays as it is. "Reviewed" is never changed.
+ */
+export const FILL_IN_REPLACEMENTS: [string, string][] = [
+  ["[FILL IN: the state whose laws govern these terms.]", "Contact {support_email} for details."],
+  ["[FILL IN: how many business days after payment an order usually ships.]", "Contact {support_email} for details on processing times."],
+  [" within [FILL IN: number of days] days of delivery with your order number, and we", " with your order number, and we"],
+  ["[FILL IN: whether unopened products can be returned, and within how many days.]", "Contact {support_email} for details about unopened products."],
+  [" within [FILL IN: number of days] days of delivery with your order number and a photo.", " with your order number and a photo."],
+  ["[FILL IN: how many business days a refund usually takes.] [FILL IN: whether shipping costs are refunded.]", "Contact {support_email} for details on refund timing and shipping costs."],
+];
+
+/** Replaces the [FILL IN] markers in saved policy text with neutral wording, once. Old text kept for undo. */
+export async function neutralFillIns(): Promise<{ changed: string[]; leftover: string[] } | null> {
+  return prisma.$transaction(async (tx) => {
+    if (await tx.dataMigration.findUnique({ where: { id: FILL_INS_ID } })) return null;
+    const row = await tx.settings.findUnique({ where: { id: 1 } });
+    const saved = (row?.contentJson ? JSON.parse(row.contentJson) : {}) as { policies?: Record<string, { body?: string }> };
+    const changed: string[] = [];
+    const leftover: string[] = [];
+    const before: Record<string, string> = {};
+    for (const [id, p] of Object.entries(saved.policies ?? {})) {
+      if (typeof p?.body !== "string") continue;
+      let body = p.body.split(String.fromCharCode(13)).join("");
+      for (const [from, to] of FILL_IN_REPLACEMENTS) body = body.split(from).join(to);
+      if (body !== p.body.split(String.fromCharCode(13)).join("")) {
+        before[id] = p.body;
+        p.body = body;
+        changed.push(id);
+      }
+      if (body.includes("[FILL IN")) leftover.push(id);
+    }
+    if (row && changed.length) await tx.settings.update({ where: { id: 1 }, data: { contentJson: JSON.stringify(saved) } });
+    await tx.dataMigration.create({ data: { id: FILL_INS_ID, detail: JSON.stringify({ changed, leftover, before }) } });
+    return { changed, leftover };
+  });
+}
+
 // ---------------------------------------------------------------- Test order #1008
 export const TEST_ORDER_ID = "remove-test-order-1008";
 /** The one order to remove, matched on every field below so no real order can ever be hit. */
@@ -195,6 +237,12 @@ export async function runDataMigrations() {
     if (p) console.log(`[data] Policies updated: ${p.replaced.join(", ") || "none"}${p.kept.length ? `; edited by you, left alone: ${p.kept.join(", ")}` : ""}${p.contactEmail ? "; contact email set" : ""}`);
   } catch (e) {
     console.error("[data] policies failed:", e instanceof Error ? e.message : e);
+  }
+  try {
+    const f = await neutralFillIns();
+    if (f) console.log(`[data] Policy [FILL IN] parts replaced with neutral wording: ${f.changed.join(", ") || "none"}${f.leftover.length ? `; still has [FILL IN]: ${f.leftover.join(", ")}` : ""}`);
+  } catch (e) {
+    console.error("[data] policy fill-ins failed:", e instanceof Error ? e.message : e);
   }
   try {
     const renamed = await canonicalProductNames();
