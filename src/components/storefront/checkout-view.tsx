@@ -536,6 +536,24 @@ export function CheckoutView({ account: initial, states, consent, preview }: { a
                   {errors.ack && <span className="s-error">{errors.ack}</span>}
                 </div>
               )}
+              <p className="mt-3 text-[13px] leading-relaxed text-stone" data-checkout-policies>
+                {(
+                  [
+                    ["/shipping", "Shipping Policy"],
+                    ["/refunds", "Refund & Return Policy"],
+                    ["/privacy", "Privacy Policy"],
+                    ["/terms", "Terms of Service"],
+                    ["/research-use", "Research Use Policy"],
+                  ] as const
+                ).map(([href, label], i) => (
+                  <span key={href}>
+                    {i > 0 && " · "}
+                    <a href={href} target="_blank" rel="noopener" className="underline decoration-rule underline-offset-4 hover:text-coal">
+                      {label}
+                    </a>
+                  </span>
+                ))}
+              </p>
 
               <div ref={errorRef}>
                 {(formError || soldOut.length > 0 || cart.quoteError) && (

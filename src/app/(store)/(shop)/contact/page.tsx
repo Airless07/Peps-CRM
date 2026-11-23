@@ -3,12 +3,14 @@ import Link from "next/link";
 import { ContactForm } from "@/components/storefront/forms";
 import { currentAccount } from "@/lib/account";
 import { storeSnapshot } from "@/lib/store/server";
+import { SUPPORT_EMAIL } from "@/lib/store/config";
 
 export const metadata: Metadata = { title: "Contact", description: "Questions about an order, shipping or a certificate of analysis? Send us a message.", alternates: { canonical: "/contact" } };
 
 export default async function ContactPage() {
   const [{ data }, account] = await Promise.all([storeSnapshot(), currentAccount()]);
   const c = data.content.contact;
+  const email = c.email.trim() || SUPPORT_EMAIL;
   return (
     <div className="s-wrap pb-8 pt-10 sm:pt-16">
       <div className="grid gap-12 lg:grid-cols-[1fr_1.3fr] lg:gap-24">
@@ -18,16 +20,14 @@ export default async function ContactPage() {
           </h1>
           {c.note && <p className="mt-4 max-w-sm text-[1.0625rem] leading-relaxed text-stone">{c.note}</p>}
           <dl className="mt-8 space-y-5 text-[15px]">
-            {c.email && (
-              <div>
-                <dt className="text-stone">Email</dt>
-                <dd>
-                  <a href={`mailto:${c.email}`} className="s-link">
-                    {c.email}
-                  </a>
-                </dd>
-              </div>
-            )}
+            <div data-contact-email>
+              <dt className="text-stone">Contact</dt>
+              <dd>
+                <a href={`mailto:${email}`} className="s-link">
+                  {email}
+                </a>
+              </dd>
+            </div>
             {c.phone && (
               <div>
                 <dt className="text-stone">Phone</dt>

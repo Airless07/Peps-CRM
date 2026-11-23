@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { RichText } from "@/components/storefront/product-card";
 import { POLICY_IDS, type PolicyId } from "@/lib/store/config";
 import { storeSnapshot } from "@/lib/store/server";
+import { fillPolicy, policyFacts } from "@/lib/store/policy-text";
 
 // Policy pages (/terms, /privacy, /shipping, /refunds, /research-use) live here, readable even while the
 // store is closed. Any other unknown address falls through to the custom 404 page.
@@ -14,7 +15,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   if (!isPolicy(slug)) return { title: "Page not found", robots: { index: false } };
   const p = (await storeSnapshot()).data.content.policies[slug[0]];
-  return { title: p.title, description: p.body.replace(/[#*\-\n]+/g, " ").trim().slice(0, 155), alternates: { canonical: `/${slug[0]}` } };
+  return { title: p.title, description: p.body.replace(/\{[a-z_]+\}|\[FILL IN[^\]]*\]/g, "").replace(/[#*\-\n]+/g, " ").trim().slice(0, 155), alternates: { canonical: `/${slug[0]}` } };
 }
 
 export default async function PolicyPage({ params }: Props) {
@@ -40,7 +41,7 @@ export default async function PolicyPage({ params }: Props) {
           <h1 className="text-4xl font-semibold leading-[1.05] sm:text-5xl" style={{ letterSpacing: "-0.03em" }}>
             {p.title}
           </h1>
-          <RichText text={p.body} className="s-prose mt-4" />
+          <RichText text={fillPolicy(p.body, policyFacts(data.store, data.content, data.promotions))} className="s-prose mt-4" />
         </article>
       </div>
     </div>

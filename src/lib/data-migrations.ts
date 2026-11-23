@@ -3,6 +3,8 @@
 // owner changes afterwards (for example a size cleared on purpose) is never written back.
 import { prisma } from "./db";
 import { sizeInName } from "./store/product-info";
+import { DEFAULT_CONTENT, POLICY_IDS, SUPPORT_EMAIL } from "./store/config";
+import OLD_POLICIES from "./store/policies-before-2026-11.json";
 
 export const SIZE_BACKFILL_ID = "sizes-from-names";
 
@@ -100,7 +102,49 @@ export async function canonicalProductNames(): Promise<{ table: string; id: stri
   });
 }
 
+// ---------------------------------------------------------------- Policies and contact email
+export const POLICIES_ID = "policies-and-contact-2026-11";
+/**
+ * Saved policy text that is still exactly the previous built-in default is replaced with the new default
+ * (live shipping prices, payment methods, referral rules, [FILL IN] markers). A policy the owner edited
+ * is left alone and listed in the detail. An empty contact email becomes support@buckshotlabs.com.
+ * The old text is kept in the DataMigration row, so it can be put back.
+ */
+export async function updatePolicies(): Promise<{ replaced: string[]; kept: string[]; contactEmail: boolean } | null> {
+  return prisma.$transaction(async (tx) => {
+    if (await tx.dataMigration.findUnique({ where: { id: POLICIES_ID } })) return null;
+    const row = await tx.settings.findUnique({ where: { id: 1 } });
+    const saved = (row?.contentJson ? JSON.parse(row.contentJson) : {}) as { policies?: Record<string, { title?: string; body?: string; reviewed?: boolean }>; contact?: { email?: string } };
+    const replaced: string[] = [];
+    const kept: string[] = [];
+    const before: Record<string, unknown> = {};
+    for (const id of POLICY_IDS) {
+      const cur = saved.policies?.[id];
+      if (!cur) continue; // not saved: the new default already shows
+      const old = (OLD_POLICIES as Record<string, { title: string; body: string }>)[id];
+      const norm = (x?: string) => (x ?? "").split(String.fromCharCode(13)).join("").trim();
+      const same = (a?: string, b?: string) => norm(a) === norm(b);
+      if (same(cur.body, old.body) || cur.body === undefined) {
+        before[id] = cur;
+        saved.policies![id] = { ...DEFAULT_CONTENT.policies[id], reviewed: false, ...(same(cur.title, old.title) || !cur.title ? {} : { title: cur.title }) };
+        replaced.push(id);
+      } else kept.push(id);
+    }
+    const contactEmail = !!row && !(saved.contact?.email ?? "").trim();
+    if (contactEmail) saved.contact = { ...(saved.contact ?? {}), email: SUPPORT_EMAIL };
+    if (row && (replaced.length || contactEmail)) await tx.settings.update({ where: { id: 1 }, data: { contentJson: JSON.stringify(saved) } });
+    await tx.dataMigration.create({ data: { id: POLICIES_ID, detail: JSON.stringify({ replaced, kept, contactEmail, before }) } });
+    return { replaced, kept, contactEmail };
+  });
+}
+
 export async function runDataMigrations() {
+  try {
+    const p = await updatePolicies();
+    if (p) console.log(`[data] Policies updated: ${p.replaced.join(", ") || "none"}${p.kept.length ? `; edited by you, left alone: ${p.kept.join(", ")}` : ""}${p.contactEmail ? "; contact email set" : ""}`);
+  } catch (e) {
+    console.error("[data] policies failed:", e instanceof Error ? e.message : e);
+  }
   try {
     const renamed = await canonicalProductNames();
     if (renamed?.length) console.log(`[data] Product names updated (${renamed.length}):${renamed.map((c) => `\n  ${c.from} -> ${c.to}`).join("")}`);

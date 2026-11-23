@@ -213,6 +213,9 @@ export const TAGLINE = "Research materials with testing status shown on every pr
 /** In a FAQ answer this is replaced with the payment methods that are switched on (see faqForDisplay). */
 export const PAY_METHODS_TOKEN = "{payment_methods}";
 
+/** Where customers write to. Shown in the footer, on the Contact page and in the policies. */
+export const SUPPORT_EMAIL = "support@buckshotlabs.com";
+
 export const RESEARCH_LINE = "All products are sold for laboratory research use only. Not for human consumption. Not evaluated by the FDA.";
 
 const policy = (title: string, body: string): PolicyDoc => ({ title, body: body.trim(), reviewed: false });
@@ -256,7 +259,7 @@ export const DEFAULT_CONTENT: SiteContent = {
     title: "About Buckshot Labs",
     body: "Buckshot Labs supplies research compounds and shows the testing status of every product. Certificates of analysis are published per batch as they are completed. We keep the catalog small and ship quickly.",
   },
-  contact: { email: "", phone: "", hours: "", note: "We usually reply within one business day." },
+  contact: { email: SUPPORT_EMAIL, phone: "", hours: "", note: "We usually reply within one business day." },
   footerText: "",
   announcement: { mode: "auto", text: "", code: "", startsAt: null, endsAt: null },
   acknowledgments: {
@@ -279,16 +282,22 @@ export const DEFAULT_CONTENT: SiteContent = {
 These terms apply to every order placed on this website. By placing an order you agree to them.
 
 ## Research use only
-All products are sold strictly for laboratory research use. They are not drugs, foods, cosmetics, or dietary supplements, and they are not for human or animal consumption. Nothing on this site is medical advice.
+All products are sold strictly for laboratory research use. They are not drugs, foods, cosmetics, or dietary supplements, and they are not for human or animal consumption. Nothing on this site is medical advice. See the Research Use Policy.
 
 ## Who can order
-You must be at least 21 years old. By ordering, you confirm that you are a qualified researcher or are buying on behalf of one, and that you will handle the products according to all laws that apply to you.
+You must be at least {min_age} years old. By ordering, you confirm that you are buying for lawful laboratory research and that you will handle the products according to all laws that apply to you. You need an account to place an order.
 
 ## Orders and payment
-An order is confirmed only once we receive your payment. Unpaid orders are canceled automatically after the time shown on your order page. We may refuse or cancel any order.
+We accept {payment_methods}. After you place an order, the order page shows where to send the payment and the exact amount. An order is confirmed only once we receive your payment. Unpaid orders are canceled automatically after {pay_hours}. We may refuse or cancel any order; if we cancel an order you already paid for, we refund it.
 
 ## Pricing and availability
-Prices and stock can change without notice. If an item is unavailable after you pay, we will refund it.
+Prices and stock can change without notice. The price shown at checkout when you place your order is the price you pay. If an item is unavailable after you pay, we will refund it.
+
+## Discount codes
+Discount codes and automatic deals apply only while they are active and only under the conditions shown with them. They have no cash value.
+
+## Store credit and referrals
+{referral_rules}
 
 ## Your responsibilities
 You are responsible for the safe storage, handling, and use of the products, and for following the laws of your jurisdiction. You agree not to resell products for human consumption.
@@ -296,8 +305,14 @@ You are responsible for the safe storage, handling, and use of the products, and
 ## Limitation of liability
 Products are provided as is. To the fullest extent allowed by law, our liability is limited to the amount you paid for the order.
 
+## Governing law
+[FILL IN: the state whose laws govern these terms.]
+
 ## Changes
 We may update these terms. The version posted when you place an order applies to that order.
+
+## Contact
+Questions about these terms: {support_email}.
 `,
     ),
     privacy: policy(
@@ -306,61 +321,72 @@ We may update these terms. The version posted when you place an order applies to
 This policy explains what we collect and how we use it.
 
 ## What we collect
-When you order or contact us we collect your name, email address, shipping address, and phone number if you give it. If you upload a payment screenshot, we keep it with your order.
+When you create an account, order, or contact us we collect your name, email address, shipping address, and phone number if you give it. If you upload a payment screenshot, we keep it with your order. When you place an order we also record the time and IP address of your checkout confirmation (that you are {min_age} or older and buying for research use only).
 
 ## How we use it
-We use this information to process and ship your order, send order updates by email, answer your questions, and keep business records. We do not sell your personal information.
+We use this information to process and ship your order, send order updates by email, run your account, store credit and referral code, answer your questions, and keep business records. We do not sell your personal information.
 
 ## Who we share it with
 We share only what is needed with the services that help us operate: our shipping carrier and label provider (to deliver your order) and our email provider (to send order emails).
 
-## Cookies
-We use a small number of cookies and local storage entries to remember your cart and your age confirmation. We do not use advertising trackers.
+## Cookies and local storage
+We use a small number of cookies and local storage entries: to keep you signed in, to remember your cart, and to remember that you answered the entry question (for 30 days). We count page visits with our own simple tool to see which pages are used. We do not use advertising trackers.
 
 ## Keeping your data
-We keep order records for as long as needed for accounting and legal purposes. You can ask us to correct or delete your information by contacting us.
+We keep order records for as long as needed for accounting and legal purposes. You can ask us to correct or delete your information by emailing {support_email}.
 
 ## Contact
-Questions about privacy can be sent through the contact page.
+Questions about privacy: {support_email}.
 `,
     ),
     shipping: policy(
       "Shipping Policy",
       `
+## Where we ship
+We ship within the United States.
+
 ## Processing time
-Orders ship after payment is confirmed, usually within 1 to 2 business days.
+Orders ship after payment is confirmed. [FILL IN: how many business days after payment an order usually ships.]
 
-## Carriers and tracking
-We ship within the United States. You receive an email with a tracking number as soon as your label is created.
+## Shipping options and prices
+These are the options and prices at checkout today:
+{shipping_options}
 
-## Shipping cost
-The shipping cost is shown at checkout before you place your order. Free shipping offers, when available, are applied automatically.
+{free_shipping}
+
+The shipping cost is always shown at checkout before you place your order. Delivery times are the carrier's estimates in business days, not a guarantee.
+
+## Tracking
+You receive an email with a tracking number as soon as your label is created.
 
 ## Address accuracy
 Please check your address carefully. We are not responsible for packages sent to an incorrect address provided at checkout.
 
 ## Lost or damaged packages
-If your package arrives damaged or tracking shows a problem, contact us within 7 days of delivery and we will help resolve it.
+If your package arrives damaged or tracking shows a problem, email {support_email} within [FILL IN: number of days] days of delivery with your order number, and we will help resolve it.
 `,
     ),
     refunds: policy(
-      "Refund Policy",
+      "Refund & Return Policy",
       `
 ## Cancellations
-You can cancel an order any time before it ships by contacting us. Unpaid orders are canceled automatically.
+You can ask us to cancel an order any time before it ships by emailing {support_email}. Unpaid orders are canceled automatically after {pay_hours}. If a canceled order was already paid, we refund it. Store credit used on a canceled order goes back to your balance.
 
 ## Returns
-Because of the nature of research materials, we cannot accept returns of opened products.
+Because of the nature of research materials, we cannot accept returns of opened products. [FILL IN: whether unopened products can be returned, and within how many days.]
 
 ## Damaged or incorrect items
-If an item arrives damaged or you received the wrong item, contact us within 7 days of delivery with your order number and a photo. We will replace the item or refund it.
+If an item arrives damaged or you received the wrong item, email {support_email} within [FILL IN: number of days] days of delivery with your order number and a photo. We will replace the item or refund it.
 
 ## How refunds are sent
-Approved refunds are returned through the payment method you used, usually within 3 business days.
+Approved refunds are returned through the payment method you used. [FILL IN: how many business days a refund usually takes.] [FILL IN: whether shipping costs are refunded.]
+
+## Store credit and referral rewards
+Referral credit earned from an order is taken back if that order is refunded (in part for a partial refund) or canceled.
 `,
     ),
     "research-use": policy(
-      "Research Use Only",
+      "Research Use Policy",
       `
 ${RESEARCH_LINE}
 
@@ -371,7 +397,10 @@ The products on this website are chemical compounds intended for in-vitro labora
 We do not provide instructions, dosing information, or advice about use in humans or animals, and our staff cannot answer questions of that kind.
 
 ## Buyer confirmation
-By purchasing, you confirm that you are at least 21 years old, that you understand the nature of these materials, and that you will use them only for lawful laboratory research.
+Before browsing, visitors confirm they are {min_age} or older and buying for laboratory research use only. At checkout every buyer ticks a box confirming the same, and we keep that confirmation with the order. By purchasing, you confirm that you understand the nature of these materials and will use them only for lawful laboratory research.
+
+## Contact
+{support_email}
 `,
     ),
   },

@@ -137,7 +137,7 @@ function eligibleSubtotal(p: PromotionRec, lines: PricedLine[], variants: Map<st
   }, 0);
 }
 
-const money = (c: number) => `$${(c / 100).toFixed(2).replace(/\.00$/, "")}`;
+export const money = (c: number) => `$${(c / 100).toFixed(2).replace(/\.00$/, "")}`;
 export const promoValueLabel = (p: Pick<PromotionRec, "discountType" | "discountValue">) =>
   p.discountType === "%" ? `${p.discountValue}% off` : `${money(p.discountValue)} off`;
 

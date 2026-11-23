@@ -307,7 +307,16 @@ export default function ContentPage() {
                   <Field label="Page title">
                     <Input value={p.title} maxLength={80} onChange={(e) => setP({ title: e.target.value })} />
                   </Field>
-                  <Field label="Text" hint="Start a line with ## for a heading, or with - for a bullet. Leave a blank line between paragraphs.">
+                  {/\[FILL IN/.test(p.body) && (
+                    <div className="flex gap-2.5 rounded-xl bg-neg/10 px-4 py-3 text-sm font-medium text-neg" data-fill-in>
+                      <AlertTriangle size={18} className="mt-0.5 shrink-0" />
+                      <span>This page still has [FILL IN] parts. Replace them with your own answer before launch: they show on the live page.</span>
+                    </div>
+                  )}
+                  <Field
+                    label="Text"
+                    hint="Start a line with ## for a heading, or with - for a bullet. Leave a blank line between paragraphs. These fill in from Settings: {shipping_options}, {free_shipping}, {payment_methods}, {pay_hours}, {referral_rules}, {min_age}, {support_email}."
+                  >
                     <Textarea value={p.body} maxLength={20000} className="min-h-[420px] font-mono text-sm leading-relaxed" onChange={(e) => setP({ body: e.target.value })} />
                   </Field>
                   <Toggle checked={p.reviewed} onChange={(v) => setP({ reviewed: v })} label="I had this reviewed" hint="Removes the draft warning and ticks the launch checklist." />

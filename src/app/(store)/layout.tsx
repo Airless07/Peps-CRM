@@ -6,7 +6,7 @@ import { EntryGate, Header, PromoBar, RevealInit, StandaloneRedirect, Wordmark, 
 import { TrackVisit } from "@/components/storefront/analytics";
 import { CartProvider } from "@/components/storefront/cart";
 import { siteUrl } from "@/lib/order-ops";
-import { DEFAULT_ACCENT, RESEARCH_LINE, TAGLINE, type SiteContent, type StoreSettings } from "@/lib/store/config";
+import { DEFAULT_ACCENT, RESEARCH_LINE, SUPPORT_EMAIL, TAGLINE, type SiteContent, type StoreSettings } from "@/lib/store/config";
 import { promoHeadlines } from "@/lib/store/pricing";
 import { isAdmin, storeSnapshot } from "@/lib/store/server";
 import { ENTRY_COOKIE, entryCookieValid } from "@/lib/store/entry-gate";
@@ -59,6 +59,7 @@ export default async function StoreLayout({ children }: { children: React.ReactN
   const promos = live ? promoItems(content, data.promotions, new Date(), data.store.shippingTiers) : [];
   const accent = /^#[0-9a-fA-F]{6}$/.test(store.accentColor) ? store.accentColor : DEFAULT_ACCENT;
   const year = new Date().getFullYear();
+  const supportEmail = content.contact.email.trim() || SUPPORT_EMAIL;
 
   return (
     <html lang="en" className={GeistSans.variable}>
@@ -103,16 +104,13 @@ export default async function StoreLayout({ children }: { children: React.ReactN
                 <div className="col-span-2 max-w-xs sm:col-span-3 lg:col-span-1">
                   <Wordmark name={store.storeName} logo={store.logo} />
                   <p className="mt-4 text-[15px] leading-relaxed text-stone">{content.footerText || TAGLINE}</p>
-                  {(content.contact.email || content.contact.phone) && (
-                    <p className="mt-4 text-[15px] leading-relaxed text-coal">
-                      {content.contact.email && (
-                        <a href={`mailto:${content.contact.email}`} className="block hover:text-brand">
-                          {content.contact.email}
-                        </a>
-                      )}
-                      {content.contact.phone && <span className="block tabular-nums">{content.contact.phone}</span>}
-                    </p>
-                  )}
+                  <p className="mt-4 text-[15px] leading-relaxed text-coal" data-footer-contact>
+                    Contact:{" "}
+                    <a href={`mailto:${supportEmail}`} className="hover:text-brand">
+                      {supportEmail}
+                    </a>
+                    {content.contact.phone && <span className="block tabular-nums">{content.contact.phone}</span>}
+                  </p>
                 </div>
                 <FooterCol
                   title="Shop"
@@ -137,11 +135,11 @@ export default async function StoreLayout({ children }: { children: React.ReactN
                 <FooterCol
                   title="Policies"
                   links={[
-                    ["/terms", "Terms"],
-                    ["/privacy", "Privacy"],
-                    ["/shipping", "Shipping"],
-                    ["/refunds", "Refunds"],
-                    ["/research-use", "Research use"],
+                    ["/terms", "Terms of Service"],
+                    ["/privacy", "Privacy Policy"],
+                    ["/research-use", "Research Use Policy"],
+                    ["/shipping", "Shipping Policy"],
+                    ["/refunds", "Refund & Return Policy"],
                   ]}
                 />
               </div>
@@ -161,6 +159,10 @@ export default async function StoreLayout({ children }: { children: React.ReactN
                       <Link href="/privacy" className="underline underline-offset-4">
                         Privacy
                       </Link>
+                      {" · "}
+                      <a href={`mailto:${supportEmail}`} className="underline underline-offset-4">
+                        Contact: {supportEmail}
+                      </a>
                     </>
                   )}
                 </p>
