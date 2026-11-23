@@ -3,12 +3,14 @@ import { body, HttpError, route } from "@/lib/api";
 import { resendKey, sendEmail, testEmail } from "@/lib/email";
 import { getStore } from "@/lib/order-ops";
 import { envSiteUrl } from "@/lib/site";
+import { adminPasswordCheck } from "@/lib/password";
 import { shippoIsTestKey, shippoKey, testConnection, webhookSecret } from "@/lib/shippo";
 
 export const dynamic = "force-dynamic";
 
-/** Which keys are set (never the keys themselves). */
+/** Which keys are set (never the keys themselves), and the launch checks that need the server. */
 export const GET = route(async () => ({
+  adminPassword: await adminPasswordCheck(),
   resend: !!resendKey(),
   shippo: !!shippoKey(),
   shippoTest: shippoIsTestKey(),

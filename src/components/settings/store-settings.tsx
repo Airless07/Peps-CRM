@@ -14,6 +14,8 @@ import { PAY_METHODS, paymentWarnings } from "@/lib/store/payments";
 import { listingsMissingInfo, listingsWithNoInfo } from "@/lib/store/product-info";
 import { STATES } from "@/lib/store/schemas";
 import { RECOMMENDED_SIZES } from "@/lib/store/sizes";
+import { findTestData } from "@/lib/admin/test-data";
+import { isLive, promoValueLabel } from "@/lib/store/pricing";
 
 export type StoreTab = "launch" | "store" | "payments" | "shipping" | "email" | "referrals" | "local" | "backups";
 
@@ -23,6 +25,7 @@ interface Keys {
   shippoTest: boolean;
   webhookPath: string;
   siteUrl?: string;
+  adminPassword?: { ok: boolean; detail: string };
 }
 
 export function StoreSettingsTabs({ tab, onTab }: { tab: StoreTab; onTab: (t: string) => void }) {
@@ -42,6 +45,10 @@ export function StoreSettingsTabs({ tab, onTab }: { tab: StoreTab; onTab: (t: st
   useEffect(() => {
     api<Keys>("/api/settings/test").then(setKeys).catch(() => {});
   }, []);
+  const [backups, setBackups] = useState<{ backups: { name: string; createdAt: string }[]; keep: number } | null>(null);
+  useEffect(() => {
+    if (tab === "launch") api<{ backups: { name: string; createdAt: string }[]; keep: number }>("/api/backups").then(setBackups).catch(() => {});
+  }, [tab]);
 
   if (!s || !form) return null;
   const { data, mutate } = s;
@@ -117,16 +124,50 @@ export function StoreSettingsTabs({ tab, onTab }: { tab: StoreTab; onTab: (t: st
       shippoOk = !!keys?.shippo && (test.shippo?.ok ?? localStorage.getItem("peps-test-shippo") === "ok");
     } catch {}
     const needShippo = data.store.shippingMode === "live";
-    const items: { done: boolean; title: string; detail: string; href: string; optional?: boolean }[] = [
+    const ticks = data.store.launchTicks ?? {};
+    const tick = (id: string, on: boolean) => {
+      const next = { ...data.store, launchTicks: { ...ticks } };
+      if (on) next.launchTicks[id] = new Date().toISOString();
+      else delete next.launchTicks[id];
+      setForm(next);
+      save(next);
+    };
+    const noPhoto = onSite.filter((l) => l.photos.length === 0);
+    const testData = findTestData(data);
+    const now = new Date();
+    const livePromos = data.promotions.filter((p) => isLive(p, now));
+    const promoText = (p: (typeof livePromos)[number]) =>
+      p.kind === "free_shipping"
+        ? `${p.name || "Free shipping"}${p.minSubtotalCents ? ` over ${fmtMoney(p.minSubtotalCents)}` : ""}`
+        : p.kind === "code"
+          ? `Code ${p.code}: ${promoValueLabel(p)}${p.minSubtotalCents ? ` on ${fmtMoney(p.minSubtotalCents)}+` : ""}${p.maxUses !== null ? `, ${p.maxUses - p.uses.length} uses left` : ", no limit"}`
+          : `${p.name || p.kind}${p.kind === "auto" ? `: ${promoValueLabel(p)}` : ""}`;
+    const lastBackup = backups?.backups[0] ?? null;
+    const backupFresh = !!lastBackup && now.getTime() - new Date(lastBackup.createdAt).getTime() < 36 * 3600_000;
+    type Item = { id?: string; done: boolean; title: string; detail: string; href: string; optional?: boolean; manual?: boolean };
+    const manual = (id: string, title: string, detail: string, href = "/admin/settings?tab=launch"): Item => ({ id, done: !!ticks[id], title, detail: ticks[id] ? `${detail} Ticked ${fmtDateTime(ticks[id])}.` : detail, href, manual: true });
+    const fillIn = POLICY_IDS.filter((id) => data.content.policies[id].body.includes("[FILL IN"));
+    const items: Item[] = [
       { done: onSite.length > 0, title: "Products on the website", detail: onSite.length ? `${onSite.length} of ${data.listings.length} products are switched on.` : "Open a product, go to the Website tab and turn on “Show on website”.", href: "/admin/inventory" },
-      { done: onSite.length > 0 && onSite.every((l) => l.photos.length > 0), title: "Photos added", detail: onSite.length === 0 ? "Add products to the website first." : `${onSite.filter((l) => l.photos.length > 0).length} of ${onSite.length} website products have a photo.`, href: "/admin/inventory" },
+      { done: onSite.length > 0 && onSite.every((l) => l.photos.length > 0), title: "Photos added", detail: onSite.length === 0 ? "Add products to the website first." : `${onSite.filter((l) => l.photos.length > 0).length} of ${onSite.length} website products have a photo.${noPhoto.length ? ` Missing: ${noPhoto.map((l) => l.name).join(", ")}.` : ""}`, href: "/admin/inventory" },
       { done: variantsOnSite.length > 0 && withCoa === variantsOnSite.length, title: "COAs uploaded", detail: variantsOnSite.length === 0 ? "Add products to the website first." : `${withCoa} of ${variantsOnSite.length} sizes have a COA. Sizes without one show their testing status instead.`, href: "/admin/inventory", optional: true },
       { done: paymentInfoSet(data.store), title: "Payment info set", detail: paymentInfoSet(data.store) ? "At least one payment method is on and has its details." : "Turn on a payment method and enter where customers send money.", href: "/admin/settings?tab=payments" },
       { done: shipFromSet(data.store), title: "Ship-from address set", detail: "Used on labels and packing slips.", href: "/admin/settings?tab=shipping" },
       { done: emailOk, title: "Email working", detail: keys?.resend ? "Send a test email to confirm." : "RESEND_API_KEY is not set yet.", href: "/admin/settings?tab=email" },
       { done: shippoOk, title: "Shippo working", detail: keys?.shippo ? "Run “Test Shippo connection” to confirm." : needShippo ? "SHIPPO_API_KEY is not set yet." : "Optional with flat-rate shipping. Needed to buy labels in the admin.", href: "/admin/settings?tab=shipping", optional: !needShippo },
       { done: onSite.length > 0 && noInfo.length === 0, title: "Products with no website info", detail: onSite.length === 0 ? "Add products to the website first." : noInfo.length === 0 ? `Every website product has compound info (${partInfo.length ? `${partInfo.length} still have empty fields` : "all complete"}).` : `${noInfo.length} of ${onSite.length} website products have no compound info at all (CAS, formula, weight, purity, form, storage): ${noInfo.slice(0, 4).map((l) => l.name).join(", ")}${noInfo.length > 4 ? "…" : ""}. Their product pages show no spec table.`, href: "/admin/inventory", optional: true },
-      { done: reviewed === POLICY_IDS.length, title: "Policies reviewed", detail: `${reviewed} of ${POLICY_IDS.length} policy pages are marked as reviewed.`, href: "/admin/content?tab=policies" },
+      { done: reviewed === POLICY_IDS.length, title: "Policies reviewed", detail: `${reviewed} of ${POLICY_IDS.length} policy pages are marked as reviewed.${fillIn.length ? ` Still has [FILL IN] parts: ${fillIn.map((id) => data.content.policies[id].title).join(", ")}.` : ""}`, href: "/admin/content?tab=policies" },
+      { id: "admin-password", done: !!keys?.adminPassword?.ok, title: "Admin password is not a default or weak one", detail: keys?.adminPassword?.detail ?? "Checking...", href: "/admin/settings?tab=business" },
+      { id: "shippo-live", done: !!keys?.shippo && !keys.shippoTest, title: "Shippo in LIVE mode", detail: !keys?.shippo ? "SHIPPO_API_KEY is not set." : keys.shippoTest ? "Shippo is on a TEST key (shippo_test_...): labels are samples and nothing ships. Put the live key in SHIPPO_API_KEY on Railway." : "Shippo uses a live key: labels are real and charged.", href: "/admin/settings?tab=shipping" },
+      manual("shippo-webhook", "Live Shippo webhook set", "In Shippo (live mode): API, Webhooks, add the tracking webhook address shown in Settings, Shipping.", "/admin/settings?tab=shipping"),
+      { id: "gate-consent", done: data.store.entryGate.enabled && data.store.checkoutConsent, title: "Entry gate and checkout checkbox are on", detail: `Entry gate ${data.store.entryGate.enabled ? `on (${data.store.entryGate.minAge}+)` : "OFF"}; checkout checkbox ${data.store.checkoutConsent ? "on" : "OFF"}.`, href: "/admin/settings?tab=store" },
+      { id: "test-data", done: testData.length === 0, title: "No test data left", detail: testData.length === 0 ? "Nothing that looks like test data (orders marked test, example or .test emails, test reviews, messages or codes)." : `${testData.length} found: ${testData.slice(0, 5).map((t) => t.label).join(", ")}${testData.length > 5 ? "..." : ""}.`, href: "/admin/orders" },
+      manual("promotions", "Active promotions are intended", livePromos.length ? `Running now: ${livePromos.map(promoText).join("; ")}.` : "No promotions are running.", "/admin/promotions"),
+      { id: "backups", done: backupFresh, title: "Database backups on", detail: lastBackup ? `Last backup ${fmtDateTime(lastBackup.createdAt)} (${backups!.backups.length} kept, up to ${backups!.keep}). A backup is made every day.` : backups ? "No backup yet. Use Back up now in Settings, Backups." : "Checking...", href: "/admin/settings?tab=backups" },
+      manual("real-order", "Placed a real end-to-end test order", "A real order on the live site with a real payment, label and delivery email."),
+      manual("cancel-refund", "Tested cancel and refund", "Canceled an order and refunded one, and checked stock, money and store credit."),
+      manual("payments-tested", "Payment methods tested", "Sent a real payment with every method that is turned on."),
+      manual("sales-tax", "Sales tax checked with accountant", "Whether you need to collect sales tax, and where."),
     ];
     const required = items.filter((i) => !i.optional);
     const ready = required.every((i) => i.done);
@@ -186,7 +227,19 @@ export function StoreSettingsTabs({ tab, onTab }: { tab: StoreTab; onTab: (t: st
         <SectionTitle>Launch checklist</SectionTitle>
         <ul className="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-surface">
           {items.map((i) => (
-            <li key={i.title}>
+            <li key={i.title} data-launch-item={i.id ?? ""} data-done={i.done}>
+              {i.manual ? (
+                <label className="flex cursor-pointer items-start gap-3 px-4 py-3.5 transition hover:bg-surface2/60 sm:px-5">
+                  <input type="checkbox" className="mt-1 h-5 w-5 shrink-0" checked={i.done} onChange={(e) => tick(i.id!, e.target.checked)} aria-label={i.title} />
+                  <span className="min-w-0 flex-1">
+                    <span className={cx("block font-medium", i.done && "text-muted line-through decoration-line")}>
+                      {i.title}
+                      <span className="ml-2 text-xs font-normal text-muted no-underline">tick by hand</span>
+                    </span>
+                    <span className="block text-sm text-muted">{i.detail}</span>
+                  </span>
+                </label>
+              ) : (
               <Link href={i.href} onClick={() => onTab(new URL(i.href, "http://x").searchParams.get("tab") ?? "launch")} className="flex items-start gap-3 px-4 py-3.5 transition hover:bg-surface2/60 sm:px-5">
                 {i.done ? <CircleCheck size={22} className="mt-0.5 shrink-0 text-pos" /> : <Circle size={22} className="mt-0.5 shrink-0 text-line" />}
                 <span className="min-w-0 flex-1">
@@ -197,6 +250,7 @@ export function StoreSettingsTabs({ tab, onTab }: { tab: StoreTab; onTab: (t: st
                   <span className="block text-sm text-muted">{i.detail}</span>
                 </span>
               </Link>
+              )}
             </li>
           ))}
         </ul>

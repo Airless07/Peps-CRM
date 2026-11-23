@@ -12,3 +12,29 @@ export async function checkPassword(input: string): Promise<boolean> {
   const b = Buffer.from(envPw);
   return a.length === b.length && timingSafeEqual(a, b);
 }
+
+/** Passwords that must never be the admin password: the shipped default and the usual guesses. */
+const WEAK = ["peps1234", "password", "password1", "password123", "admin", "admin123", "12345678", "123456789", "1234567890", "qwerty123", "letmein", "changeme", "buckshot", "buckshotlabs", "buckshot123", "peps", "pepscrm"];
+const strongCache = new Map<string, boolean>();
+
+/**
+ * Launch checklist: is the admin password a real one? With a password set in Settings, checks the hash
+ * against the default and common passwords (cached per hash). Without one, checks APP_PASSWORD itself.
+ * Never returns the password.
+ */
+export async function adminPasswordCheck(): Promise<{ ok: boolean; detail: string }> {
+  const s = await getSettingsRow();
+  if (s.passwordHash) {
+    let weak = strongCache.get(s.passwordHash);
+    if (weak === undefined) {
+      weak = false;
+      for (const w of WEAK) if (await bcrypt.compare(w, s.passwordHash)) weak = true;
+      strongCache.set(s.passwordHash, weak);
+    }
+    return weak ? { ok: false, detail: "The admin password is a default or very common one. Change it in Settings, Password." } : { ok: true, detail: "Set in Settings, and not a default or common password." };
+  }
+  const envPw = process.env.APP_PASSWORD ?? "";
+  if (WEAK.includes(envPw.toLowerCase())) return { ok: false, detail: "Still the default APP_PASSWORD. Change it in Settings, Password." };
+  if (envPw.length < 12) return { ok: false, detail: "APP_PASSWORD is shorter than 12 characters. Set a longer one in Settings, Password." };
+  return { ok: true, detail: "Uses APP_PASSWORD from the Railway variables (12+ characters, not a common one)." };
+}

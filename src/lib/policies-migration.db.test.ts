@@ -46,3 +46,21 @@ describe("policy update on start", () => {
     expect(await mig.updatePolicies()).toBeNull();
   });
 });
+
+describe("launch checklist: admin password", () => {
+  it("default or short APP_PASSWORD, or a common password set in Settings, is not done; a real one is", async () => {
+    const bcrypt = (await import("bcryptjs")).default;
+    const { adminPasswordCheck } = await import("./password");
+    await prisma.settings.update({ where: { id: 1 }, data: { passwordHash: null } });
+    process.env.APP_PASSWORD = "peps1234";
+    expect((await adminPasswordCheck()).ok).toBe(false);
+    process.env.APP_PASSWORD = "short-pw";
+    expect((await adminPasswordCheck()).ok).toBe(false);
+    process.env.APP_PASSWORD = "a-long-real-passphrase-71";
+    expect((await adminPasswordCheck()).ok).toBe(true);
+    await prisma.settings.update({ where: { id: 1 }, data: { passwordHash: await bcrypt.hash("password123", 4) } });
+    expect(await adminPasswordCheck()).toEqual({ ok: false, detail: expect.stringMatching(/default or very common/) });
+    await prisma.settings.update({ where: { id: 1 }, data: { passwordHash: await bcrypt.hash("Correct-Horse-Battery-9", 4) } });
+    expect((await adminPasswordCheck()).ok).toBe(true);
+  });
+});
