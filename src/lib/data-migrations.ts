@@ -138,7 +138,58 @@ export async function updatePolicies(): Promise<{ replaced: string[]; kept: stri
   });
 }
 
+// ---------------------------------------------------------------- Test order #1008
+export const TEST_ORDER_ID = "remove-test-order-1008";
+/** The one order to remove, matched on every field below so no real order can ever be hit. */
+const TEST_ORDER = {
+  id: "9f667fd9-9c3e-4302-aab5-3da931406aca",
+  number: 1008,
+  status: "canceled",
+  cancelReason: "Canceled: test order",
+  /** Its shipping label was bought on a Shippo TEST key (Shippo reports test: true): it cost nothing. */
+  labelTransactionId: "1e0eaf8bd9ac484f9a7085d40dc64d31",
+};
+
+/**
+ * Removes the canceled test order #1008, once, with its free test label. Canceled orders count for
+ * nothing in money or stock, but the label was still subtracted from business money as a $5.49 expense
+ * (label rows outlive their order: ON DELETE SET NULL), so the label row is removed too. The order has no
+ * store credit, promotion or split rows (checked: if any appear, nothing is removed). Every removed row is
+ * kept in the DataMigration detail so it can be put back.
+ */
+export async function removeTestOrder(): Promise<{ removed: boolean; why: string } | null> {
+  return prisma.$transaction(async (tx) => {
+    if (await tx.dataMigration.findUnique({ where: { id: TEST_ORDER_ID } })) return null;
+    const done = async (removed: boolean, why: string, detail: unknown = {}) => {
+      await tx.dataMigration.create({ data: { id: TEST_ORDER_ID, detail: JSON.stringify({ removed, why, ...((detail as object) ?? {}) }) } });
+      return { removed, why };
+    };
+    const order = await tx.order.findUnique({ where: { id: TEST_ORDER.id }, include: { lines: true, events: true } });
+    if (!order) return done(false, "order not found");
+    if (order.number !== TEST_ORDER.number || order.status !== TEST_ORDER.status || order.cancelReason !== TEST_ORDER.cancelReason || order.source !== "online") {
+      return done(false, "order does not match the test order");
+    }
+    const [labels, credit, promo, splits] = await Promise.all([
+      tx.labelPurchase.findMany({ where: { orderId: order.id } }),
+      tx.creditEntry.count({ where: { orderId: order.id } }),
+      tx.promotionUse.count({ where: { orderId: order.id } }),
+      tx.splitItem.count({ where: { orderId: order.id } }),
+    ]);
+    if (credit || promo || splits) return done(false, "order has credit, promotion or split rows");
+    if (labels.some((l) => l.shippoTransactionId !== TEST_ORDER.labelTransactionId)) return done(false, "order has an unexpected label");
+    await tx.labelPurchase.deleteMany({ where: { orderId: order.id, shippoTransactionId: TEST_ORDER.labelTransactionId } });
+    await tx.order.delete({ where: { id: order.id } }); // lines and events cascade
+    return done(true, "removed", { order, labels });
+  });
+}
+
 export async function runDataMigrations() {
+  try {
+    const t = await removeTestOrder();
+    if (t) console.log(`[data] Test order #1008: ${t.why}`);
+  } catch (e) {
+    console.error("[data] test order removal failed:", e instanceof Error ? e.message : e);
+  }
   try {
     const p = await updatePolicies();
     if (p) console.log(`[data] Policies updated: ${p.replaced.join(", ") || "none"}${p.kept.length ? `; edited by you, left alone: ${p.kept.join(", ")}` : ""}${p.contactEmail ? "; contact email set" : ""}`);
