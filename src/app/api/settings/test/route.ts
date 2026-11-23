@@ -2,6 +2,7 @@ import { z } from "zod";
 import { body, HttpError, route } from "@/lib/api";
 import { resendKey, sendEmail, testEmail } from "@/lib/email";
 import { getStore } from "@/lib/order-ops";
+import { envSiteUrl } from "@/lib/site";
 import { shippoIsTestKey, shippoKey, testConnection, webhookSecret } from "@/lib/shippo";
 
 export const dynamic = "force-dynamic";
@@ -13,6 +14,8 @@ export const GET = route(async () => ({
   shippoTest: shippoIsTestKey(),
   /** Path to paste into Shippo's webhook settings (after your site address). */
   webhookPath: `/api/webhooks/shippo?key=${webhookSecret()}`,
+  /** SITE_URL from the environment: when set, it is the address used for every link. */
+  siteUrl: envSiteUrl(),
 }));
 
 /** "Send test email" and "Test Shippo connection". Always answers with a clear success or the exact error. */

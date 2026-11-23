@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { SESSION_COOKIE, verifySessionToken } from "@/lib/session";
+import { canonicalRedirect, envSiteUrl } from "@/lib/site";
 
 /**
  * Who can reach what:
@@ -15,7 +16,9 @@ function sameOrigin(req: NextRequest): boolean {
   if (!origin) return false;
   const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? req.nextUrl.host;
   try {
-    return new URL(origin).host === host;
+    const from = new URL(origin).host;
+    const site = envSiteUrl();
+    return from === host || (!!site && from === new URL(site).host);
   } catch {
     return false;
   }
@@ -26,7 +29,14 @@ const PRIVATE_PAGES = ["/account", "/checkout", "/cart", "/order/", "/order-look
 const isPrivatePage = (p: string) => PRIVATE_PAGES.some((x) => p === x || p.startsWith(x.endsWith("/") ? x : `${x}/`));
 const NO_STORE = "private, no-store";
 
+/** Pages and APIs the gate below looks at. Every other path only gets the domain redirect. */
+const GATED = /^\/(admin|api|account|checkout|cart|order|order-lookup|refer|review)(\/|$)/;
+
 export async function middleware(req: NextRequest) {
+  // www.buckshotlabs.com and the railway.app address move to SITE_URL for good (301), keeping the path and query.
+  const to = canonicalRedirect(req.headers.get("x-forwarded-host") ?? req.headers.get("host"), req.nextUrl.pathname, req.nextUrl.search);
+  if (to) return NextResponse.redirect(to, 301);
+  if (!GATED.test(req.nextUrl.pathname)) return NextResponse.next();
   const res = await gate(req);
   // Admin pages and every API answer are per session too.
   const p = req.nextUrl.pathname;
@@ -59,5 +69,6 @@ async function gate(req: NextRequest): Promise<NextResponse> {
 }
 
 export const config = {
-  matcher: ["/admin/:path*", "/api/:path*", "/account/:path*", "/account", "/checkout", "/cart", "/order/:path*", "/order-lookup", "/refer", "/review/:path*"],
+  // Every path except Next's build files, so the domain redirect covers the whole site.
+  matcher: ["/((?!_next/static|_next/image).*)"],
 };

@@ -22,6 +22,7 @@ interface Keys {
   shippo: boolean;
   shippoTest: boolean;
   webhookPath: string;
+  siteUrl?: string;
 }
 
 export function StoreSettingsTabs({ tab, onTab }: { tab: StoreTab; onTab: (t: string) => void }) {
@@ -232,9 +233,15 @@ export function StoreSettingsTabs({ tab, onTab }: { tab: StoreTab; onTab: (t: st
               )}
             </div>
           </Field>
-          <Field label="Website address" hint="Used for links in emails. Leave empty to use the address the site is opened on.">
-            <Input value={form.siteUrl} placeholder="https://buckshotlabs.com" onChange={(e) => set("siteUrl", e.target.value)} inputMode="url" />
-          </Field>
+          {keys?.siteUrl ? (
+            <Field label="Website address" hint="Set by SITE_URL in the Railway variables. Every link (emails, share links, sitemap) uses it.">
+              <Input value={keys.siteUrl} readOnly disabled />
+            </Field>
+          ) : (
+            <Field label="Website address" hint="Used for links in emails. Leave empty to use the address the site is opened on.">
+              <Input value={form.siteUrl} placeholder="https://buckshotlabs.com" onChange={(e) => set("siteUrl", e.target.value)} inputMode="url" />
+            </Field>
+          )}
         </Card>
 
         <SectionTitle>Orders</SectionTitle>

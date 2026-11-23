@@ -36,6 +36,7 @@ import { resolveReferral, STACKING_TEXT, type ReferralBuyer } from "./store/refe
 import { countsInMoney } from "./types";
 import { FULFILLMENT_LABEL, isLocalMethod, localOffer, PAY_AT_PICKUP, PAY_AT_PICKUP_NAME, spotOf, type Fulfillment } from "./local/rules";
 import { isLocalZip } from "./local/zips";
+import { envSiteUrl } from "./site";
 
 type Tx = Prisma.TransactionClient;
 type Db = Tx | typeof prisma;
@@ -47,10 +48,13 @@ export async function getStore() {
   return { row, store: parseStore(row.storeJson), content: parseContent(row.contentJson) };
 }
 
-/** Public address of the site: Settings, then env, then the request. No trailing slash. */
+/**
+ * Public address of the site, used for every link (emails, canonical tags, sitemap, share links). No trailing slash.
+ * SITE_URL in the environment wins, then "Website address" in Settings, then Railway's domain, then the request.
+ */
 export function siteUrl(store: Pick<StoreSettings, "siteUrl">, origin?: string): string {
-  const env = process.env.PUBLIC_URL || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : "");
-  return (store.siteUrl.trim() || env || origin || "http://localhost:3000").replace(/\/+$/, "");
+  const railway = process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : "";
+  return (envSiteUrl() || store.siteUrl.trim() || railway || origin || "http://localhost:3000").replace(/\/+$/, "");
 }
 
 export function requestOrigin(req: Request): string {
