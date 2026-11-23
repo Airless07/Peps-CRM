@@ -638,11 +638,14 @@ export async function markDelivered(orderId: string, opts: { at?: Date; origin?:
   }
   const reviewToken = row.reviewToken ?? newToken();
   const at = opts.at ?? new Date();
-  await prisma.$transaction(async (tx) => {
-    await tx.order.update({ where: { id: orderId }, data: { status: "delivered", deliveredAt: at, shippedAt: row.shippedAt ?? at, reviewToken } });
+  // Only the request that changes the status emails (no double review request on a double click).
+  const changed = await prisma.$transaction(async (tx) => {
+    const done = await tx.order.updateMany({ where: { id: orderId, status: order.status }, data: { status: "delivered", deliveredAt: at, shippedAt: row.shippedAt ?? at, reviewToken } });
+    if (done.count !== 1) return false;
     await logEvent(tx, orderId, "status", opts.auto ? "Carrier reports delivered." : "Marked delivered.");
+    return true;
   });
-  if (order.web?.email) {
+  if (changed && order.web?.email) {
     const { store } = await getStore();
     const base = siteUrl(store, opts.origin);
     await mailOrder(store, orderId, order.web.email, "Review request email", deliveredEmail(store, emailOrder(order, base), `${base}/review/${reviewToken}`));
