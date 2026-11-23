@@ -18,6 +18,7 @@ import {
   shippedEmail,
   type EmailContent,
   type EmailOrder,
+  handedOverEmail,
 } from "./email";
 import { computeLedger, orderTotals } from "./money";
 import { LINE_SIZE, getSettingsRow, json, loadAll, toOrder } from "./serialize";
@@ -38,6 +39,7 @@ import { FULFILLMENT_LABEL, isLocalMethod, localOffer, PAY_AT_PICKUP, PAY_AT_PIC
 import { isLocalZip } from "./local/zips";
 import { envSiteUrl } from "./site";
 import { consentText } from "./store/consent";
+import { SUPPORT_EMAIL } from "./store/config";
 
 type Tx = Prisma.TransactionClient;
 type Db = Tx | typeof prisma;
@@ -673,8 +675,12 @@ export async function markReady(orderId: string, opts: { origin?: string; notify
   }
 }
 
-/** Mark a local order picked up (pickup) or delivered (delivery). It must be paid first. */
-export async function markHandedOver(orderId: string, opts: { at?: Date } = {}) {
+/**
+ * Mark a local order picked up (pickup) or delivered (delivery). It must be paid first.
+ * Emails the customer once: only the request that actually changes the status sends (a second click,
+ * or two at once, finds the status already changed). The timeline shows sent, skipped or failed.
+ */
+export async function markHandedOver(orderId: string, opts: { at?: Date; origin?: string } = {}) {
   const { order, row } = await loadOrder(orderId);
   if (order.source !== "online" || !isLocalMethod(order.fulfillment)) throw new HttpError(400, "Only local pickup and delivery orders are handed over.");
   const final = order.fulfillment === "pickup" ? "picked_up" : "delivered";
@@ -682,10 +688,24 @@ export async function markHandedOver(orderId: string, opts: { at?: Date } = {}) 
   if (order.status === "awaiting_payment") throw new HttpError(409, `Order #${order.number} is not paid yet. Mark it paid first${order.payAtPickup ? " (when you receive the money)" : ""}.`);
   if (!["paid", "ready"].includes(order.status)) throw new HttpError(409, `Order #${order.number} can't be handed over from "${order.status.replace("_", " ")}".`);
   const at = opts.at ?? new Date();
-  await prisma.$transaction(async (tx) => {
-    await tx.order.update({ where: { id: orderId }, data: { status: final, deliveredAt: at, readyAt: row.readyAt ?? at, reviewToken: row.reviewToken ?? newToken() } });
+  const reviewToken = row.reviewToken ?? newToken();
+  const changed = await prisma.$transaction(async (tx) => {
+    const done = await tx.order.updateMany({ where: { id: orderId, status: order.status }, data: { status: final, deliveredAt: at, readyAt: row.readyAt ?? at, reviewToken } });
+    if (done.count !== 1) return false;
     await logEvent(tx, orderId, "status", order.fulfillment === "pickup" ? "Marked picked up." : "Marked delivered.");
+    return true;
   });
+  if (!changed || !order.web?.email) return;
+  const { store, content } = await getStore();
+  const kind = final === "picked_up" ? "picked_up" : "delivered";
+  const what = kind === "picked_up" ? "Picked up email" : "Delivered email";
+  if (!(kind === "picked_up" ? store.handoverEmails.pickedUp : store.handoverEmails.delivered)) {
+    await logEvent(prisma, orderId, "email", `${what}: Not sent: turned off in Settings, Email.`);
+    return;
+  }
+  const base = siteUrl(store, opts.origin);
+  const { order: fresh } = await loadOrder(orderId);
+  await mailOrder(store, orderId, order.web.email, what, handedOverEmail(store, emailOrder(fresh, base), kind, content.contact.email.trim() || SUPPORT_EMAIL, `${base}/review/${reviewToken}`));
 }
 
 /** Apply what the carrier says to the order. Returns a plain sentence about what happened. */

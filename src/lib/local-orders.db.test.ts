@@ -332,3 +332,67 @@ describe("money", () => {
     expect(await prisma.order.findUnique({ where: { id: "legacy" } })).toMatchObject({ fulfillment: "ship", localTime: "", localJson: "", payAtPickup: false, readyAt: null });
   });
 });
+
+describe("local handover emails: delivered and picked up", () => {
+  /** The handover email lines of the order timeline. */
+  const events = async (id: string) => (await prisma.orderEvent.findMany({ where: { orderId: id, kind: "email" }, orderBy: { at: "asc" } })).map((e) => e.message).filter((m) => /^(Delivered|Picked up) email/.test(m));
+
+  it("Delivered: one email with the items, the delivery address and the support email, even on a double click", async () => {
+    const o = await checkout({ fulfillment: "delivery", expectedTotalCents: 10200 });
+    await ops.markPaid(o.id, { paymentMethod: "Zelle", notify: false });
+    sent.length = 0;
+    // Two clicks at once, then a third later: the status changes once, so one email.
+    await Promise.all([ops.markHandedOver(o.id, { origin: ORIGIN }), ops.markHandedOver(o.id, { origin: ORIGIN })]);
+    await ops.markHandedOver(o.id, { origin: ORIGIN });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ to: ["kim@example.com"], subject: `Your order #${o.number} was delivered` });
+    expect(sent[0].html).toContain("2 x GHK-Cu 100mg");
+    expect(sent[0].html).toContain("500 Michigan Ave");
+    expect(sent[0].html).toContain("support@buckshotlabs.com");
+    expect((await order(o.id)).status).toBe("delivered");
+    expect(await events(o.id)).toContain("Delivered email: Sent");
+    expect((await events(o.id)).filter((m) => m.startsWith("Delivered email"))).toHaveLength(1);
+  });
+
+  it("Picked up: one email with the items and the support email, no pickup spot address", async () => {
+    const o = await checkout();
+    await ops.markPaid(o.id, { paymentMethod: "Zelle", notify: false });
+    await ops.markReady(o.id, { notify: false });
+    sent.length = 0;
+    await ops.markHandedOver(o.id, { origin: ORIGIN });
+    await ops.markHandedOver(o.id, { origin: ORIGIN });
+    expect(sent).toHaveLength(1);
+    expect(sent[0].subject).toBe(`Your order #${o.number} was picked up`);
+    expect(sent[0].html).toContain("2 x GHK-Cu 100mg");
+    expect(sent[0].html).toContain("support@buckshotlabs.com");
+    expect(sent[0].html).not.toContain("Delivered to");
+    expect((await order(o.id)).status).toBe("picked_up");
+    expect(await events(o.id)).toEqual(["Picked up email: Sent"]);
+  });
+
+  it("each email can be turned off in Settings, Email: the timeline says so", async () => {
+    await setStore({ handoverEmails: { delivered: false, pickedUp: false } });
+    const d = await checkout({ fulfillment: "delivery", expectedTotalCents: 10200 });
+    const p = await checkout();
+    for (const o of [d, p]) await ops.markPaid(o.id, { paymentMethod: "Zelle", notify: false });
+    sent.length = 0;
+    await ops.markHandedOver(d.id);
+    await ops.markHandedOver(p.id);
+    expect(sent).toHaveLength(0);
+    expect(await events(d.id)).toEqual(["Delivered email: Not sent: turned off in Settings, Email."]);
+    expect(await events(p.id)).toEqual(["Picked up email: Not sent: turned off in Settings, Email."]);
+  });
+
+  it("a failed send is written to the timeline", async () => {
+    const o = await checkout();
+    await ops.markPaid(o.id, { paymentMethod: "Zelle", notify: false });
+    const prev = process.env.RESEND_API_KEY;
+    delete process.env.RESEND_API_KEY;
+    try {
+      await ops.markHandedOver(o.id);
+    } finally {
+      process.env.RESEND_API_KEY = prev;
+    }
+    expect(await events(o.id)).toEqual(["Picked up email: Not sent: RESEND_API_KEY is not set, so no email was sent."]);
+  });
+});

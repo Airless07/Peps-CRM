@@ -299,6 +299,22 @@ export function deliveredEmail(_store: StoreSettings, o: EmailOrder, reviewUrl: 
   };
 }
 
+/**
+ * Local orders: "Your order #X was delivered" / "Your order #X was picked up". Items, the delivery
+ * address (delivery only), where to write with questions, and the order experience review link.
+ */
+export function handedOverEmail(_store: StoreSettings, o: EmailOrder, kind: "delivered" | "picked_up", support: string, reviewUrl: string | null): EmailContent {
+  const word = kind === "delivered" ? "delivered" : "picked up";
+  const blocks: Block[] = [
+    { p: `Your order #${o.number} was ${word}${kind === "delivered" ? "" : ""}. Thank you for your order.` },
+    { rows: o.lines.map((l): [string, string] => [`${l.quantity} x ${l.name}`, money(l.totalCents)]) },
+  ];
+  if (kind === "delivered" && o.shipTo.length) blocks.push({ box: { title: "Delivered to", lines: o.shipTo } });
+  blocks.push({ p: `Questions about this order? Email us at ${support}.` });
+  if (reviewUrl) blocks.push({ button: { label: "Rate your order experience", url: reviewUrl } }, { small: "Please review your order experience only. Reviews about product use or results will not be published." });
+  return { subject: `Your order #${o.number} was ${word}`, preview: `Order #${o.number} was ${word}.`, heading: `Your order was ${word}`, blocks };
+}
+
 export function canceledEmail(_store: StoreSettings, o: EmailOrder, reason: string): EmailContent {
   return {
     subject: `Order #${o.number} was canceled`,

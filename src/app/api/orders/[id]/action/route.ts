@@ -50,8 +50,8 @@ export const POST = route(async (req, ctx: Ctx<{ id: string }>) => {
       await markReady(id, { origin, notify: input.notify });
       return { ok: true, message: input.notify ? "Marked ready. The customer was emailed." : "Marked ready." };
     case "mark-handed-over":
-      await markHandedOver(id);
-      return { ok: true, message: "Marked handed over." };
+      await markHandedOver(id, { origin });
+      return { ok: true, message: "Marked handed over. See the timeline for the customer email." };
     case "refund":
       await refundOrder(id, { amountCents: input.amountCents, expectedRefundedCents: input.expectedRefundedCents, reason: input.reason });
       return { ok: true, message: `Refund of $${(input.amountCents / 100).toFixed(2)} recorded. Any referral credit was adjusted.` };

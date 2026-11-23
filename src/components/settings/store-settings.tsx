@@ -582,6 +582,22 @@ export function StoreSettingsTabs({ tab, onTab }: { tab: StoreTab; onTab: (t: st
               hint={form.alertEmails.length ? "The alert emails above are told when a size drops to its low stock warning level." : "Tells the alert emails when a size drops to its low stock warning level. Add an alert email above to receive it."}
             />
           </div>
+          <div className="border-t border-line pt-3" data-handover-emails>
+            <Toggle
+              checked={form.handoverEmails.delivered}
+              onChange={(v) => set("handoverEmails", { ...form.handoverEmails, delivered: v })}
+              label="Local delivery: “Your order was delivered”"
+              hint="Sent once when you mark a local delivery order Delivered: the items, the delivery address and the support email."
+            />
+          </div>
+          <div className="border-t border-line pt-3">
+            <Toggle
+              checked={form.handoverEmails.pickedUp}
+              onChange={(v) => set("handoverEmails", { ...form.handoverEmails, pickedUp: v })}
+              label="Local pickup: “Your order was picked up”"
+              hint="Sent once when you mark a local pickup order Picked up: the items and the support email."
+            />
+          </div>
         </Card>
 
         <SectionTitle>Sender</SectionTitle>

@@ -53,6 +53,8 @@ export interface StoreSettings {
   checkoutConsent: boolean;
   /** Launch checklist items ticked by hand: item id -> when it was ticked (ISO), or absent. */
   launchTicks: Record<string, string>;
+  /** Local order emails, each on by default: "was delivered" and "was picked up". */
+  handoverEmails: { delivered: boolean; pickedUp: boolean };
 }
 
 export interface PickupSpot {
@@ -154,6 +156,7 @@ export const DEFAULT_STORE: StoreSettings = {
   entryGate: { enabled: true, minAge: 21 },
   checkoutConsent: true,
   launchTicks: {},
+  handoverEmails: { delivered: true, pickedUp: true },
   local: {
     homeZip: "",
     radiusMiles: 15,
@@ -455,6 +458,8 @@ export function parseStore(json: string | null | undefined): StoreSettings {
   const age = Math.round(Number(gate.minAge));
   s.entryGate = { enabled: gate.enabled !== false, minAge: Number.isFinite(age) && age >= 18 && age <= 99 ? age : 21 };
   s.checkoutConsent = s.checkoutConsent !== false;
+  const he = (s.handoverEmails ?? {}) as Partial<StoreSettings["handoverEmails"]>;
+  s.handoverEmails = { delivered: he.delivered !== false, pickedUp: he.pickedUp !== false };
   const ticks = s.launchTicks && typeof s.launchTicks === "object" && !Array.isArray(s.launchTicks) ? s.launchTicks : {};
   s.launchTicks = Object.fromEntries(Object.entries(ticks).filter(([k, v]) => /^[a-z0-9-]{1,40}$/.test(k) && typeof v === "string" && v.length <= 40).slice(0, 30));
   return s;
