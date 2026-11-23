@@ -388,12 +388,12 @@ export function EntryGate({ name, logo, minAge }: { name: string; logo: string; 
             No, leave
           </button>
         </div>
-        <p className="mt-6 text-[13px] text-stone">
-          <Link href="/terms" className="s-link">
+        <p className="mt-4 flex items-center justify-center gap-1 text-[13px] text-stone">
+          <Link href="/terms" className="s-link inline-flex min-h-11 items-center px-2">
             Terms
           </Link>
-          {" · "}
-          <Link href="/research-use" className="s-link">
+          <span aria-hidden>·</span>
+          <Link href="/research-use" className="s-link inline-flex min-h-11 items-center px-2">
             Research Use Policy
           </Link>
         </p>
