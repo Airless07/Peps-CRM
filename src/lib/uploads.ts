@@ -122,7 +122,11 @@ export async function removeUpload(idOrFile: string, scope: "public" | "private"
 }
 
 /** Read one file out of a multipart form. */
-export async function formFile(req: Request, field = "file"): Promise<{ buf: Buffer; form: FormData }> {
+export async function formFile(req: Request, field = "file", maxMb = 20): Promise<{ buf: Buffer; form: FormData }> {
+  // Refuse a body that is too big BEFORE reading it into memory (the file checks come after).
+  const length = Number(req.headers.get("content-length") ?? NaN);
+  if (!Number.isFinite(length)) throw new HttpError(411, "The upload has no size. Try again from the page.");
+  if (length > maxMb * MB) throw new HttpError(413, `That file is too big. The limit is ${maxMb - 2} MB.`);
   let form: FormData;
   try {
     form = await req.formData();

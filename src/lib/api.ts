@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { cookies } from "next/headers";
 import { ZodError, type ZodType } from "zod";
-import { SESSION_COOKIE, verifySessionToken } from "./session";
+import { SESSION_COOKIE } from "./session";
+import { isAdminToken } from "./admin-auth";
 
 export class HttpError extends Error {
   constructor(
@@ -26,7 +27,7 @@ export function route<P = Record<string, string>>(
     try {
       if (!opts.public) {
         const jar = await cookies();
-        if (!(await verifySessionToken(jar.get(SESSION_COOKIE)?.value))) {
+        if (!(await isAdminToken(jar.get(SESSION_COOKIE)?.value))) {
           return NextResponse.json({ error: "Not logged in" }, { status: 401, headers: { "Cache-Control": NO_STORE } });
         }
       }

@@ -3,7 +3,8 @@ import { z } from "zod";
 import { body, route } from "@/lib/api";
 import { CLIENT_METRICS, isBot, PRODUCT_METRICS, track, type Metric } from "@/lib/analytics";
 import { allow, clientIp } from "@/lib/ratelimit";
-import { SESSION_COOKIE, verifySessionToken } from "@/lib/session";
+import { SESSION_COOKIE } from "@/lib/session";
+import { isAdminToken } from "@/lib/admin-auth";
 import { storeSnapshot } from "@/lib/store/server";
 
 const input = z.object({
@@ -26,7 +27,7 @@ export const POST = route(
     const { data, catalog } = await storeSnapshot();
     // A closed store has no visitors, and the owner previewing or working in the admin is not a visitor.
     if (!data.store.open) return done;
-    if (await verifySessionToken((await cookies()).get(SESSION_COOKIE)?.value)) return done;
+    if (await isAdminToken((await cookies()).get(SESSION_COOKIE)?.value)) return done;
     let key = "";
     if (PRODUCT_METRICS.includes(e)) {
       // Only real products on the website are counted, so the table cannot be filled with junk keys.

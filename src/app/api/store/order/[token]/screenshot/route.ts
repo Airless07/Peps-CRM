@@ -8,7 +8,7 @@ export const POST = route(
   async (req, ctx: Ctx<{ token: string }>) => {
     rateLimit(req, "screenshot", 6, 30 * 60_000);
     const { token } = await ctx.params;
-    const { buf } = await formFile(req);
+    const { buf } = await formFile(req, "file", 14);
     const file = await saveScreenshot(buf);
     try {
       const old = await attachScreenshot(token, file, requestOrigin(req));

@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import bcrypt from "bcryptjs";
 import { getSettingsRow } from "./serialize";
 
@@ -8,13 +8,14 @@ export async function checkPassword(input: string): Promise<boolean> {
   if (s.passwordHash) return bcrypt.compare(input, s.passwordHash);
   const envPw = process.env.APP_PASSWORD;
   if (!envPw) throw new Error("APP_PASSWORD is not set");
-  const a = Buffer.from(input);
-  const b = Buffer.from(envPw);
-  return a.length === b.length && timingSafeEqual(a, b);
+  // Compare fixed-length digests, so the time taken says nothing about the length or the content.
+  const a = createHash("sha256").update(input).digest();
+  const b = createHash("sha256").update(envPw).digest();
+  return timingSafeEqual(a, b);
 }
 
 /** Passwords that must never be the admin password: the shipped default and the usual guesses. */
-const WEAK = ["peps1234", "password", "password1", "password123", "admin", "admin123", "12345678", "123456789", "1234567890", "qwerty123", "letmein", "changeme", "buckshot", "buckshotlabs", "buckshot123", "peps", "pepscrm"];
+import { WEAK_PASSWORDS as WEAK } from "./weak-passwords";
 const strongCache = new Map<string, boolean>();
 
 /**

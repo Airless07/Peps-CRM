@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isWeakPassword } from "./weak-passwords";
 import { MAX_SELL_BUTTONS, MIN_SELL_BUTTONS, sellButtonsError } from "./sell-buttons";
 
 const cents = z.number().int().min(-1_000_000_000).max(1_000_000_000);
@@ -216,7 +217,11 @@ export const customerMerge = z.object({
 
 export const passwordChange = z.object({
   current: z.string().min(1, "Enter your current password"),
-  next: z.string().min(6, "New password must be at least 6 characters").max(200),
+  next: z
+    .string()
+    .min(12, "Use at least 12 characters for the admin password")
+    .max(200)
+    .refine((v) => !isWeakPassword(v), "That password is too common. Pick a longer, unusual one (a few random words work well)."),
 });
 
 export const splitConfirm = z.object({

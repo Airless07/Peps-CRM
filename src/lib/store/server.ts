@@ -4,7 +4,8 @@ import { cookies } from "next/headers";
 import { HttpError } from "../api";
 import { computeLedger, type Ledger } from "../money";
 import { loadAll } from "../serialize";
-import { SESSION_COOKIE, verifySessionToken } from "../session";
+import { SESSION_COOKIE } from "../session";
+import { isAdminToken } from "../admin-auth";
 import type { AppData } from "../types";
 import { buildCatalog, type PublicCatalog } from "./catalog";
 
@@ -37,7 +38,7 @@ export async function storeSnapshot(fresh = false): Promise<Snapshot> {
 }
 
 export async function isAdmin(): Promise<boolean> {
-  return verifySessionToken((await cookies()).get(SESSION_COOKIE)?.value);
+  return isAdminToken((await cookies()).get(SESSION_COOKIE)?.value);
 }
 
 /** The store can be used when it is open, or by a signed-in admin previewing it. */

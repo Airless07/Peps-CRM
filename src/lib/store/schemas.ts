@@ -91,7 +91,7 @@ export const accountAction = z.discriminatedUnion("action", [
     .object({ action: z.literal("claim"), token: z.string().min(20).max(200), password, email: email.optional(), confirm: z.string().max(200).optional() })
     .refine((v) => v.confirm === undefined || v.confirm === v.password, { message: "The two passwords don't match", path: ["confirm"] }),
   /** Choose a new password while signed in (required after a temporary password). */
-  z.object({ action: z.literal("change-password"), password }),
+  z.object({ action: z.literal("change-password"), password, current: z.string().max(200).optional() }),
   /** Referral code: check if a code is free (live message), or change to it. */
   z.object({ action: z.literal("check-code"), code: z.string().max(40) }),
   z.object({ action: z.literal("referral-code"), code: z.string().max(40) }),

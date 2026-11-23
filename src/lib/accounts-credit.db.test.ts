@@ -121,7 +121,7 @@ const checkout = (over: Partial<Parameters<(typeof ops)["placeOrder"]>[0]> = {})
   ops.placeOrder({ customerId: "kim", name: "Kim Park", email: "kim@example.com", phone: "", shipTo, items: [{ variantId: "ghk", quantity: 2 }], code: "", tier: "standard", payChoice: "zelle", expectedTotalCents: 10000 + 695, origin: ORIGIN, ...over });
 
 async function adminCookie() {
-  const { token } = await session.createSessionToken();
+  const { token } = await (await import("./admin-auth")).createAdminToken();
   jar.set(session.SESSION_COOKIE, token);
 }
 const req = (url: string, method: string, body: unknown) => new NextRequest(`${ORIGIN}${url}`, { method, body: JSON.stringify(body), headers: { "content-type": "application/json", host: "localhost:3000" } });

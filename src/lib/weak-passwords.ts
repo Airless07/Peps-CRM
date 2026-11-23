@@ -1,0 +1,3 @@
+/** Passwords that must never be the admin password: the shipped default and the usual guesses. */
+export const WEAK_PASSWORDS = ["peps1234", "password", "password1", "password123", "admin", "admin123", "12345678", "123456789", "1234567890", "qwerty123", "letmein", "changeme", "buckshot", "buckshotlabs", "buckshot123", "peps", "pepscrm", "passwordpassword", "123456789012", "qwertyuiopas", "buckshotlabs1", "buckshotlabs123", "adminadmin12"];
+export const isWeakPassword = (v: string) => WEAK_PASSWORDS.includes(v.trim().toLowerCase()) || /^(.)\1+$/.test(v) || /^(0123456789|1234567890)+\d*$/.test(v);

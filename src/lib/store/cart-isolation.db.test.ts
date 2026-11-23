@@ -154,7 +154,7 @@ describe("every account has its own cart", () => {
 
   it("signing out ends both sessions (store and admin) in this browser", async () => {
     await signIn("ann@example.com");
-    const { token } = await session.createSessionToken();
+    const { token } = await (await import("../admin-auth")).createAdminToken();
     jar.set(session.SESSION_COOKIE, token);
     await signOut();
     expect(jar.m.size).toBe(0);
@@ -242,7 +242,7 @@ describe("prices are worked out on the server for the account signed in now", ()
   it("owner price never applies to a website order: not for the owner, not for anyone, whatever the browser sends", async () => {
     // Ann is also the admin (owner) and is signed in to both. The web cart is priced at the normal price.
     await signIn("ann@example.com");
-    const { token } = await session.createSessionToken();
+    const { token } = await (await import("../admin-auth")).createAdminToken();
     jar.set(session.SESSION_COOKIE, token);
     const q = await quote({ items: [{ variantId: "bpc", quantity: 2 }], owner: "A", ownerPrice: true, shipTo });
     expect(q.json.lines[0].unitPriceCents).toBe(5000);

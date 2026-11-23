@@ -32,6 +32,13 @@ model Settings {
   /// JSON { discounts: [{ type, value }], tips: [cents] }: quick buttons in the Sell cart. Empty = defaults.
   sellButtonsJson      String   @default("")
   updatedAt            DateTime @updatedAt
+  /// Bumped by "Sign out everywhere": every admin session made before stops working.
+  adminSessionVersion Int     @default(0)
+  /// Optional two-step sign in for the admin (TOTP, RFC 6238). Base32 secret; empty = not set up.
+  totpSecret          String  @default("")
+  totpEnabled         Boolean @default(false)
+  /// Last 30-second step a code was accepted for: the same code can't be used twice.
+  totpLastStep        Int     @default(0)
 }
 
 /// Parent product shown on the website. Its variants are Product rows (one per size).

@@ -49,21 +49,33 @@ export async function verifyValue(token: string | undefined | null): Promise<str
   }
 }
 
-export async function createSessionToken(): Promise<{ token: string; expires: Date }> {
+/**
+ * Admin session token: "v2.<expires>.<generation>.<signature>". The generation comes from the admin
+ * password and a version number in the database (src/lib/admin-auth.ts), so changing the password or
+ * "Sign out everywhere" ends every older session. The Edge middleware can only check the signature;
+ * every admin API route also checks the generation against the database.
+ */
+export async function createSessionToken(gen = "0"): Promise<{ token: string; expires: Date }> {
   const expires = new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000);
-  const payload = `v1.${expires.getTime()}`;
+  const payload = `v2.${expires.getTime()}.${gen.replace(/[^a-z0-9]/gi, "").slice(0, 32) || "0"}`;
   return { token: `${payload}.${await hmac(payload)}`, expires };
 }
 
-export async function verifySessionToken(token: string | undefined | null): Promise<boolean> {
-  if (!token) return false;
+/** The generation of a correctly signed, unexpired admin token, or null. */
+export async function sessionTokenGen(token: string | undefined | null): Promise<string | null> {
+  if (!token) return null;
   const parts = token.split(".");
-  if (parts.length !== 3 || parts[0] !== "v1") return false;
+  if (parts.length !== 4 || parts[0] !== "v2") return null;
   const exp = Number(parts[1]);
-  if (!Number.isFinite(exp) || exp < Date.now()) return false;
+  if (!Number.isFinite(exp) || exp < Date.now()) return null;
   try {
-    return safeEqual(parts[2], await hmac(`${parts[0]}.${parts[1]}`));
+    return safeEqual(parts[3], await hmac(parts.slice(0, 3).join("."))) ? parts[2] : null;
   } catch {
-    return false;
+    return null;
   }
+}
+
+/** Signature and expiry only (Edge middleware). Node routes use isAdminToken, which also checks the generation. */
+export async function verifySessionToken(token: string | undefined | null): Promise<boolean> {
+  return (await sessionTokenGen(token)) !== null;
 }

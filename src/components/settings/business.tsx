@@ -6,6 +6,7 @@ import { api, useLoaded } from "@/components/store";
 import { useToast } from "@/components/toast";
 import { Button, Card, Field, Input, MoneyInput, NumberInput, PageSkeleton, SectionTitle, Segmented, useConfirm } from "@/components/ui";
 import { SellButtonsEditor } from "@/components/settings/sell-buttons-editor";
+import { AdminSecurity } from "@/components/settings/admin-security";
 import { fromLocalInput, toLocalDateInput } from "@/lib/format";
 import { sellButtonsError } from "@/lib/sell-buttons";
 import { getThemePref, setThemePref, type ThemePref } from "@/lib/theme";
@@ -222,11 +223,13 @@ export function BusinessSettings() {
             <Input type="password" name="new-password-repeat" autoComplete="new-password" value={pw.again} onChange={(e) => setPw({ ...pw, again: e.target.value })} />
           </Field>
         </div>
-        <Button disabled={pwBusy || !pw.current || pw.next.length < 6} onClick={changePassword}>
+        <Button disabled={pwBusy || !pw.current || pw.next.length < 12} onClick={changePassword}>
           Change password
         </Button>
-        <p className="text-xs text-muted">At least 6 characters. After this, APP_PASSWORD no longer works.</p>
+        <p className="text-xs text-muted">At least 12 characters, not a common password. After this, APP_PASSWORD no longer works, and other devices are signed out.</p>
       </Card>
+
+      <AdminSecurity />
 
       <SectionTitle>Export and import</SectionTitle>
       <Card className="space-y-4 p-4">

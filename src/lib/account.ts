@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { cookies } from "next/headers";
 import { HttpError } from "./api";
 import { prisma } from "./db";
+import { allow } from "./ratelimit";
 import { creditBalance } from "./credit-ops";
 import { inviteEmail, passwordResetEmail, sendEmail, type EmailOutcome } from "./email";
 import { getStore, siteUrl } from "./order-ops";
@@ -35,8 +36,11 @@ export const hashPassword = (password: string) => bcrypt.hash(password, COST);
 type Row = { id: string; name: string; email: string; phone: string; addressesJson: string; mustChangePassword: boolean };
 const toAccount = (c: Row): Account => ({ id: c.id, name: c.name, email: c.email, phone: c.phone, addresses: json<Address[]>(c.addressesJson, []), mustChangePassword: c.mustChangePassword });
 
-async function setCookie(customerId: string) {
-  const { token, expires } = await signValue(customerId, DAYS);
+/** A short fingerprint of the password hash. In the cookie, so a new password ends every older session. */
+const pwPrint = (passwordHash: string | null) => sha(`acct:${passwordHash ?? ""}`).slice(0, 16);
+
+async function setCookie(customerId: string, passwordHash: string | null) {
+  const { token, expires } = await signValue(`${customerId}:${pwPrint(passwordHash)}`, DAYS);
   (await cookies()).set(ACCOUNT_COOKIE, token, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/", expires });
 }
 
@@ -52,10 +56,13 @@ export async function signOut() {
 
 /** The signed-in customer, or null. */
 export async function currentAccount(): Promise<Account | null> {
-  const id = await verifyValue((await cookies()).get(ACCOUNT_COOKIE)?.value);
-  if (!id) return null;
+  const value = await verifyValue((await cookies()).get(ACCOUNT_COOKIE)?.value);
+  if (!value) return null;
+  const [id, print] = value.split(":");
+  if (!id || !print) return null;
   const c = await prisma.customer.findUnique({ where: { id } });
-  if (!c || !c.passwordHash) return null;
+  // The password changed since this cookie was made (reset, change, or a new temporary one): signed out.
+  if (!c || !c.passwordHash || print !== pwPrint(c.passwordHash)) return null;
   return toAccount(c);
 }
 
@@ -84,14 +91,14 @@ export async function signUp(input: { name: string; email: string; password: str
   const email = norm(input.email);
   const existing = await findByEmail(email);
   if (existing) {
-    await sendInvite(existing.id, origin, { claim: true }).catch((e) => console.error("claim email failed", e instanceof Error ? e.message : e));
+    if (inboxOk(existing.email)) await sendInvite(existing.id, origin, { claim: true }).catch((e) => console.error("claim email failed", e instanceof Error ? e.message : e));
     return { claim: true, message: CLAIM_MESSAGE };
   }
   const passwordHash = await hashPassword(input.password);
   const c = await prisma.customer.create({
     data: { id: randomUUID(), name: input.name.trim(), email, passwordHash, lastLoginAt: new Date(), referralCode: await uniqueReferralCode(prisma, input.name) },
   });
-  await setCookie(c.id);
+  await setCookie(c.id, passwordHash);
   return { account: toAccount(c) };
 }
 
@@ -101,13 +108,24 @@ export async function signIn(input: { email: string; password: string }): Promis
   const ok = c?.passwordHash ? await bcrypt.compare(input.password, c.passwordHash) : (await bcrypt.compare(input.password, "$2a$11$C6UzMDM.H6dfI/f/IKcEeO5t9uG2rN6mY0oZqkq0P9Q0s6mZb5K0e"), false);
   if (!c || !ok) throw new HttpError(401, "That email and password don't match. Try again, or reset your password.");
   await prisma.customer.update({ where: { id: c.id }, data: { lastLoginAt: new Date() } });
-  await setCookie(c.id);
+  await setCookie(c.id, c.passwordHash);
   return toAccount(c);
 }
 
-/** Change the password while signed in (required after a temporary password). */
-export async function changePassword(customerId: string, password: string) {
-  await prisma.customer.update({ where: { id: customerId }, data: { passwordHash: await hashPassword(password), mustChangePassword: false, resetTokenHash: null, resetExpiresAt: null } });
+/**
+ * Change the password while signed in. After a temporary password this is required; otherwise the
+ * current password must be given (a borrowed or stolen session can't lock the owner out). Every other
+ * browser is signed out; this one gets a new session.
+ */
+export async function changePassword(customerId: string, password: string, current?: string) {
+  const c = await prisma.customer.findUnique({ where: { id: customerId } });
+  if (!c?.passwordHash) throw new HttpError(401, "Sign in to continue.");
+  if (!c.mustChangePassword && !(current && (await bcrypt.compare(current, c.passwordHash)))) {
+    throw new HttpError(400, "Enter your current password to choose a new one.");
+  }
+  const passwordHash = await hashPassword(password);
+  await prisma.customer.update({ where: { id: customerId }, data: { passwordHash, mustChangePassword: false, resetTokenHash: null, resetExpiresAt: null } });
+  await setCookie(customerId, passwordHash);
 }
 
 // ---------------------------------------------------------------- Invite / claim links
@@ -199,7 +217,7 @@ export async function claimInvite(token: string, password: string, emailInput?: 
     if (done.count !== 1) throw new HttpError(400, LINK_DEAD);
     return tx.customer.findUniqueOrThrow({ where: { id: c.id } });
   });
-  await setCookie(c.id);
+  await setCookie(c.id, updated.passwordHash);
   return toAccount(updated);
 }
 
@@ -222,11 +240,18 @@ export async function sendPasswordReset(customerId: string, origin = ""): Promis
   return sendEmail(store, c.email, passwordResetEmail(store, `${siteUrl(store, origin)}/account/reset?token=${token}`));
 }
 
+/**
+ * Account emails (reset, claim) per inbox: at most 3 an hour, from any number of IPs, so nobody can
+ * flood someone's inbox (or burn the Resend account) through the forms. Over the limit nothing is sent
+ * and the answer looks the same.
+ */
+const inboxOk = (email: string) => allow(`account-mail:${norm(email)}`, 3, 3600_000);
+
 /** Always succeeds from the caller's point of view (never reveals whether the email exists). */
 export async function requestPasswordReset(emailInput: string, origin: string): Promise<{ emailWorking: boolean }> {
   const { store } = await getStore();
   const c = await findByEmail(emailInput);
-  if (!c) return { emailWorking: !!process.env.RESEND_API_KEY };
+  if (!c || !inboxOk(c.email)) return { emailWorking: !!process.env.RESEND_API_KEY };
   // No password yet (invited, or an in-person customer): the claim link is how they set one.
   if (!c.passwordHash) return { emailWorking: (await sendInvite(c.id, origin, { claim: true })).sent };
   const token = randomBytes(24).toString("base64url");
@@ -241,7 +266,7 @@ export async function resetPassword(token: string, password: string): Promise<Ac
     throw new HttpError(400, "This reset link has expired or was already used. Ask for a new one.");
   }
   const updated = await prisma.customer.update({ where: { id: c.id }, data: { passwordHash: await hashPassword(password), resetTokenHash: null, resetExpiresAt: null, mustChangePassword: false, lastLoginAt: new Date() } });
-  await setCookie(c.id);
+  await setCookie(c.id, updated.passwordHash);
   return toAccount(updated);
 }
 

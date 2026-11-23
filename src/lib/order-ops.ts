@@ -204,7 +204,20 @@ export async function quoteCheckout(
   return { pricing, shipping, liveNote, variants, referral, referralError, conflict, local };
 }
 
-export async function placeOrder(input: CheckoutInput): Promise<{ id: string; token: string; number: number }> {
+/**
+ * Checkouts run one at a time. Limited codes (max uses, once per email) and store credit are checked
+ * against what is saved, so two checkouts at the same moment could both pass the same check and spend
+ * one code use or one credit balance twice. In a queue, each one sees the orders placed before it.
+ * One server process owns the SQLite file, so an in-process queue covers every checkout.
+ */
+const cq = globalThis as unknown as { __checkoutQueue?: Promise<unknown> };
+export function placeOrder(input: CheckoutInput): Promise<{ id: string; token: string; number: number }> {
+  const run = (cq.__checkoutQueue ?? Promise.resolve()).catch(() => {}).then(() => placeOrderNow(input));
+  cq.__checkoutQueue = run.catch(() => {});
+  return run;
+}
+
+async function placeOrderNow(input: CheckoutInput): Promise<{ id: string; token: string; number: number }> {
   const data = await loadAll();
   const { store } = data;
   if (!store.open) throw new HttpError(403, "The store is not open for orders yet.");

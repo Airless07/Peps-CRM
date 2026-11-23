@@ -150,7 +150,7 @@ describe("code uniqueness (database-enforced, shared with discount codes, not ca
     const { POST } = await import("../app/api/promotions/route");
     const { NextRequest } = await import("next/server");
     const session = await import("./session");
-    jar.set(session.SESSION_COOKIE, (await session.createSessionToken()).token);
+    jar.set(session.SESSION_COOKIE, (await (await import("./admin-auth")).createAdminToken()).token);
     const res = await POST(new NextRequest(`${ORIGIN}/api/promotions`, { method: "POST", headers: { "content-type": "application/json", host: "localhost:3000", origin: ORIGIN }, body: JSON.stringify({ id: "pp", kind: "code", name: "", code: "SAMM3333", discountType: "%", discountValue: 10, minSubtotalCents: 0, startsAt: null, endsAt: null, maxUses: null, oncePerEmail: false, listingIds: [], groupIds: [], shippingTiers: [], active: true }) }), { params: Promise.resolve({}) } as never);
     expect(res.status).toBe(409);
     expect((await res.json()).error).toMatch(/referral code/);
