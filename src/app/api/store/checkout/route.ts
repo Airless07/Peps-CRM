@@ -1,11 +1,12 @@
 import { body, HttpError, route } from "@/lib/api";
 import { requireAccount, saveAddress } from "@/lib/account";
 import { placeOrder, requestOrigin } from "@/lib/order-ops";
-import { rateLimit } from "@/lib/ratelimit";
+import { clientIp, rateLimit } from "@/lib/ratelimit";
 import { validateAddress } from "@/lib/shippo";
 import { clearCart } from "@/lib/store/cart-server";
 import { checkoutInput } from "@/lib/store/schemas";
-import { requireOpenStore } from "@/lib/store/server";
+import { requireOpenStore, storeSnapshot } from "@/lib/store/server";
+import { CONSENT_REQUIRED } from "@/lib/store/consent";
 
 /** Place the order. No approval step: the customer goes straight to the payment instructions. */
 export const POST = route(
@@ -15,6 +16,9 @@ export const POST = route(
     if (access.preview) throw new HttpError(403, "The store is closed, so orders can't be placed yet. Open the store in Settings to test a real order.");
     const account = await requireAccount();
     const input = await body(req, checkoutInput);
+    // The required consent box, checked here too: the browser's own check can be skipped.
+    const { data } = await storeSnapshot();
+    if (data.store.checkoutConsent && input.consent !== true) throw new HttpError(400, CONSENT_REQUIRED);
     // The cart on screen was built for another account (signed in as someone else in another tab): never
     // place it under this account. The browser reloads the right cart.
     if (input.accountId !== undefined && input.accountId !== account.id) {
@@ -44,6 +48,8 @@ export const POST = route(
       origin: requestOrigin(req),
       storeCreditCents: input.storeCreditCents,
       referralCode: input.referralCode,
+      consent: input.consent,
+      ip: clientIp(req),
     });
     // The order is placed: this account's saved cart is empty now (on every device).
     await clearCart(account.id).catch(() => {});

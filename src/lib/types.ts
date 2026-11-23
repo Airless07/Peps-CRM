@@ -213,6 +213,8 @@ export interface OrderRec {
   payAtPickup?: boolean;
   /** Local orders: when marked ready. */
   readyAt?: string | null;
+  /** Website orders: the checkout consent the buyer ticked. Null = not given (older orders, in-person sales). */
+  consent?: { at: string; text: string; ip: string } | null;
 }
 
 /** A line of a saved order: an order line plus the product's regular price when it was saved. */

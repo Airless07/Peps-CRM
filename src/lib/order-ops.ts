@@ -37,6 +37,7 @@ import { countsInMoney } from "./types";
 import { FULFILLMENT_LABEL, isLocalMethod, localOffer, PAY_AT_PICKUP, PAY_AT_PICKUP_NAME, spotOf, type Fulfillment } from "./local/rules";
 import { isLocalZip } from "./local/zips";
 import { envSiteUrl } from "./site";
+import { consentText } from "./store/consent";
 
 type Tx = Prisma.TransactionClient;
 type Db = Tx | typeof prisma;
@@ -153,6 +154,9 @@ export interface CheckoutInput {
   storeCreditCents?: number;
   /** Optional referral code typed at checkout. Sets who referred the order (and the customer, if not set yet). */
   referralCode?: string;
+  /** The checkout consent box, and the buyer's IP (saved with the order). */
+  consent?: boolean;
+  ip?: string;
 }
 
 /** Price a cart exactly like the order will be saved. Shared by the quote API and placeOrder. */
@@ -299,6 +303,8 @@ export async function placeOrder(input: CheckoutInput): Promise<{ id: string; to
         referralRatePct: referral ? referral.ratePercent : null,
         referralDiscountPct: referral ? referral.buyerDiscountPercent : 0,
         referralDiscountCents: pricing.referralCents,
+        // The consent box as the buyer saw it, when, and from where.
+        ...(input.consent === true ? { consentAt: now, consentText: consentText(store.entryGate.minAge), consentIp: (input.ip ?? "").slice(0, 64) } : {}),
         email: input.email.trim().toLowerCase(),
         phone: input.phone.trim(),
         shipToJson: JSON.stringify(input.shipTo),

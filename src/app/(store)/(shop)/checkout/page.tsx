@@ -8,5 +8,5 @@ export const metadata: Metadata = { title: "Checkout", robots: { index: false } 
 
 export default async function CheckoutPage() {
   const [{ data }, account, access] = await Promise.all([storeSnapshot(), currentAccount(), storeAccess()]);
-  return <CheckoutView account={account} states={STATES} ack={data.content.acknowledgments} preview={access.preview} />;
+  return <CheckoutView account={account} states={STATES} consent={{ required: data.store.checkoutConsent, minAge: data.store.entryGate.minAge }} preview={access.preview} />;
 }

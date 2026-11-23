@@ -138,6 +138,7 @@ export function toOrder(o: OrderWithLines): OrderRec {
     localSpot: json<PickupSpot | null>(o.localJson, null),
     payAtPickup: o.payAtPickup,
     readyAt: isoN(o.readyAt),
+    consent: o.consentAt ? { at: iso(o.consentAt), text: o.consentText, ip: o.consentIp } : null,
     web: online
       ? {
           email: o.email,

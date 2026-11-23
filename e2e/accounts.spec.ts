@@ -272,7 +272,7 @@ test("7. bulk shipping (Shippo TEST mode): buy 3 labels, combined label and slip
     const std = q.shipping.find((s: { tier: string }) => s.tier === "standard");
     const r = await ctx.request.post("/api/store/checkout", {
       headers: ORIGIN,
-      data: { accountId: q.accountId, phone: "", shipTo, items, code: "", tier: "standard", payChoice: "zelle", expectedTotalCents: q.subtotalCents - q.discountCents + std.cents, ackResearch: true, ackPolicies: true },
+      data: { accountId: q.accountId, phone: "", shipTo, items, code: "", tier: "standard", payChoice: "zelle", expectedTotalCents: q.subtotalCents - q.discountCents + std.cents, consent: true },
     });
     expect(r.status(), await r.text()).toBe(200);
     numbers.push((await r.json()).number);

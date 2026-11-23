@@ -269,17 +269,6 @@ export default function ContentPage() {
               </Field>
             </Card>
 
-            <SectionTitle>Checkout acknowledgments</SectionTitle>
-            <Card className="space-y-4 p-4">
-              <p className="text-sm text-muted">Customers must tick both boxes to place an order.</p>
-              <Field label="Research use">
-                <Textarea value={c.acknowledgments.research} maxLength={400} className="min-h-[76px]" onChange={(e) => set("acknowledgments", { ...c.acknowledgments, research: e.target.value })} />
-              </Field>
-              <Field label="Policies" hint="The words Terms, Privacy, Shipping and Returns become links to those pages.">
-                <Textarea value={c.acknowledgments.policies} maxLength={400} className="min-h-[76px]" onChange={(e) => set("acknowledgments", { ...c.acknowledgments, policies: e.target.value })} />
-              </Field>
-            </Card>
-
             <SectionTitle>Footer</SectionTitle>
             <Card className="p-4">
               <Field label="Extra footer text (optional)" hint="Shown above the research-use line, which is always there.">

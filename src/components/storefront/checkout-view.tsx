@@ -25,23 +25,6 @@ function PayIcon({ id }: { id: string }) {
 }
 
 /** Turn the words Terms, Privacy, Shipping and Returns into links. */
-function PolicyText({ text }: { text: string }) {
-  const map: Record<string, string> = { terms: "/terms", privacy: "/privacy", shipping: "/shipping", returns: "/refunds", refunds: "/refunds", refund: "/refunds" };
-  return (
-    <>
-      {text.split(/\b(Terms|Privacy|Shipping|Returns|Refunds|Refund)\b/i).map((part, i) =>
-        map[part.toLowerCase()] ? (
-          <Link key={i} href={map[part.toLowerCase()]} target="_blank" className="s-link">
-            {part}
-          </Link>
-        ) : (
-          part
-        ),
-      )}
-    </>
-  );
-}
-
 function Step({ n, title, done, children, aside }: { n: number; title: string; done?: boolean; children: React.ReactNode; aside?: React.ReactNode }) {
   return (
     <section className="border-t border-rule py-8 first:border-t-0 first:pt-0">
@@ -57,7 +40,7 @@ function Step({ n, title, done, children, aside }: { n: number; title: string; d
   );
 }
 
-export function CheckoutView({ account: initial, states, ack, preview }: { account: AccountInfo | null; states: string[]; ack: { research: string; policies: string }; preview: boolean }) {
+export function CheckoutView({ account: initial, states, consent, preview }: { account: AccountInfo | null; states: string[]; consent: { required: boolean; minAge: number }; preview: boolean }) {
   const cart = useCart();
   const info = useLineInfo();
   const router = useRouter();
@@ -66,8 +49,7 @@ export function CheckoutView({ account: initial, states, ack, preview }: { accou
   const [phone, setPhone] = useState(initial?.phone ?? "");
   const [tier, setTier] = useState<string>("");
   const [pay, setPay] = useState("");
-  const [ack1, setAck1] = useState(false);
-  const [ack2, setAck2] = useState(false);
+  const [agreed, setAgreed] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -86,8 +68,7 @@ export function CheckoutView({ account: initial, states, ack, preview }: { accou
     setCreditCustom(false);
     setErrors({});
     setFormError("");
-    setAck1(false);
-    setAck2(false);
+    setAgreed(false);
     setPay("");
     setTier("");
   };
@@ -185,7 +166,7 @@ export function CheckoutView({ account: initial, states, ack, preview }: { accou
     if (isLocal && phone.replace(/\D/g, "").length < 10) e.phone = "Enter a phone number so we can text you about the time.";
     if (isLocal && local?.windows.length && !localTime) e.localTime = "Pick a preferred time.";
     if (!pay) e.pay = "Pick a payment method.";
-    if (!ack1 || !ack2) e.ack = "Tick both boxes to place your order.";
+    if (consent.required && !agreed) e.ack = "Tick the box to confirm your age and research use before placing your order.";
     setErrors(e);
     if (Object.keys(e).length || total === null) {
       setFormError("Some details are missing. Check the highlighted fields.");
@@ -198,7 +179,7 @@ export function CheckoutView({ account: initial, states, ack, preview }: { accou
       const res = await fetch("/api/store/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accountId: account?.id ?? null, phone, shipTo: { ...a, zip: a.zip.trim() }, items: cart.items, code: quote?.code ?? "", tier: isLocal ? "" : tier, fulfillment: method, localTime: isLocal ? localTime : "", localNotes: isLocal ? localNotes : "", payChoice: pay, expectedTotalCents: total, ackResearch: true, ackPolicies: true, saveAddress: true, storeCreditCents: creditUsed, referralCode: quote?.referral ? cart.referral : "" }),
+        body: JSON.stringify({ accountId: account?.id ?? null, phone, shipTo: { ...a, zip: a.zip.trim() }, items: cart.items, code: quote?.code ?? "", tier: isLocal ? "" : tier, fulfillment: method, localTime: isLocal ? localTime : "", localNotes: isLocal ? localNotes : "", payChoice: pay, expectedTotalCents: total, consent: agreed, saveAddress: true, storeCreditCents: creditUsed, referralCode: quote?.referral ? cart.referral : "" }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -528,20 +509,33 @@ export function CheckoutView({ account: initial, states, ack, preview }: { accou
             </Step>
 
             <section className="border-t border-rule pt-8">
-              <div className="space-y-3" data-invalid={!!errors.ack}>
-                {(
-                  [
-                    [ack1, setAck1, ack.research, false],
-                    [ack2, setAck2, ack.policies, true],
-                  ] as const
-                ).map(([on, setOn, text, links], i) => (
-                  <label key={i} className={`flex cursor-pointer items-start gap-3 rounded-xl border px-4 py-3.5 text-[15px] leading-snug transition ${on ? "border-coal bg-soft" : errors.ack ? "border-brand" : "border-rule"}`}>
-                    <input type="checkbox" className="mt-0.5 h-5 w-5 shrink-0 accent-[var(--s-brand)]" checked={on} onChange={(e) => (setOn(e.target.checked), setErrors((x) => ({ ...x, ack: "" })))} />
-                    <span>{links ? <PolicyText text={text} /> : text}</span>
+              {consent.required && (
+                <div className="space-y-2" data-invalid={!!errors.ack} data-consent>
+                  <label className={`flex cursor-pointer items-start gap-3 rounded-xl border px-4 py-3.5 text-[15px] leading-snug transition ${agreed ? "border-coal bg-soft" : errors.ack ? "border-brand" : "border-rule"}`}>
+                    <input
+                      type="checkbox"
+                      name="consent"
+                      required
+                      aria-invalid={!!errors.ack}
+                      className="mt-0.5 h-5 w-5 shrink-0 accent-[var(--s-brand)]"
+                      checked={agreed}
+                      onChange={(e) => (setAgreed(e.target.checked), setErrors((x) => ({ ...x, ack: "" })))}
+                    />
+                    <span>
+                      I confirm I am {consent.minAge} or older and this purchase is for laboratory research use only, not for human consumption. I agree to the{" "}
+                      <a href="/terms" target="_blank" rel="noopener" className="s-link">
+                        Terms
+                      </a>{" "}
+                      and{" "}
+                      <a href="/research-use" target="_blank" rel="noopener" className="s-link">
+                        Research Use Policy
+                      </a>
+                      .
+                    </span>
                   </label>
-                ))}
-                {errors.ack && <span className="s-error">{errors.ack}</span>}
-              </div>
+                  {errors.ack && <span className="s-error">{errors.ack}</span>}
+                </div>
+              )}
 
               <div ref={errorRef}>
                 {(formError || soldOut.length > 0 || cart.quoteError) && (

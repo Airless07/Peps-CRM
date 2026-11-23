@@ -246,6 +246,10 @@ model Order {
   readyAt          DateTime?
   /// Label purchase in progress (set atomically before Shippo is called). Stops a label being bought twice.
   labelLockAt      DateTime?
+  /// Website orders: the checkout consent box (21+, research use only, Terms). When, exact text, buyer IP.
+  consentAt        DateTime?
+  consentText      String          @default("")
+  consentIp        String          @default("")
   lines            OrderLine[]
   splitItems       SplitItem[]
   labels           LabelPurchase[]

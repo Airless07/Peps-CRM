@@ -198,10 +198,34 @@ describe("prices are worked out on the server for the account signed in now", ()
     const q = await quote({ items: [{ variantId: "bpc", quantity: 1 }], shipTo });
     const total = q.json.subtotalCents - q.json.discountCents + q.json.shipping[0].cents;
     const r = await call(checkoutRoute.POST, "/api/store/checkout", "POST", {
-      accountId: A, phone: "", shipTo, items: [{ variantId: "bpc", quantity: 1 }], code: "", tier: q.json.shipping[0].tier, payChoice: "zelle", expectedTotalCents: total, ackResearch: true, ackPolicies: true,
+      accountId: A, phone: "", shipTo, items: [{ variantId: "bpc", quantity: 1 }], code: "", tier: q.json.shipping[0].tier, payChoice: "zelle", expectedTotalCents: total, consent: true,
     });
     expect(r.status).toBe(409);
     expect(await prisma.order.count()).toBe(0);
+  });
+
+  it("checkout consent: refused on the server without the box; saved on the order (text, time, IP) with it", async () => {
+    await signIn("ben@example.com");
+    const items = [{ variantId: "bpc", quantity: 1 }];
+    const q = await quote({ items, shipTo });
+    const total = q.json.subtotalCents - q.json.discountCents + q.json.shipping[0].cents;
+    const base = { accountId: B, phone: "", shipTo, items, code: "", tier: q.json.shipping[0].tier, payChoice: "zelle", expectedTotalCents: total };
+    for (const consent of [undefined, false]) {
+      const r = await call(checkoutRoute.POST, "/api/store/checkout", "POST", { ...base, ...(consent === undefined ? {} : { consent }) });
+      expect(r.status).toBe(400);
+      expect(r.json.error).toMatch(/Tick the box to confirm your age/);
+    }
+    expect(await prisma.order.count()).toBe(0);
+    const before = Date.now();
+    const ok = await call(checkoutRoute.POST, "/api/store/checkout", "POST", { ...base, consent: true });
+    expect(ok.status).toBe(200);
+    const o = await prisma.order.findFirstOrThrow({ where: { number: ok.json.number } });
+    expect(o.consentAt!.getTime()).toBeGreaterThanOrEqual(before - 1000);
+    expect(o.consentText).toBe("I confirm I am 21 or older and this purchase is for laboratory research use only, not for human consumption. I agree to the Terms and Research Use Policy.");
+    expect(o.consentIp).toMatch(/^10\.0\.0\.\d+$/);
+    // In-person (Sell) orders never carry it.
+    expect(await prisma.order.count({ where: { source: { not: "online" }, consentAt: { not: null } } })).toBe(0);
+    await prisma.order.deleteMany();
   });
 
   it("a guest-built cart with more than is in stock is refused at checkout", async () => {
@@ -209,7 +233,7 @@ describe("prices are worked out on the server for the account signed in now", ()
     const items = [{ variantId: "reta10", quantity: 6 }]; // 5 in stock
     const q = await quote({ items, shipTo });
     const total = q.json.subtotalCents - q.json.discountCents + q.json.shipping[0].cents;
-    const r = await call(checkoutRoute.POST, "/api/store/checkout", "POST", { accountId: B, phone: "", shipTo, items, code: "", tier: q.json.shipping[0].tier, payChoice: "zelle", expectedTotalCents: total, ackResearch: true, ackPolicies: true });
+    const r = await call(checkoutRoute.POST, "/api/store/checkout", "POST", { accountId: B, phone: "", shipTo, items, code: "", tier: q.json.shipping[0].tier, payChoice: "zelle", expectedTotalCents: total, consent: true });
     expect(r.status).toBe(409);
     expect(r.json.error).toMatch(/^Only 5 Retatrutide 10mg left\./);
     expect(await prisma.order.count()).toBe(0);
@@ -224,9 +248,9 @@ describe("prices are worked out on the server for the account signed in now", ()
     expect(q.json.lines[0].unitPriceCents).toBe(5000);
     const total = q.json.subtotalCents - q.json.discountCents + q.json.shipping[0].cents;
     // A browser that sends a lower total (cost price) is refused.
-    const cheap = await call(checkoutRoute.POST, "/api/store/checkout", "POST", { accountId: A, phone: "", shipTo, items: [{ variantId: "bpc", quantity: 2 }], code: "", tier: q.json.shipping[0].tier, payChoice: "zelle", expectedTotalCents: 2400 + q.json.shipping[0].cents, ackResearch: true, ackPolicies: true, owner: "A" });
+    const cheap = await call(checkoutRoute.POST, "/api/store/checkout", "POST", { accountId: A, phone: "", shipTo, items: [{ variantId: "bpc", quantity: 2 }], code: "", tier: q.json.shipping[0].tier, payChoice: "zelle", expectedTotalCents: 2400 + q.json.shipping[0].cents, consent: true, owner: "A" });
     expect(cheap.status).toBe(409);
-    const ok = await call(checkoutRoute.POST, "/api/store/checkout", "POST", { accountId: A, phone: "", shipTo, items: [{ variantId: "bpc", quantity: 2 }], code: "", tier: q.json.shipping[0].tier, payChoice: "zelle", expectedTotalCents: total, ackResearch: true, ackPolicies: true, owner: "A" });
+    const ok = await call(checkoutRoute.POST, "/api/store/checkout", "POST", { accountId: A, phone: "", shipTo, items: [{ variantId: "bpc", quantity: 2 }], code: "", tier: q.json.shipping[0].tier, payChoice: "zelle", expectedTotalCents: total, consent: true, owner: "A" });
     expect(ok.status).toBe(200);
     const o = await prisma.order.findFirstOrThrow({ where: { customerId: A }, include: { lines: true } });
     expect(o.owner).toBeNull();

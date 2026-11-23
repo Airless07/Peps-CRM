@@ -279,6 +279,24 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
             )}
           </Card>
 
+          {online && (
+            <Card className="p-4 sm:p-5" data-order-consent>
+              <h2 className="mb-2 text-sm font-semibold">Checkout consent</h2>
+              {order.consent ? (
+                <>
+                  <Row label="Accepted">
+                    <Badge tone="pos">Yes</Badge>
+                  </Row>
+                  <Row label="When">{fmtDateTime(order.consent.at)}</Row>
+                  <Row label="IP address">{order.consent.ip || "Unknown"}</Row>
+                  <p className="mt-2 rounded-xl bg-surface2 px-3 py-2.5 text-sm leading-relaxed text-muted">“{order.consent.text}”</p>
+                </>
+              ) : (
+                <p className="text-sm text-muted">Not recorded. This order was placed before the checkout box existed, or while it was turned off in Settings.</p>
+              )}
+            </Card>
+          )}
+
           <InternalNote orderId={order.id} note={order.adminNote} />
 
           {review && (

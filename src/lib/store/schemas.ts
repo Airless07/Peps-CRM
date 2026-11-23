@@ -65,8 +65,8 @@ export const checkoutInput = z.object({
   localNotes: text(500).default(""),
   payChoice: text(20).min(1, "Pick a payment method"),
   expectedTotalCents: cents,
-  ackResearch: z.literal(true, { error: "Tick the research use box to continue" }),
-  ackPolicies: z.literal(true, { error: "Tick the policies box to continue" }),
+  /** The required "21+ and research use only" box. Checked again on the server (Settings can turn it off). */
+  consent: z.boolean().default(false),
   saveAddress: z.boolean().default(true),
   /** Store credit to use (capped by the balance and the total). */
   storeCreditCents: cents.default(0),
