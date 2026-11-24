@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from "react";
 import { Check, Minus, Plus } from "lucide-react";
 import type { PublicProduct } from "@/lib/store/catalog";
 import { useCart } from "./cart";
+import { Price } from "./price";
 
 export function QuickAdd({ p }: { p: PublicProduct }) {
   const cart = useCart();
@@ -52,6 +53,7 @@ export function QuickAdd({ p }: { p: PublicProduct }) {
   }
 
   const multi = p.variants.length > 1;
+  const picked = p.variants.find((v) => v.id === variantId);
   return (
     <div className="qa-wrap" data-quick-add={p.slug}>
       <div className="qa-bar" role="group" aria-label={`Quick add ${p.name}`}>
@@ -77,6 +79,9 @@ export function QuickAdd({ p }: { p: PublicProduct }) {
               );
             })}
           </div>
+        )}
+        {picked && (
+          <Price cents={picked.priceCents} listCents={picked.listPriceCents} className="text-[13px] font-medium" strikeClassName="text-[12px]" />
         )}
         <div className="flex items-center gap-1.5">
           <div className="inline-flex h-8 items-center rounded-full border border-rule bg-paper" role="group" aria-label={`Quantity for ${p.name}`}>

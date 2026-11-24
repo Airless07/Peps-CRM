@@ -11,6 +11,7 @@ import { testingClaim } from "@/lib/store/copy";
 import { discountedUnit, qtyPercentOff } from "@/lib/store/pricing";
 import { trackEvent } from "./analytics";
 import { money, QtyStepper, useCart } from "./cart";
+import { SaleBadge } from "./price";
 import { photoSrcSet, StockTag, TestingBadge } from "./product-card";
 import { Vial } from "./vial";
 
@@ -132,18 +133,37 @@ export function ProductView({ p }: { p: PublicProduct }) {
               {p.variants.map((x) => (
                 <option key={x.id} value={x.id}>
                   {x.label}
-                  {x.volume ? ` (${x.volume})` : ""} · {money(x.priceCents)} · {STOCK_LABEL[x.stock]}
+                  {x.volume ? ` (${x.volume})` : ""} · {money(x.priceCents)}
+                  {x.listPriceCents > x.priceCents ? ` (was ${money(x.listPriceCents)})` : ""} · {STOCK_LABEL[x.stock]}
                 </option>
               ))}
             </select>
           </div>
         )}
 
-        <div className="mt-7 flex items-baseline gap-3">
-          <span className="text-4xl font-semibold tabular-nums tracking-tight">{money(unit)}</span>
-          {percent > 0 && <s className="text-lg tabular-nums text-stone">{money(v.priceCents)}</s>}
+        <div className="mt-7 flex flex-wrap items-baseline gap-x-3 gap-y-1" data-product-price>
+          {/* Regular price crossed out while a sale or buy-more tier lowers it. Same math as checkout. */}
+          {unit < v.listPriceCents && (
+            <s className="text-lg tabular-nums text-stone" data-list-price>
+              <span className="sr-only">Regular price </span>
+              {money(v.listPriceCents)}
+            </s>
+          )}
+          <span className="text-4xl font-semibold tabular-nums tracking-tight" data-unit-price>
+            {money(unit)}
+          </span>
           <span className="text-sm text-stone">per vial</span>
+          {p.sale && <SaleBadge percent={p.sale.percent} className="self-center" />}
         </div>
+        {p.dealBadges.length > 0 && (
+          <div data-product-deal-badges className="mt-3 flex flex-wrap gap-2">
+            {p.dealBadges.map((b) => (
+              <span key={b} className="rounded-full bg-brand/10 px-3 py-1 text-[13px] font-semibold text-brand">
+                {b}
+              </span>
+            ))}
+          </div>
+        )}
         {p.deals.length > 0 && (
           <div data-product-deal className="mt-4 flex flex-wrap items-center gap-2 rounded-xl bg-brand/10 px-4 py-3 text-[15px] font-semibold text-brand">
             <span className="rounded-full bg-brand px-2.5 py-0.5 text-xs text-white">BOGO</span>
@@ -171,7 +191,7 @@ export function ProductView({ p }: { p: PublicProduct }) {
                   >
                     {on && <Check size={14} className="absolute right-2.5 top-2.5 text-brand" />}
                     <span className="block text-[15px] font-semibold">{label}</span>
-                    <span className={`block text-[13px] ${t.percentOff ? "font-medium text-brand" : "text-stone"}`}>{t.percentOff ? `${t.percentOff}% off` : "Regular price"}</span>
+                    <span className={`block text-[13px] ${t.percentOff ? "font-medium text-brand" : "text-stone"}`}>{t.percentOff ? `${t.percentOff}% off${p.sale ? " more" : ""}` : p.sale ? "Sale price" : "Regular price"}</span>
                     <span className="block text-[13px] tabular-nums text-stone">{money(discountedUnit(v.priceCents, t.percentOff))} each</span>
                   </button>
                 );

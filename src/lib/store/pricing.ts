@@ -28,12 +28,24 @@ export interface PricedLine {
   listingId: string;
   name: string;
   quantity: number;
-  /** Regular price each. */
+  /** Regular price each (before any sale). */
   listPriceCents: number;
-  /** Price each after "buy more, save more". This is what the order line stores. */
+  /** Price each after the sale (an automatic percent deal shown on products). Equals listPriceCents without a sale. */
+  salePriceCents: number;
+  /** The sale on this product, or null. */
+  sale: SaleInfo | null;
+  /** Price each after the sale and "buy more, save more". This is what the order line stores. */
   unitPriceCents: number;
+  /** "Buy more, save more" percent (on top of the sale price). */
   percentOff: number;
   lineTotalCents: number;
+}
+
+/** An automatic deal shown as a sale price on products. */
+export interface SaleInfo {
+  id: string;
+  name: string;
+  percent: number;
 }
 
 export interface BogoRow {
@@ -56,7 +68,9 @@ export interface CartPricing {
   lines: PricedLine[];
   /** Sum of regular prices. */
   listSubtotalCents: number;
-  /** Saved through buy more, save more. */
+  /** Saved through sale prices (automatic percent deals shown on products). */
+  saleSavingsCents: number;
+  /** Saved through buy more, save more (on top of sale prices). */
   qtySavingsCents: number;
   /** Subtotal after quantity savings and BOGO deals: the order's subtotal. */
   subtotalCents: number;
@@ -72,8 +86,11 @@ export interface CartPricing {
   referralCents: number;
   /** "Referral SARAH-K: 5% off". Empty when none. */
   referralLabel: string;
-  /** Promotions that were applied (code, automatic deal, free shipping rule). */
-  applied: { id: string; kind: PromotionRec["kind"]; label: string; cents: number }[];
+  /**
+   * Promotions that were applied (code, automatic deal, free shipping rule). `sale`: an automatic deal
+   * already inside the item prices (shown as the sale row, never as a second discount).
+   */
+  applied: { id: string; kind: PromotionRec["kind"]; label: string; cents: number; sale?: boolean }[];
   /** Why the typed code was not applied, in plain words. Empty when fine or no code. */
   codeError: string;
   code: string;
@@ -126,6 +143,42 @@ export function isLive(p: Pick<PromotionRec, "active" | "startsAt" | "endsAt">, 
 
 export const usesLeft = (p: Pick<PromotionRec, "maxUses" | "uses">): number | null => (p.maxUses === null ? null : Math.max(0, p.maxUses - p.uses.length));
 
+/** The promotion covers this product: it is not limited, or the product (or one of its groups) is in its list. */
+export const promoCovers = (p: Pick<PromotionRec, "listingIds" | "groupIds">, listingId: string, groupIds: string[]) =>
+  (p.listingIds.length === 0 && p.groupIds.length === 0) || p.listingIds.includes(listingId) || groupIds.some((g) => p.groupIds.includes(g));
+
+/**
+ * Why an automatic deal is NOT shown as a sale price on products, or "" when it is (while live): only
+ * percent-off deals with no minimum, no order limit and no one-per-email rule, with "Show sale price" on.
+ * Everything else stays an order discount at checkout, shown on products as a badge.
+ */
+export function saleBlock(p: Pick<PromotionRec, "kind" | "discountType" | "discountValue" | "minSubtotalCents" | "maxUses" | "oncePerEmail" | "showSalePrice">): string {
+  if (p.kind !== "auto") return "not an automatic deal";
+  if (p.discountType !== "%") return "takes a $ amount off the order";
+  if (!(p.discountValue > 0)) return "takes nothing off";
+  if (p.minSubtotalCents > 0) return "has a minimum";
+  if (p.maxUses !== null) return "stops after a number of orders";
+  if (p.oncePerEmail) return "is once per email";
+  if (p.showSalePrice === false) return "sale price is turned off";
+  return "";
+}
+
+/** Live automatic deals shown as sale prices right now (an ended, paused or turned off deal is not). */
+export const liveSales = (promotions: PromotionRec[], now: Date) => promotions.filter((p) => !saleBlock(p) && isLive(p, now));
+
+/**
+ * The sale on one product. When several sale deals cover it, the best one (the same rule as automatic
+ * deals at checkout: one deal, the one that takes off the most). Null when none.
+ */
+export function saleFor(sales: PromotionRec[], listingId: string, groupIds: string[]): SaleInfo | null {
+  let best: PromotionRec | null = null;
+  for (const p of sales) if (promoCovers(p, listingId, groupIds) && (!best || p.discountValue > best.discountValue)) best = p;
+  return best ? { id: best.id, name: best.name.trim() || "Sale", percent: Math.min(100, best.discountValue) } : null;
+}
+
+/** The price each after a sale, rounded to the cent exactly like checkout (integer cents). */
+export const salePrice = (priceCents: number, sale: Pick<SaleInfo, "percent"> | null) => (sale ? discountedUnit(priceCents, sale.percent) : priceCents);
+
 /** Subtotal of the lines a promotion applies to (all lines when it has no product/group limit). */
 function eligibleSubtotal(p: PromotionRec, lines: PricedLine[], variants: Map<string, PricedVariant>): number {
   const limited = p.listingIds.length > 0 || p.groupIds.length > 0;
@@ -172,7 +225,11 @@ export function priceCart(input: {
 }): CartPricing {
   const now = input.now ?? new Date();
   const email = (input.email ?? "").trim();
-  const byId = new Map(input.variants.map((v) => [v.variantId, v]));
+  // Sale prices first (automatic percent deals shown on products). Every other saving starts from them,
+  // so the cart charges exactly the crossed-out price the shop shows.
+  const sales = liveSales(input.promotions, now);
+  const saleOf = new Map(input.variants.map((v) => [v.variantId, saleFor(sales, v.listingId, v.groupIds)]));
+  const byId = new Map(input.variants.map((v) => [v.variantId, { ...v, listPriceCents: v.priceCents, priceCents: salePrice(v.priceCents, saleOf.get(v.variantId) ?? null) }]));
 
   // Merge duplicate rows and drop anything that is not a real, positive quantity.
   const qty = new Map<string, number>();
@@ -210,7 +267,7 @@ export function priceCart(input: {
     const v = byId.get(id)!;
     const percentOff = dealListings.has(v.listingId) ? 0 : qtyPercentOff(v.qtyDeals, perListing.get(v.listingId) ?? q);
     const unit = discountedUnit(v.priceCents, percentOff);
-    lines.push({ variantId: id, listingId: v.listingId, name: v.name, quantity: q, listPriceCents: v.priceCents, unitPriceCents: unit, percentOff, lineTotalCents: unit * q });
+    lines.push({ variantId: id, listingId: v.listingId, name: v.name, quantity: q, listPriceCents: v.listPriceCents, salePriceCents: v.priceCents, sale: saleOf.get(id) ?? null, unitPriceCents: unit, percentOff, lineTotalCents: unit * q });
   }
   const bogo: BogoRow[] = [];
   for (const p of plans) {
@@ -224,12 +281,18 @@ export function priceCart(input: {
   /** Lines after their BOGO discount: what codes and automatic deals apply to. */
   const netLines = lines.map((l) => ({ ...l, lineTotalCents: l.lineTotalCents - bogoOn(l.variantId) }));
   const listSubtotalCents = lines.reduce((s, l) => s + l.listPriceCents * l.quantity, 0);
+  const saleSubtotalCents = lines.reduce((s, l) => s + l.salePriceCents * l.quantity, 0);
   const subtotalCents = lines.reduce((s, l) => s + l.lineTotalCents, 0) - bogoCents;
   const names = { listing: (lid: string) => input.variants.find((v) => v.listingId === lid)?.listingName, variant: (vid: string) => byId.get(vid)?.name };
   const hints = dealHints(deals, sources, names, plans);
   const noCodeDeal = plans.find((p) => p.rule.noCodes);
 
   const applied: CartPricing["applied"] = plans.map((p) => ({ id: p.deal.id, kind: "bogo" as const, label: dealText(p.deal, names), cents: p.cents }));
+  // Sale deals used: recorded on the order like any deal. Their money is already inside the item prices.
+  for (const sale of new Map(lines.filter((l) => l.sale).map((l) => [l.sale!.id, l.sale!])).values()) {
+    const cents = lines.filter((l) => l.sale?.id === sale.id).reduce((s, l) => s + (l.listPriceCents - l.salePriceCents) * l.quantity, 0);
+    applied.push({ id: sale.id, kind: "auto", label: `${sale.name}: ${sale.percent}% off (sale price)`, cents, sale: true });
+  }
   let remaining = subtotalCents;
   let codeError = "";
   let usedCode = "";
@@ -254,10 +317,10 @@ export function priceCart(input: {
     }
   }
 
-  // 2. Automatic deals (no code). The best single one applies, on top of a code.
+  // 2. Automatic deals (no code) that are not sale prices. The best single one applies, on top of a code.
   let bestAuto: { p: PromotionRec; cents: number } | null = null;
   for (const p of input.promotions) {
-    if (p.kind !== "auto") continue;
+    if (p.kind !== "auto" || !saleBlock(p)) continue;
     const eligible = eligibleSubtotal(p, netLines, byId);
     if (promoBlock(p, eligible, now, email)) continue;
     const cents = Math.min(remaining, discountAmount(p.discountType, p.discountValue, eligible));
@@ -299,7 +362,8 @@ export function priceCart(input: {
   return {
     lines,
     listSubtotalCents,
-    qtySavingsCents: listSubtotalCents - subtotalCents - bogoCents,
+    saleSavingsCents: listSubtotalCents - saleSubtotalCents,
+    qtySavingsCents: saleSubtotalCents - subtotalCents - bogoCents,
     subtotalCents,
     bogo,
     bogoCents,
@@ -325,7 +389,9 @@ export function orderLinesOf(p: Pick<CartPricing, "lines" | "bogo">): { variantI
   for (const l of p.lines) {
     const rows = p.bogo.filter((b) => b.variantId === l.variantId);
     const rest = l.quantity - rows.reduce((s, b) => s + b.quantity, 0);
-    if (rest > 0) out.push({ variantId: l.variantId, name: l.name, quantity: rest, unitPriceCents: l.unitPriceCents, dealId: "", dealName: "", fullPriceCents: null });
+    // On sale: the line keeps the regular price too, and the deal's name (shown in the admin order).
+    const sale = l.sale && l.listPriceCents > l.unitPriceCents ? { dealName: `${l.sale.name}: ${l.sale.percent}% off`, fullPriceCents: l.listPriceCents } : { dealName: "", fullPriceCents: null };
+    if (rest > 0) out.push({ variantId: l.variantId, name: l.name, quantity: rest, unitPriceCents: l.unitPriceCents, dealId: "", ...sale });
     for (const b of rows) out.push({ variantId: l.variantId, name: l.name, quantity: b.quantity, unitPriceCents: b.unitPriceCents, dealId: b.dealId, dealName: b.dealName, fullPriceCents: b.fullPriceCents });
   }
   return out;
@@ -378,6 +444,9 @@ export function promoHeadlines(promotions: PromotionRec[], now = new Date(), shi
     }
     else if (p.kind === "bogo") {
       if (p.bogo?.online && p.name.trim()) out.push({ text: p.name.trim(), code: "" });
+    } else if (p.kind === "auto" && !saleBlock(p)) {
+      const where = p.listingIds.length || p.groupIds.length ? "select products" : "everything";
+      out.push({ text: `${p.name.trim() ? `${p.name.trim()}: ` : ""}${p.discountValue}% off ${where}. Sale prices shown.`, code: "" });
     } else if (p.kind === "auto") out.push({ text: `${promoValueLabel(p)}${min}${left !== null ? `: ${left} left` : ""}`, code: "" });
     else if (p.kind === "code" && p.listingIds.length === 0 && p.groupIds.length === 0 && !p.oncePerEmail && left === null) {
       // Only open, unlimited codes are advertised automatically.
@@ -385,4 +454,20 @@ export function promoHeadlines(promotions: PromotionRec[], now = new Date(), shi
     }
   }
   return out;
+}
+
+/**
+ * Badge text for a live automatic deal that does NOT change the shown price (checkout takes it off the
+ * order): "$20 off orders $70+", "10% off orders $50+", "$5 off your order", "15% off: 5 left".
+ */
+export function dealBadge(p: PromotionRec): string {
+  const left = usesLeft(p);
+  const min = p.minSubtotalCents > 0 ? ` orders ${money(p.minSubtotalCents)}+` : p.discountType === "$" ? " your order" : "";
+  return `${promoValueLabel(p)}${min}${left !== null ? `: ${left} left` : ""}`;
+}
+
+/** "Buy 2, save 10%" from a product's buy more, save more tiers (its first tier). Empty when it has none. */
+export function qtyBadge(deals: QtyDeal[]): string {
+  const first = [...deals].filter((d) => d.percentOff > 0).sort((a, b) => a.minQty - b.minQty)[0];
+  return first ? `Buy ${first.minQty}, save ${first.percentOff}%` : "";
 }

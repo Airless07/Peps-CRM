@@ -9,7 +9,7 @@ import { api, useLoaded } from "@/components/store";
 import { useToast } from "@/components/toast";
 import { Badge, Button, Card, Empty, Field, Input, MoneyInput, NumberInput, PageHeader, PageSkeleton, SectionTitle, Segmented, Sheet, Toggle, cx, useConfirm } from "@/components/ui";
 import { fmtDate, fmtMoney, fromLocalInput, toLocalDateTimeInput, uid } from "@/lib/format";
-import { freeShippingText, isLive, promoHeadlines, promoValueLabel, usesLeft } from "@/lib/store/pricing";
+import { freeShippingText, isLive, promoCovers, promoHeadlines, promoValueLabel, saleBlock, salePrice, usesLeft } from "@/lib/store/pricing";
 import type { AppData, BogoRule, DealItems, PromotionKind, PromotionRec } from "@/lib/types";
 
 const KIND: Record<PromotionKind, { title: string; one: string; icon: typeof Zap; blurb: string }> = {
@@ -29,6 +29,27 @@ const dealNames = (data: AppData) => ({
     return p ? withSize(p.name, p.variantLabel) : undefined;
   },
 });
+/**
+ * How an automatic deal shows on the website: "Shows on site as: ~~$55.00~~ $38.50 (30% OFF)" using the
+ * cheapest size of the first website product it covers, or "Shows as badge only (has a minimum)".
+ */
+function SalePreview({ p, data }: { p: PromotionRec; data: AppData }) {
+  if (p.kind !== "auto") return null;
+  const why = saleBlock(p);
+  if (why) return <span data-sale-preview="badge">Shows as badge only ({why})</span>;
+  const covered = data.listings.filter((l) => l.showOnWebsite && promoCovers(p, l.id, l.groupIds));
+  const price = covered
+    .flatMap((l) => data.products.filter((v) => v.listingId === l.id && !v.archived).map((v) => v.defaultPriceCents))
+    .sort((a, b) => a - b)[0];
+  if (price === undefined) return <span data-sale-preview="none">Shows on site as a sale price (no website product is covered yet)</span>;
+  const pct = Math.min(100, p.discountValue);
+  return (
+    <span data-sale-preview="price">
+      Shows on site as: <s>{fmtMoney(price)}</s> <strong className="font-semibold text-ink">{fmtMoney(salePrice(price, { percent: pct }))}</strong> ({pct}% OFF)
+    </span>
+  );
+}
+
 const whereText = (r: BogoRule) => (r.online && r.inPerson ? "Online and in person" : r.online ? "Online only" : "In person only");
 
 const blank = (kind: PromotionKind): PromotionRec => ({
@@ -132,6 +153,11 @@ export default function PromotionsPage() {
                           .filter(Boolean)
                           .join(" · ")}
                       </div>
+                      {kind === "auto" && (
+                        <div className="mt-0.5 text-sm text-muted">
+                          <SalePreview p={p} data={data} />
+                        </div>
+                      )}
                     </div>
                     <div className="shrink-0 text-right text-sm tabular-nums">
                       <div className="font-medium">{p.uses.length} used</div>
@@ -398,6 +424,20 @@ function PromotionSheet({ value, onClose }: { value: { p: PromotionRec; isNew: b
           )}
 
           {p.kind === "code" && <Toggle checked={p.oncePerEmail} onChange={(v) => set("oncePerEmail", v)} label="One use per email" hint="Each customer can use the code once." />}
+
+          {p.kind === "auto" && (
+            <div className="space-y-2">
+              <Toggle
+                checked={p.showSalePrice !== false}
+                onChange={(v) => set("showSalePrice", v)}
+                label="Show sale price on products"
+                hint="Percent off with no minimum and no order limit: products show the regular price crossed out next to the sale price, and checkout charges exactly that. Other deals show as a badge and come off the order at checkout."
+              />
+              <p className="rounded-xl bg-surface2 px-3 py-2 text-sm text-muted" data-sale-preview-box>
+                <SalePreview p={p} data={data} />
+              </p>
+            </div>
+          )}
 
           {p.kind !== "free_shipping" && (
             <div className="space-y-3">

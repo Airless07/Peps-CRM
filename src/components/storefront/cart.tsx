@@ -51,7 +51,12 @@ export interface QuoteLine {
   listingId: string;
   name: string;
   quantity: number;
+  /** Regular price each. */
   listPriceCents: number;
+  /** Price each after the sale (same as listPriceCents without one). */
+  salePriceCents?: number;
+  sale?: { id: string; name: string; percent: number } | null;
+  /** What is charged each (sale, then buy more save more). */
   unitPriceCents: number;
   percentOff: number;
   lineTotalCents: number;
@@ -71,10 +76,12 @@ export interface Quote {
   accountId?: string | null;
   lines: QuoteLine[];
   listSubtotalCents: number;
+  /** Saved through sale prices (already inside the line prices). */
+  saleSavingsCents?: number;
   qtySavingsCents: number;
   subtotalCents: number;
   discountCents: number;
-  applied: { id: string; kind: string; label: string; cents: number }[];
+  applied: { id: string; kind: string; label: string; cents: number; sale?: boolean }[];
   codeError: string;
   code: string;
   freeShipping: boolean;
@@ -607,13 +614,24 @@ export function CartLines({ compact }: { compact?: boolean }) {
                 <div className="shrink-0 text-right text-[15px] font-semibold tabular-nums">{money(unit * it.quantity)}</div>
               </div>
               <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[13px] text-stone">
-                <span className="tabular-nums">{money(unit)} each</span>
-                {line && line.percentOff > 0 && (
-                  <>
-                    <s className="tabular-nums opacity-70">{money(line.listPriceCents)}</s>
-                    <span className="font-medium text-brand">{line.percentOff}% off</span>
-                  </>
-                )}
+                {(() => {
+                  // Before the quote: the catalog's sale price; after: the priced line. Same numbers.
+                  const list = line?.listPriceCents ?? variant.listPriceCents;
+                  const salePct = line ? line.sale?.percent : product.sale?.percent;
+                  return (
+                    <>
+                      {list > unit && (
+                        <s className="tabular-nums opacity-70" data-list-price>
+                          <span className="sr-only">Regular price </span>
+                          {money(list)}
+                        </s>
+                      )}
+                      <span className={`tabular-nums ${list > unit ? "font-semibold text-coal" : ""}`}>{money(unit)} each</span>
+                      {salePct ? <span className="font-semibold text-brand" data-line-sale>{salePct}% OFF</span> : null}
+                      {line && line.percentOff > 0 && <span className="font-medium text-brand">{salePct ? "+" : ""}{line.percentOff}% off</span>}
+                    </>
+                  );
+                })()}
               </div>
               {line?.stock === "out" && <div className="mt-1 text-[13px] font-medium text-brand">Sold out. Remove this item to check out.</div>}
               <div className="mt-2.5 flex flex-wrap items-center gap-2">
@@ -820,7 +838,8 @@ export function ShippingNote() {
 export function CartTotals({ shippingCents, shippingLabel, creditCents = 0 }: { shippingCents?: number | null; shippingLabel?: string; creditCents?: number }) {
   const { quote } = useCart();
   if (!quote) return null;
-  const saved = quote.qtySavingsCents + quote.discountCents + (quote.bogoCents ?? 0);
+  const saved = (quote.saleSavingsCents ?? 0) + quote.qtySavingsCents + quote.discountCents + (quote.bogoCents ?? 0);
+  const saleRows = quote.applied.filter((a) => a.sale && a.cents > 0);
   const total = quote.subtotalCents - quote.discountCents - creditCents + (shippingCents ?? 0);
   return (
     <dl className="space-y-2 text-[15px]">
@@ -828,6 +847,12 @@ export function CartTotals({ shippingCents, shippingLabel, creditCents = 0 }: { 
         <dt>Items at regular price</dt>
         <dd className="tabular-nums">{money(quote.listSubtotalCents)}</dd>
       </div>
+      {saleRows.map((a) => (
+        <div key={a.id} data-sale-row className="flex justify-between gap-4 text-brand">
+          <dt className="min-w-0 truncate">{a.label.replace(/ \(sale price\)$/, "")}</dt>
+          <dd className="shrink-0 tabular-nums">-{money(a.cents)}</dd>
+        </div>
+      ))}
       {quote.qtySavingsCents > 0 && (
         <div className="flex justify-between text-brand">
           <dt>Buy more, save more</dt>
@@ -841,7 +866,7 @@ export function CartTotals({ shippingCents, shippingLabel, creditCents = 0 }: { 
         </div>
       ))}
       {quote.applied
-        .filter((a) => a.cents > 0 && a.kind !== "bogo")
+        .filter((a) => a.cents > 0 && a.kind !== "bogo" && !a.sale)
         .map((a) => (
           <div key={a.id} className="flex justify-between gap-4 text-brand">
             <dt className="min-w-0 truncate">{a.label}</dt>

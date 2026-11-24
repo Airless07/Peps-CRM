@@ -125,7 +125,7 @@ describe("public catalog never exposes admin data", () => {
   });
 
   it("the public variant has exactly the public fields", () => {
-    expect(Object.keys(catalog.products[0].variants[0]).sort()).toEqual(["coa", "id", "label", "olderCoas", "priceCents", "purity", "stock", "testing", "testingLabel", "volume"]);
+    expect(Object.keys(catalog.products[0].variants[0]).sort()).toEqual(["coa", "id", "label", "listPriceCents", "olderCoas", "priceCents", "purity", "stock", "testing", "testingLabel", "volume"]);
   });
 
   it("only lists products switched on for the website, with stock as a label", () => {

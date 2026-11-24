@@ -8,6 +8,7 @@ import { Check, CreditCard, Landmark, Lock } from "lucide-react";
 import { accountApi, AuthPanel, cleanError, type AccountInfo } from "./auth-panel";
 import { resetCheckoutStart, trackCheckoutStart } from "./analytics";
 import { CartTotals, money, PromoField, useCart, useLineInfo } from "./cart";
+import { Price } from "./price";
 
 type Addr = AccountInfo["addresses"][number];
 const BLANK: Addr = { name: "", street1: "", street2: "", city: "", state: "", zip: "", country: "US" };
@@ -235,10 +236,10 @@ export function CheckoutView({ account: initial, states, consent, preview }: { a
             <span className="min-w-0" data-checkout-line>
               <span className="block font-medium">{meta?.product.name ?? l.name}</span>
               <span className="block text-[13px] text-stone">
-                {[meta ? sizeWithVolume(meta.variant.label, meta.variant.volume) : "", `Qty ${l.quantity}`, l.percentOff ? `${l.percentOff}% off` : ""].filter(Boolean).join(" · ")}
+                {[meta ? sizeWithVolume(meta.variant.label, meta.variant.volume) : "", `Qty ${l.quantity}`, l.sale ? `${l.sale.percent}% OFF` : "", l.percentOff ? `${l.sale ? "+" : ""}${l.percentOff}% off` : ""].filter(Boolean).join(" · ")}
               </span>
             </span>
-            <span className="shrink-0 tabular-nums">{money(l.lineTotalCents)}</span>
+            <Price cents={l.lineTotalCents} listCents={l.listPriceCents * l.quantity} className="shrink-0 flex-col items-end gap-0 sm:flex-row sm:gap-x-1.5" strikeClassName="text-[13px]" />
           </li>
         ))}
       </ul>

@@ -467,6 +467,8 @@ export interface PromotionRec {
   shippingTiers: ("standard" | "priority" | "express")[];
   /** BOGO deals only. */
   bogo?: BogoRule | null;
+  /** Automatic deals: show the sale price on products when the deal qualifies (percent off, no minimum, no cap). Default on. */
+  showSalePrice?: boolean;
   active: boolean;
   createdAt: string;
   uses: PromotionUseRec[];

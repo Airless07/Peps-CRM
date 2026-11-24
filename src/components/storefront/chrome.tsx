@@ -8,6 +8,7 @@ import { Check, Copy, Menu, Search, ShoppingBag, User, X } from "lucide-react";
 import type { PublicProduct } from "@/lib/store/catalog";
 import { money, useCart } from "./cart";
 import { ENTRY_COOKIE, ENTRY_DAYS, gateExempt } from "@/lib/store/entry-gate";
+import { PriceRange } from "./price";
 import { Vial } from "./vial";
 
 export interface PromoItem {
@@ -288,7 +289,7 @@ function SearchOverlay({ onClose }: { onClose: () => void }) {
                         <span className="block truncate font-semibold">{p.name}</span>
                         {p.summary && <span className="block truncate text-sm text-stone">{p.summary}</span>}
                       </span>
-                      <span className="shrink-0 text-[15px] font-medium tabular-nums">{p.priceFromCents !== p.priceToCents ? `From ${money(p.priceFromCents)}` : money(p.priceFromCents)}</span>
+                      <PriceRange p={p} from className="shrink-0 flex-col items-end gap-0 text-[15px] font-medium sm:flex-row sm:gap-x-1.5" />
                     </Link>
                   </li>
                 ))}

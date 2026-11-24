@@ -487,6 +487,8 @@ model Promotion {
   shippingTiersJson String         @default("[]")
   /// BOGO deals only (kind "bogo"): JSON { buy, get, online, inPerson, noCodes }. See src/lib/bogo.ts
   bogoJson          String         @default("")
+  /// Automatic deals: show the sale price on products (only used for percent off, no minimum, no order cap).
+  showSalePrice     Boolean        @default(true)
   active            Boolean        @default(true)
   createdAt         DateTime       @default(now())
   uses              PromotionUse[]

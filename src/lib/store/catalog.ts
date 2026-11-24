@@ -5,7 +5,7 @@
 import type { Ledger } from "../money";
 import type { AppData, CoaRec, ListingRec, ProductRec, QtyDeal, TestingStatus } from "../types";
 import { TESTING_LABEL } from "../types";
-import type { PricedVariant } from "./pricing";
+import { dealBadge, isLive, liveSales, promoCovers, qtyBadge, saleBlock, saleFor, salePrice, usesLeft, type PricedVariant } from "./pricing";
 import { withSize } from "../size";
 import { dealText, getSide, inItems, liveDeals } from "../bogo";
 
@@ -27,7 +27,10 @@ export interface PublicVariant {
   label: string;
   /** Optional vial volume, e.g. "3ml". */
   volume: string;
+  /** What checkout charges for one (the sale price while a sale is on). */
   priceCents: number;
+  /** Regular price. Higher than priceCents only while a sale is on (shown crossed out). */
+  listPriceCents: number;
   stock: StockLevel;
   testing: TestingStatus;
   testingLabel: string;
@@ -50,8 +53,19 @@ export interface PublicProduct {
   badges: string[];
   qtyDeals: QtyDeal[];
   variants: PublicVariant[];
+  /** Lowest and highest price checkout charges (sale prices while a sale is on). */
   priceFromCents: number;
   priceToCents: number;
+  /** The same range at regular prices (crossed out while a sale is on). */
+  listFromCents: number;
+  listToCents: number;
+  /** Sale on this product right now (an automatic percent deal shown on products), or null. */
+  sale: { percent: number; name: string } | null;
+  /**
+   * Deals that don't change the shown price, as short badges: "$20 off orders $70+", "Buy 2, save 10%".
+   * (BOGO deals are in `deals`.)
+   */
+  dealBadges: string[];
   stock: StockLevel;
   bestSeller: boolean;
   /** Live online BOGO deals on this product, in the words customers see ("Buy 1 GHK-Cu, get 1 free"). */
@@ -125,12 +139,18 @@ export function buildCatalog(data: AppData, ledger: Ledger, now = new Date()): P
   for (const c of data.coas) coasByVariant.set(c.productId, [...(coasByVariant.get(c.productId) ?? []), c]);
 
   const deals = liveDeals(data.promotions, now, "online");
+  // Sale prices (live automatic percent deals with no minimum or cap) and the other live automatic deals,
+  // which stay order discounts at checkout and show as a badge. Built with `now`: a deal that ends, is
+  // paused or turned off is gone from the next catalog (a couple of seconds), no redeploy needed.
+  const sales = liveSales(data.promotions, now);
+  const badgeDeals = data.promotions.filter((p) => p.kind === "auto" && saleBlock(p) && isLive(p, now) && usesLeft(p) !== 0 && p.discountValue > 0);
   const names = { listing: (id: string) => data.listings.find((l) => l.id === id)?.name, variant: (id: string) => { const v = data.products.find((p) => p.id === id); const l = v && data.listings.find((x) => x.id === v.listingId); return v ? (l ? variantDisplayName(l, v) : v.name) : undefined; } };
   const draft: (PublicProduct & { units: number })[] = [];
   for (const l of data.listings) {
     if (!l.showOnWebsite) continue;
     const vs = listingVariants(data, l.id);
     if (vs.length === 0) continue;
+    const sale = saleFor(sales, l.id, l.groupIds);
     const variants: PublicVariant[] = vs.map((v) => {
       const lowAt = v.lowStockThreshold ?? data.settings.lowStockThreshold;
       const all = [...(coasByVariant.get(v.id) ?? [])].sort((a, b) => (b.testDate ?? b.createdAt).localeCompare(a.testDate ?? a.createdAt));
@@ -139,7 +159,8 @@ export function buildCatalog(data: AppData, ledger: Ledger, now = new Date()): P
         id: v.id,
         label: v.variantLabel.trim() || (vs.length > 1 ? v.name : ""),
         volume: v.vialVolume.trim(),
-        priceCents: v.defaultPriceCents,
+        priceCents: salePrice(v.defaultPriceCents, sale),
+        listPriceCents: v.defaultPriceCents,
         stock: stockLevel(ledger.stock.get(v.id)?.stock ?? 0, lowAt),
         testing: v.testingStatus,
         testingLabel: TESTING_LABEL[v.testingStatus],
@@ -149,6 +170,9 @@ export function buildCatalog(data: AppData, ledger: Ledger, now = new Date()): P
       };
     });
     const prices = variants.map((v) => v.priceCents);
+    const listPrices = variants.map((v) => v.listPriceCents);
+    const qtyDeals = resolveQtyDeals(l, data.store.qtyDeals);
+    const dealBadges = [...badgeDeals.filter((p) => promoCovers(p, l.id, l.groupIds)).map(dealBadge), qtyBadge(qtyDeals)].filter(Boolean);
     const specs = [
       { label: "CAS number", value: l.casNumber },
       { label: "Molecular formula", value: l.formula },
@@ -168,10 +192,14 @@ export function buildCatalog(data: AppData, ledger: Ledger, now = new Date()): P
       hoverGif: l.hoverGif,
       groupIds: l.groupIds,
       badges: l.badges,
-      qtyDeals: resolveQtyDeals(l, data.store.qtyDeals),
+      qtyDeals,
       variants,
       priceFromCents: Math.min(...prices),
       priceToCents: Math.max(...prices),
+      listFromCents: Math.min(...listPrices),
+      listToCents: Math.max(...listPrices),
+      sale: sale && listPrices.some((c, i) => c > prices[i]) ? { percent: sale.percent, name: sale.name } : null,
+      dealBadges,
       stock: variants.some((v) => v.stock === "in") ? "in" : variants.some((v) => v.stock === "low") ? "low" : "out",
       bestSeller: false,
       deals: deals.filter((d) => vs.some((v) => inItems(d.bogo!.buy, v.id, l.id) || inItems(getSide(d.bogo!), v.id, l.id))).map((d) => dealText(d, names)),

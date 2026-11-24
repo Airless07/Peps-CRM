@@ -2,10 +2,12 @@ import Link from "next/link";
 import { BadgeCheck, Clock3, FlaskConical } from "lucide-react";
 import type { PublicProduct, PublicVariant, StockLevel } from "@/lib/store/catalog";
 import { STOCK_LABEL } from "@/lib/store/catalog";
+import { PriceRange, SaleBadge } from "./price";
 import { QuickAdd } from "./quick-add";
 import { Vial } from "./vial";
 
 export const fmt = (c: number) => `$${(c / 100).toFixed(2)}`;
+/** Plain text price range (sale prices while a sale is on). Cards use <PriceRange> to show the crossed-out price. */
 export const priceRange = (p: Pick<PublicProduct, "priceFromCents" | "priceToCents">) => (p.priceFromCents === p.priceToCents ? fmt(p.priceFromCents) : `${fmt(p.priceFromCents)} – ${fmt(p.priceToCents)}`);
 
 export const photoSrcSet = (id: string) => `/media/${id}-480.webp 480w, /media/${id}-960.webp 960w, /media/${id}-1600.webp 1600w`;
@@ -89,9 +91,10 @@ export function ProductCard({ p, priority, index = 0 }: { p: PublicProduct; prio
             // eslint-disable-next-line @next/next/no-img-element
             <img src={`/media/${p.hoverGif}`} alt="" loading="lazy" className="pointer-events-none absolute inset-0 hidden h-full w-full object-cover opacity-0 transition duration-500 group-hover:opacity-100 [@media(hover:hover)_and_(pointer:fine)]:block" />
           )}
-          {(p.badges.length > 0 || p.bestSeller || p.deals.length > 0) && (
+          {(p.badges.length > 0 || p.bestSeller || p.deals.length > 0 || p.sale) && (
             <div className="pointer-events-none absolute left-3 top-3 flex flex-wrap gap-1.5">
-              {[...new Set([...(p.deals.length > 0 ? ["BOGO"] : []), ...(p.bestSeller ? ["Best seller"] : []), ...p.badges])].slice(0, 2).map((b) => (
+              {p.sale && <SaleBadge percent={p.sale.percent} />}
+              {[...new Set([...(p.deals.length > 0 ? ["BOGO"] : []), ...(p.bestSeller ? ["Best seller"] : []), ...p.badges])].slice(0, p.sale ? 1 : 2).map((b) => (
                 <span key={b} className="rounded-full bg-brand px-2.5 py-1 text-[11px] font-semibold text-white">
                   {b}
                 </span>
@@ -101,13 +104,23 @@ export function ProductCard({ p, priority, index = 0 }: { p: PublicProduct; prio
           {p.stock === "out" && <span className="pointer-events-none absolute right-3 top-3 rounded-full bg-coal px-2.5 py-1 text-[11px] font-semibold text-white">Sold out</span>}
         </div>
         <div className="mt-3.5 flex flex-1 flex-col">
-          <div className="flex flex-col gap-x-3 gap-y-0.5 sm:flex-row sm:items-start sm:justify-between">
+          {/* On sale the price (regular crossed out + sale) goes under the name: too wide to sit beside it. */}
+          <div className={`flex flex-col gap-x-3 gap-y-0.5 ${p.sale ? "" : "sm:flex-row sm:items-start sm:justify-between"}`}>
             <h3 className="text-[1.0625rem] font-semibold leading-snug group-hover:text-brand">{p.name}</h3>
-            <span className="shrink-0 text-[15px] font-medium tabular-nums sm:pt-px">{priceRange(p)}</span>
+            <PriceRange p={p} className={`text-[15px] font-medium ${p.sale ? "" : "shrink-0 sm:justify-end sm:pt-px"}`} />
           </div>
           {p.deals.length > 0 && (
             <p data-card-deal className="mt-1 text-[13px] font-semibold text-brand">
               {p.deals[0]}
+            </p>
+          )}
+          {p.dealBadges.length > 0 && (
+            <p data-card-deal-badges className="mt-1 flex flex-wrap gap-1.5">
+              {p.dealBadges.slice(0, 2).map((b) => (
+                <span key={b} className="rounded-full bg-brand/10 px-2 py-0.5 text-[12px] font-semibold text-brand">
+                  {b}
+                </span>
+              ))}
             </p>
           )}
           {p.summary && <p className="mt-1 line-clamp-2 text-sm leading-relaxed text-stone">{p.summary}</p>}

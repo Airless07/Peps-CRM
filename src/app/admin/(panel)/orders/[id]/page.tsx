@@ -106,6 +106,12 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                 <li key={l.id} className="flex items-baseline justify-between gap-3 py-2.5 text-[15px]">
                   <span className="min-w-0">
                     {l.dealId && <span className="mr-1.5 rounded-md bg-accent/15 px-1.5 py-0.5 text-xs font-semibold text-accent">BOGO</span>}
+                    {/* Sale price from an automatic deal: no deal id, the deal's name and the regular price are kept. */}
+                    {!l.dealId && l.dealName && l.fullPriceCents != null && (
+                      <span className="mr-1.5 rounded-md bg-accent/15 px-1.5 py-0.5 text-xs font-semibold text-accent" data-sale-line>
+                        Sale
+                      </span>
+                    )}
                     <span className="font-medium">{lineName(l)}</span>
                     <span className="ml-2 tabular-nums text-muted">
                       {l.quantity} × {l.fullPriceCents != null && l.fullPriceCents !== l.unitPriceCents && <s className="mr-1">{fmtMoney(l.fullPriceCents)}</s>}

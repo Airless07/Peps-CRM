@@ -217,6 +217,7 @@ export function toPromotion(p: PromotionRow): PromotionRec {
     listingIds: json<string[]>(p.listingIdsJson, []),
     groupIds: json<string[]>(p.groupIdsJson, []),
     shippingTiers: json<PromotionRec["shippingTiers"]>(p.shippingTiersJson, []).filter((t) => t === "standard" || t === "priority" || t === "express"),
+    showSalePrice: p.showSalePrice,
     bogo: p.kind === "bogo" ? cleanBogo(json<Partial<BogoRule> | null>(p.bogoJson, null)) : null,
     active: p.active,
     createdAt: iso(p.createdAt),

@@ -210,6 +210,8 @@ export const promotionInput = z.object({
   endsAt: optDate,
   maxUses: z.number().int().min(1).max(1_000_000).nullable().default(null),
   oncePerEmail: z.boolean().default(false),
+  /** Automatic deals: show the sale price on products (when the deal qualifies). */
+  showSalePrice: z.boolean().default(true),
   listingIds: z.array(idStr).max(200).default([]),
   groupIds: z.array(idStr).max(50).default([]),
   /** Free shipping rules: which shipping options it makes free (at least one, checked in the route). */

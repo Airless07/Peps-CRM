@@ -68,7 +68,7 @@ export function orderToDraft(o: OrderRec): Draft {
         unitPriceCents: l.unitPriceCents,
         unitCostCents: l.unitCostCents,
         cutPercent: l.cutPercent,
-        ...(l.dealId ? { dealId: l.dealId, dealName: l.dealName ?? "" } : {}),
+        ...(l.dealId ? { dealId: l.dealId, dealName: l.dealName ?? "" } : l.dealName ? { dealName: l.dealName } : {}),
         ...(l.fullPriceCents != null ? { fullPriceCents: l.fullPriceCents } : {}),
       })),
   };
