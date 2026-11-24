@@ -251,6 +251,9 @@ model Order {
   payAtPickup      Boolean         @default(false)
   /// Local orders: when it was marked ready for pickup / delivery.
   readyAt          DateTime?
+  /// Shipped order switched to local pickup / delivery from the admin: JSON { at, by, from, to, shipping
+  /// charged before/after, difference, what was done with it, refund owed / paid back }. Empty = never switched.
+  localSwitchJson  String          @default("")
   /// Label purchase in progress (set atomically before Shippo is called). Stops a label being bought twice.
   labelLockAt      DateTime?
   /// Website orders: the checkout consent box (21+, research use only, Terms). When, exact text, buyer IP.

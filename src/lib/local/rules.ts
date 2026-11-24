@@ -43,3 +43,32 @@ export const spotOf = (local: LocalSettings): PickupSpot => {
   const { enabled: _e, ...spot } = local.pickup;
   return spot;
 };
+
+/** Why an order can't be switched to local, or null when it can. Pure (shared by the Actions menu and the server). */
+export function switchBlocker(o: {
+  number: number | null;
+  source: string;
+  fulfillment?: string | null;
+  status: string;
+  labelUrl?: string;
+  labelLockAt?: Date | string | null;
+  labels?: number;
+  refundedCents?: number;
+}): string | null {
+  const label = `Order #${o.number}`;
+  if (o.source !== "online") return "Only website orders can be switched to local.";
+  if (isLocalMethod(o.fulfillment)) return `${label} is already a local ${o.fulfillment} order.`;
+  if (o.labelUrl || o.labelLockAt || (o.labels ?? 0) > 0) return `A shipping label was already bought for ${label.toLowerCase()}, so it can't be switched to local.`;
+  if (o.status === "canceled") return `${label} is canceled.`;
+  if ((o.refundedCents ?? 0) > 0) return `${label} has a refund recorded, so it can't be switched to local.`;
+  if (!["awaiting_payment", "paid"].includes(o.status)) return `${label} can't be switched to local from "${o.status.replace("_", " ")}".`;
+  return null;
+}
+
+/** The local fee and the difference for a switch (also shown in the confirm dialog). Integer cents. */
+export function switchQuote(local: Pick<LocalSettings, "delivery">, o: { shippingCents: number; merchandiseCents: number }, to: "pickup" | "delivery") {
+  const fee = to === "pickup" ? 0 : deliveryFeeCents(local.delivery, o.merchandiseCents);
+  // Never more than the shipping already charged: switching never adds a charge to the order.
+  const after = Math.min(fee, Math.max(0, o.shippingCents));
+  return { feeCents: after, diffCents: Math.max(0, o.shippingCents - after) };
+}

@@ -582,6 +582,33 @@ export function StoreSettingsTabs({ tab, onTab }: { tab: StoreTab; onTab: (t: st
               hint={form.alertEmails.length ? "The alert emails above are told when a size drops to its low stock warning level." : "Tells the alert emails when a size drops to its low stock warning level. Add an alert email above to receive it."}
             />
           </div>
+          <div className="border-t border-line pt-3" data-ready-emails>
+            <Toggle
+              checked={form.handoverEmails.readyDelivery}
+              onChange={(v) => set("handoverEmails", { ...form.handoverEmails, readyDelivery: v })}
+              label="Local delivery: “Your order is out for delivery soon”"
+              hint="Sent once when you mark a local delivery order Ready: the items, the delivery address, the line below and the support email."
+            />
+            <Field className="mt-3" label="Delivery line in that email" hint="One sentence, for example when to expect it.">
+              <Input value={form.deliveryReadyLine} maxLength={300} onChange={(e) => set("deliveryReadyLine", e.target.value)} placeholder="We'll deliver it within the next 1 to 2 days." />
+            </Field>
+          </div>
+          <div className="border-t border-line pt-3">
+            <Toggle
+              checked={form.handoverEmails.readyPickup}
+              onChange={(v) => set("handoverEmails", { ...form.handoverEmails, readyPickup: v })}
+              label="Local pickup: “Your order is ready for pickup”"
+              hint="Sent once when you mark a local pickup order Ready: the items, the pickup spot, its instructions and the support email."
+            />
+          </div>
+          <div className="border-t border-line pt-3">
+            <Toggle
+              checked={form.handoverEmails.switched}
+              onChange={(v) => set("handoverEmails", { ...form.handoverEmails, switched: v })}
+              label="Switched to local: “Your order will be delivered locally / is set for local pickup”"
+              hint="Sent when you switch a shipped order to local from its Actions menu and leave “Email the customer” on."
+            />
+          </div>
           <div className="border-t border-line pt-3" data-handover-emails>
             <Toggle
               checked={form.handoverEmails.delivered}

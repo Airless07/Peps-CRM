@@ -1,6 +1,6 @@
 import { body, HttpError, route, type Ctx } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { buyLabel, cancelOrder, checkTracking, logEvent, markDelivered, markHandedOver, markPaid, markReady, markShipped, refundOrder, requestOrigin } from "@/lib/order-ops";
+import { buyLabel, cancelOrder, checkTracking, logEvent, markDelivered, markHandedOver, markPaid, markReady, markShipped, markSwitchRefundPaid, refundOrder, requestOrigin, switchToLocal, HANDLING_TEXT } from "@/lib/order-ops";
 import { withLowStockAlert } from "@/lib/stock-alerts";
 import { orderAction } from "@/lib/store/schemas";
 
@@ -52,6 +52,16 @@ export const POST = route(async (req, ctx: Ctx<{ id: string }>) => {
     case "mark-handed-over":
       await markHandedOver(id, { origin });
       return { ok: true, message: "Marked handed over. See the timeline for the customer email." };
+    case "switch-local": {
+      const { action: _a, ...rest } = input;
+      const rec = await switchToLocal(id, rest, { origin });
+      const what = rec.to === "pickup" ? "local pickup" : "local delivery";
+      const diff = rec.diffCents > 0 ? ` Difference $${(rec.diffCents / 100).toFixed(2)}: ${HANDLING_TEXT[rec.handling]}.` : "";
+      return { ok: true, message: `Switched to ${what}.${diff} It is now in the Local tab.` };
+    }
+    case "switch-refund-paid":
+      await markSwitchRefundPaid(id, input.by);
+      return { ok: true, message: "Refund marked paid back." };
     case "refund":
       await refundOrder(id, { amountCents: input.amountCents, expectedRefundedCents: input.expectedRefundedCents, reason: input.reason });
       return { ok: true, message: `Refund of $${(input.amountCents / 100).toFixed(2)} recorded. Any referral credit was adjusted.` };

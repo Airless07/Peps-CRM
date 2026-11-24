@@ -19,6 +19,7 @@ import {
   type EmailContent,
   type EmailOrder,
   handedOverEmail,
+  switchedToLocalEmail,
 } from "./email";
 import { computeLedger, orderTotals } from "./money";
 import { LINE_SIZE, getSettingsRow, json, loadAll, toOrder } from "./serialize";
@@ -28,14 +29,14 @@ import { pricedVariants } from "./store/catalog";
 import { parseContent, parseStore, type ShippingTierId, type StoreSettings } from "./store/config";
 import { checkoutMethods, payInstructions, payMethod } from "./store/payments";
 import { orderLinesOf, priceCart, shippingOptions, type CartItemInput } from "./store/pricing";
-import type { Address, AppData, OrderRec, PromoSnapshot } from "./types";
+import type { Address, AppData, LocalSwitch, OrderRec, PromoSnapshot, SwitchHandling } from "./types";
 import { track } from "./analytics";
 import { clampCredit, refundableOf } from "./credit";
 import { creditAvailable, rememberReferrer, syncOrderCredit } from "./credit-ops";
 import { fmtMoney } from "./format";
 import { resolveReferral, STACKING_TEXT, type ReferralBuyer } from "./store/referral";
 import { countsInMoney } from "./types";
-import { FULFILLMENT_LABEL, isLocalMethod, localOffer, PAY_AT_PICKUP, PAY_AT_PICKUP_NAME, spotOf, type Fulfillment } from "./local/rules";
+import { FULFILLMENT_LABEL, isLocalMethod, localOffer, PAY_AT_PICKUP, PAY_AT_PICKUP_NAME, pickupReady, spotOf, switchBlocker, switchQuote, type Fulfillment } from "./local/rules";
 import { isLocalZip } from "./local/zips";
 import { envSiteUrl } from "./site";
 import { consentText } from "./store/consent";
@@ -455,7 +456,9 @@ export async function refundOrder(orderId: string, input: { amountCents: number;
       throw new HttpError(409, o.status === "canceled" ? `${label} is canceled, so there is nothing to refund.` : `${label} is not paid yet. Cancel it instead of refunding.`);
     }
     if (o.refundedCents !== input.expectedRefundedCents) throw new HttpError(409, `${label} already has ${fmtMoney(o.refundedCents)} refunded. Reload the page to see the latest.`);
-    const cap = refundableOf({ ...o, discountType: o.discountType as "$" | "%" });
+    // Shipping difference already given back as store credit (switched to local) is not refundable again.
+    const switched = json<LocalSwitch | null>(o.localSwitchJson, null);
+    const cap = Math.max(0, refundableOf({ ...o, discountType: o.discountType as "$" | "%" }) - (switched?.creditCents ?? 0));
     const left = cap - o.refundedCents;
     if (left <= 0) throw new HttpError(409, `${label} is already fully refunded.`);
     if (amount > left) throw new HttpError(400, `At most ${fmtMoney(left)} can be refunded on ${label.toLowerCase()} (what the customer paid, without tips, minus earlier refunds).`);
@@ -684,11 +687,17 @@ export async function markReady(orderId: string, opts: { origin?: string; notify
     if (done.count !== 1) throw new HttpError(409, `Order #${order.number} was just changed. Reload the page.`);
     await logEvent(tx, orderId, "status", `Marked ready for ${order.fulfillment}.`);
   });
-  if (opts.notify !== false && order.web?.email) {
-    const { store } = await getStore();
-    const { order: fresh } = await loadOrder(orderId);
-    await mailOrder(store, orderId, order.web.email, "Ready email", readyEmail(store, emailOrder(fresh, siteUrl(store, opts.origin))));
+  // Only the request that set readyAt gets here (a second click is refused above), so this sends once.
+  if (opts.notify === false || !order.web?.email) return;
+  const { store, content } = await getStore();
+  const delivery = order.fulfillment === "delivery";
+  const what = delivery ? "Out for delivery email" : "Ready for pickup email";
+  if (!(delivery ? store.handoverEmails.readyDelivery : store.handoverEmails.readyPickup)) {
+    await logEvent(prisma, orderId, "email", `${what}: Not sent: turned off in Settings, Email.`);
+    return;
   }
+  const { order: fresh } = await loadOrder(orderId);
+  await mailOrder(store, orderId, order.web.email, what, readyEmail(store, emailOrder(fresh, siteUrl(store, opts.origin)), content.contact.email.trim() || SUPPORT_EMAIL));
 }
 
 /**
@@ -722,6 +731,151 @@ export async function markHandedOver(orderId: string, opts: { at?: Date; origin?
   const base = siteUrl(store, opts.origin);
   const { order: fresh } = await loadOrder(orderId);
   await mailOrder(store, orderId, order.web.email, what, handedOverEmail(store, emailOrder(fresh, base), kind, content.contact.email.trim() || SUPPORT_EMAIL, `${base}/review/${reviewToken}`));
+}
+
+// ---------------------------------------------------------------- Switch a shipped order to local
+export interface SwitchInput {
+  to: "pickup" | "delivery";
+  /** Delivery: where to deliver (prefilled from the order in the admin, editable). */
+  address?: Address;
+  localTime?: string;
+  note?: string;
+  /** Paid orders: credit | refund_owed | keep. Unpaid orders: lower | keep. */
+  handling: SwitchHandling;
+  notify: boolean;
+  by: string;
+  /** What the screen showed as the shipping charged: refuses a stale dialog or a double click. */
+  expectedShippingCents: number;
+}
+
+export const HANDLING_TEXT: Record<SwitchHandling, string> = {
+  credit: "refunded as store credit",
+  refund_owed: "refund owed (to be paid back by hand)",
+  keep: "kept",
+  lower: "taken off the unpaid total",
+};
+
+/**
+ * Switch a shipped-type order with no label to local pickup or local delivery. It leaves the ship queue,
+ * never offers Buy label and shows in the Local tab. The shipping charged minus the local fee is:
+ *  - credit: added to the customer's store credit (manual ledger entry tied to the order). The order keeps the
+ *    shipping it was paid, so business money still holds that cash; it comes off when the credit is spent.
+ *  - refund_owed: the order's shipping drops to the local fee (business money goes down by the difference)
+ *    and the order shows "refund owed" until it is marked paid back.
+ *  - keep: nothing changes in money.   - lower (unpaid orders only): the total to pay drops.
+ * Items, discounts, store credit used and referral rewards never change (none of them depend on shipping).
+ */
+export async function switchToLocal(orderId: string, input: SwitchInput, opts: { origin?: string } = {}) {
+  const row = await prisma.order.findUnique({ where: { id: orderId }, include: { ...orderInclude, labels: { select: { id: true } } } });
+  if (!row) throw new HttpError(404, "That order was not found. It may have been removed. Reload the page.");
+  const blocked = switchBlocker({ ...row, labels: row.labels.length });
+  if (blocked) throw new HttpError(409, blocked);
+  if (row.shippingCents !== input.expectedShippingCents) throw new HttpError(409, `Order #${row.number} was just changed. Reload the page and try again.`);
+  const { store, content } = await getStore();
+  const to = input.to;
+  if (to === "pickup" && !pickupReady({ ...store.local.pickup, enabled: true })) {
+    throw new HttpError(409, "Add the pickup spot (name, street and city) in Settings, Local orders first.");
+  }
+  const order = toOrder(row);
+  const t = orderTotals(order);
+  const { feeCents, diffCents } = switchQuote(store.local, { shippingCents: row.shippingCents, merchandiseCents: t.subtotal - t.discount }, to);
+  const paid = row.status !== "awaiting_payment";
+  let handling: SwitchHandling = diffCents === 0 ? "keep" : input.handling;
+  if (paid && handling === "lower") throw new HttpError(400, "This order is paid. Pick store credit, refund owed or keep it.");
+  if (!paid && (handling === "credit" || handling === "refund_owed")) handling = "lower";
+  if (handling === "credit" && !row.customerId) throw new HttpError(409, `Order #${row.number} has no customer linked, so store credit can't be added. Pick refund owed or keep it.`);
+  const shippingAfter = handling === "refund_owed" || handling === "lower" ? feeCents : row.shippingCents;
+  let shipTo = json<Address | null>(row.shipToJson, null);
+  if (to === "delivery") {
+    if (input.address) shipTo = { ...input.address, country: input.address.country || "US" };
+    if (!shipTo?.street1?.trim() || !shipTo.city?.trim()) throw new HttpError(400, "Enter the delivery address.");
+  }
+  const now = new Date();
+  const fromMethod = row.shippingMethod || "Shipping";
+  const rec: LocalSwitch = {
+    at: now.toISOString(),
+    by: input.by.trim().slice(0, 40) || "Admin",
+    from: { method: fromMethod, shippingCents: row.shippingCents, tier: row.shippingTier },
+    to,
+    feeCents,
+    shippingAfterCents: shippingAfter,
+    diffCents,
+    handling,
+    creditCents: handling === "credit" ? diffCents : 0,
+    refundOwedCents: handling === "refund_owed" ? diffCents : 0,
+    refundPaidAt: null,
+    note: (input.note ?? "").trim().slice(0, 500),
+  };
+  const totalAfter = t.total - row.shippingCents + shippingAfter;
+  await prisma.$transaction(async (tx) => {
+    // Guarded: a label bought, a status change or a second click in the meantime finds nothing to update.
+    const done = await tx.order.updateMany({
+      where: { id: orderId, fulfillment: "ship", status: row.status, labelUrl: "", labelLockAt: null, shippingCents: row.shippingCents, refundedCents: 0 },
+      data: {
+        fulfillment: to,
+        shippingCents: shippingAfter,
+        shippingMethod: FULFILLMENT_LABEL[to],
+        shippingTier: "",
+        shippingRateJson: "",
+        shipToJson: shipTo ? JSON.stringify(shipTo) : row.shipToJson,
+        localJson: to === "pickup" ? JSON.stringify(spotOf(store.local)) : "",
+        localTime: (input.localTime ?? "").trim().slice(0, 60),
+        localSwitchJson: JSON.stringify(rec),
+      },
+    });
+    if (done.count !== 1) throw new HttpError(409, `Order #${row.number} was just changed. Reload the page and try again.`);
+    if ((await tx.labelPurchase.count({ where: { orderId } })) > 0) throw new HttpError(409, `A shipping label was just bought for order #${row.number}, so it can't be switched to local.`);
+    if (rec.creditCents > 0) {
+      await tx.creditEntry.create({
+        data: {
+          id: randomUUID(),
+          customerId: row.customerId!,
+          amountCents: rec.creditCents,
+          kind: "manual",
+          reason: `Shipping difference: order #${row.number} switched to ${FULFILLMENT_LABEL[to].toLowerCase()}`,
+          orderId,
+          orderNumber: row.number,
+          by: rec.by,
+        },
+      });
+    }
+    const detail = [
+      `Was: ${fromMethod}, ${fmtMoney(row.shippingCents)}.`,
+      `Now: ${FULFILLMENT_LABEL[to]}, local fee ${fmtMoney(feeCents)}${shippingAfter !== feeCents ? ` (order keeps ${fmtMoney(shippingAfter)} charged)` : ""}.`,
+      diffCents > 0 ? `Difference ${fmtMoney(diffCents)}: ${HANDLING_TEXT[handling]}.` : "No difference.",
+      `Order total ${fmtMoney(t.total)} -> ${fmtMoney(totalAfter)}.`,
+      rec.note ? `Note: ${rec.note}` : "",
+    ];
+    await logEvent(tx, orderId, "status", `Switched from shipping to ${FULFILLMENT_LABEL[to].toLowerCase()} by ${rec.by}.`, detail.filter(Boolean).join(" "));
+  });
+
+  if (!input.notify || !row.email) return rec;
+  if (!store.handoverEmails.switched) {
+    await logEvent(prisma, orderId, "email", "Switched to local email: Not sent: turned off in Settings, Email.");
+    return rec;
+  }
+  const { order: fresh } = await loadOrder(orderId);
+  const view = emailOrder(fresh, siteUrl(store, opts.origin));
+  // Store credit: the customer sees the local fee, and the difference as store credit added.
+  const shown = rec.creditCents > 0 ? { ...view, shippingCents: feeCents, totalCents: view.totalCents - view.shippingCents + feeCents } : view;
+  const mail = switchedToLocalEmail(shown, { creditCents: rec.creditCents, refundCents: rec.refundOwedCents, note: rec.note, support: content.contact.email.trim() || SUPPORT_EMAIL });
+  await mailOrder(store, orderId, row.email, "Switched to local email", mail);
+  return rec;
+}
+
+/** A "refund owed" from a switch to local was paid back to the customer by hand. Once. */
+export async function markSwitchRefundPaid(orderId: string, by: string) {
+  await prisma.$transaction(async (tx) => {
+    const o = await tx.order.findUnique({ where: { id: orderId }, select: { number: true, localSwitchJson: true } });
+    if (!o) throw new HttpError(404, "That order was not found. Reload the page.");
+    const rec = json<LocalSwitch | null>(o.localSwitchJson, null);
+    if (!rec || rec.refundOwedCents <= 0) throw new HttpError(409, `Order #${o.number} has no refund owed.`);
+    if (rec.refundPaidAt) throw new HttpError(409, `The refund on order #${o.number} is already marked paid back.`);
+    const next = JSON.stringify({ ...rec, refundPaidAt: new Date().toISOString() });
+    const done = await tx.order.updateMany({ where: { id: orderId, localSwitchJson: o.localSwitchJson }, data: { localSwitchJson: next } });
+    if (done.count !== 1) throw new HttpError(409, `Order #${o.number} was just changed. Reload the page.`);
+    await logEvent(tx, orderId, "status", `Refund owed of ${fmtMoney(rec.refundOwedCents)} marked paid back by ${by.trim() || "Admin"}.`);
+  });
 }
 
 /** Apply what the carrier says to the order. Returns a plain sentence about what happened. */

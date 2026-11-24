@@ -131,6 +131,19 @@ export const orderAction = z.discriminatedUnion("action", [
   // Local pickup / delivery.
   z.object({ action: z.literal("mark-ready"), notify: z.boolean().default(true) }),
   z.object({ action: z.literal("mark-handed-over") }),
+  // Switch a shipped order (no label yet) to local pickup / delivery.
+  z.object({
+    action: z.literal("switch-local"),
+    to: z.enum(["pickup", "delivery"]),
+    address: address.optional(),
+    localTime: text(60).default(""),
+    note: text(500).default(""),
+    handling: z.enum(["credit", "refund_owed", "keep", "lower"]).default("credit"),
+    notify: z.boolean().default(true),
+    by: text(40).default("Admin"),
+    expectedShippingCents: cents,
+  }),
+  z.object({ action: z.literal("switch-refund-paid"), by: text(40).default("Admin") }),
   // Money given back (partial or full). expectedRefundedCents guards against recording the same refund twice.
   z.object({ action: z.literal("refund"), amountCents: cents.min(1, "Enter the amount you refunded"), expectedRefundedCents: cents, reason: text(200).default("") }),
 ]);

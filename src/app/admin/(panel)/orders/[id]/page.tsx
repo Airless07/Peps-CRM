@@ -26,7 +26,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
   const [eventsError, setEventsError] = useState("");
   const order = s ? [...s.data.orders, ...s.data.pendingOrders].find((o) => o.id === id) : undefined;
   // Reload the timeline whenever the order changes.
-  const stamp = order ? `${order.status}|${order.archived}|${order.web?.trackingNumber}|${order.web?.hasScreenshot}|${order.web?.trackingStatus}|${order.refundedCents ?? 0}` : "";
+  const stamp = order ? `${order.status}|${order.archived}|${order.web?.trackingNumber}|${order.web?.hasScreenshot}|${order.web?.trackingStatus}|${order.refundedCents ?? 0}|${order.fulfillment}|${order.readyAt}|${order.localSwitch?.refundPaidAt ?? ""}` : "";
 
   useEffect(() => {
     if (!order) return;

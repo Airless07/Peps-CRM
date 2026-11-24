@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import type {
+  LocalSwitch,
   AccountStatus,
   Address,
   AdjustmentRec,
@@ -138,6 +139,7 @@ export function toOrder(o: OrderWithLines): OrderRec {
     localSpot: json<PickupSpot | null>(o.localJson, null),
     payAtPickup: o.payAtPickup,
     readyAt: isoN(o.readyAt),
+    localSwitch: json<LocalSwitch | null>(o.localSwitchJson, null),
     consent: o.consentAt ? { at: iso(o.consentAt), text: o.consentText, ip: o.consentIp } : null,
     web: online
       ? {

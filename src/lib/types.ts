@@ -213,8 +213,36 @@ export interface OrderRec {
   payAtPickup?: boolean;
   /** Local orders: when marked ready. */
   readyAt?: string | null;
+  /** Set when a shipped order was switched to local pickup / delivery from the admin. */
+  localSwitch?: LocalSwitch | null;
   /** Website orders: the checkout consent the buyer ticked. Null = not given (older orders, in-person sales). */
   consent?: { at: string; text: string; ip: string } | null;
+}
+
+/** What to do with the shipping charged minus the local fee when an order is switched to local. */
+export type SwitchHandling = "credit" | "refund_owed" | "keep" | "lower";
+
+/** Record of a shipped order switched to local pickup / delivery (Order.localSwitchJson). */
+export interface LocalSwitch {
+  at: string;
+  by: string;
+  from: { method: string; shippingCents: number; tier: string };
+  to: "pickup" | "delivery";
+  /** Shipping charged before, the local fee, and charged after (kept or lowered). Cents. */
+  feeCents: number;
+  shippingAfterCents: number;
+  /** Shipping charged minus the local fee (never below 0). */
+  diffCents: number;
+  /**
+   * credit: added to the customer's store credit (the order keeps what was paid; the money stays in business money until spent).
+   * refund_owed: the order's charge drops to the local fee; the store pays the difference back by hand.
+   * keep: the order keeps what was charged. lower: an unpaid order's total simply drops.
+   */
+  handling: SwitchHandling;
+  creditCents: number;
+  refundOwedCents: number;
+  refundPaidAt: string | null;
+  note: string;
 }
 
 /** A line of a saved order: an order line plus the product's regular price when it was saved. */

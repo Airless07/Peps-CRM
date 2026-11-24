@@ -6,6 +6,9 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { AlertTriangle, ExternalLink, Printer } from "lucide-react";
 import { customerName, handOverLabel, isLocalOrder, labelsOpened, nextStep, orderTotal, rememberLabelOpened, STEP_LABEL, type NextStep } from "@/lib/admin/orders-view";
 import { fmtMoney } from "@/lib/format";
+import { switchBlocker, switchQuote } from "@/lib/local/rules";
+import { orderTotals } from "@/lib/money";
+import type { SwitchHandling } from "@/lib/types";
 import { payMethod } from "@/lib/store/payments";
 import { STATES } from "@/lib/store/schemas";
 import type { Address, OrderRec } from "@/lib/types";
@@ -13,7 +16,7 @@ import { OrderEditSheet } from "./order-edit";
 import type { RowMenuItem } from "./row-menu";
 import { api, useStore } from "./store";
 import { useToast } from "./toast";
-import { Button, Field, Input, Select, Sheet, Toggle, cx, useConfirm } from "./ui";
+import { Button, Field, Input, Select, Sheet, Textarea, Toggle, cx, useConfirm } from "./ui";
 
 interface ActionResult {
   ok: boolean;
@@ -53,6 +56,7 @@ type SheetState =
   | { kind: "cancel"; order: OrderRec }
   | { kind: "screenshot"; order: OrderRec }
   | { kind: "contact"; order: OrderRec }
+  | { kind: "switch"; order: OrderRec; to: "pickup" | "delivery" }
   | null;
 
 export function OrderActionsProvider({ children }: { children: React.ReactNode }) {
@@ -123,6 +127,15 @@ export function OrderActionsProvider({ children }: { children: React.ReactNode }
     [confirm, openLabel, post],
   );
 
+  const markRefundPaid = useCallback(
+    async (o: OrderRec) => {
+      const owed = o.localSwitch?.refundOwedCents ?? 0;
+      const ok = await confirm({ title: `Refund of ${fmtMoney(owed)} paid back?`, body: `Use this once you have sent ${fmtMoney(owed)} back to ${customerName(o)} for order #${o.number}.`, confirmText: "Paid back" });
+      if (ok) await post(o, { action: "switch-refund-paid", by: data ? (data.settings.defaultSoldBy === "B" ? data.settings.partnerBName : data.settings.partnerAName) : "Admin" });
+    },
+    [confirm, post, data],
+  );
+
   const step = useCallback<Actions["step"]>((o) => nextStep(o, opened.has(o.id)), [opened]);
 
   const menu = useCallback<Actions["menu"]>(
@@ -143,6 +156,15 @@ export function OrderActionsProvider({ children }: { children: React.ReactNode }
           items.push({ label: w?.labelUrl ? "Mark shipped" : "Mark shipped (own postage)", onSelect: () => setSheet({ kind: "shipped", order: o }) });
         }
       }
+      // Shipped-type order with no label yet: can become a local order (hidden once a label exists).
+      const labelCount = (data?.labels ?? []).filter((l) => l.orderId === o.id).length;
+      if (online && !o.archived && !switchBlocker({ ...o, labelUrl: w?.labelUrl ?? "", labels: labelCount })) {
+        items.push({ label: "Switch to local delivery", onSelect: () => setSheet({ kind: "switch", order: o, to: "delivery" }) });
+        items.push({ label: "Switch to local pickup", onSelect: () => setSheet({ kind: "switch", order: o, to: "pickup" }) });
+      }
+      if (o.localSwitch && o.localSwitch.refundOwedCents > 0 && !o.localSwitch.refundPaidAt) {
+        items.push({ label: `Mark refund paid back (${fmtMoney(o.localSwitch.refundOwedCents)})`, onSelect: () => void markRefundPaid(o) });
+      }
       items.push({ label: "Print packing slip", onSelect: () => void window.open(`/admin/print/${o.id}`, "_blank", "noopener") });
       if (online) {
         items.push({ label: "View payment screenshot", onSelect: () => setSheet({ kind: "screenshot", order: o }), disabled: !w?.hasScreenshot, disabledReason: "The customer has not uploaded one." });
@@ -155,7 +177,7 @@ export function OrderActionsProvider({ children }: { children: React.ReactNode }
       items.push(o.archived ? { label: "Move back to orders", onSelect: () => void post(o, { action: "unarchive" }) } : { label: "Archive", onSelect: () => void post(o, { action: "archive" }) });
       return items;
     },
-    [openLabel, post, run],
+    [openLabel, post, run, data?.labels, markRefundPaid],
   );
 
   const value = useMemo(() => ({ run, menu, step, busyId }), [run, menu, step, busyId]);
@@ -173,6 +195,15 @@ export function OrderActionsProvider({ children }: { children: React.ReactNode }
           <ShippedSheet order={sheet?.kind === "shipped" ? live(sheet.order) : null} onClose={close} post={post} />
           <CancelSheet order={sheet?.kind === "cancel" ? live(sheet.order) : null} onClose={close} post={post} />
           <ContactSheet order={sheet?.kind === "contact" ? live(sheet.order) : null} onClose={close} post={post} />
+          <SwitchLocalSheet
+            order={sheet?.kind === "switch" ? live(sheet.order) : null}
+            to={sheet?.kind === "switch" ? sheet.to : "delivery"}
+            local={data.store.local}
+            partners={[data.settings.partnerAName, data.settings.partnerBName]}
+            defaultBy={data.settings.defaultSoldBy === "B" ? data.settings.partnerBName : data.settings.partnerAName}
+            onClose={close}
+            post={post}
+          />
           <Sheet open={sheet?.kind === "screenshot"} onClose={close} title={sheet ? `Payment screenshot · #${sheet.order.number}` : ""} wide>
             {sheet?.kind === "screenshot" && (
               <div className="space-y-4">
@@ -603,6 +634,192 @@ function ContactSheet({ order, onClose, post }: { order: OrderRec | null; onClos
           </Field>
         </div>
       </div>
+    </Sheet>
+  );
+}
+
+// ---------------------------------------------------------------- Switch to local pickup / delivery
+const PAID_HANDLING: { id: SwitchHandling; label: string; hint: string }[] = [
+  { id: "credit", label: "Refund difference as store credit", hint: "Added to the customer’s store credit now. The order keeps what was paid." },
+  { id: "refund_owed", label: "Mark refund owed (I’ll pay it back myself)", hint: "The order’s charge drops to the local fee. Mark it paid back from Actions once sent." },
+  { id: "keep", label: "Keep it", hint: "Nothing is given back. The order keeps the shipping charged." },
+];
+
+interface SwitchLocalProps {
+  order: OrderRec | null;
+  to: "pickup" | "delivery";
+  local: { pickup: { name: string; street1: string; city: string; state: string; zip: string; instructions: string }; delivery: { enabled: boolean; feeCents: number; freeOverCents: number | null }; windows: string[] };
+  partners: string[];
+  defaultBy: string;
+  onClose: () => void;
+  post: Post;
+}
+
+function SwitchLocalSheet({ order, to, local, partners, defaultBy, onClose, post }: SwitchLocalProps) {
+  const blank: Address = { name: "", street1: "", street2: "", city: "", state: "", zip: "", country: "US" };
+  const [a, setA] = useState<Address>(blank);
+  const [time, setTime] = useState("");
+  const [note, setNote] = useState("");
+  const [handling, setHandling] = useState<SwitchHandling>("credit");
+  const [notify, setNotify] = useState(true);
+  const [by, setBy] = useState(defaultBy);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!order) return;
+    setA(order.web?.shipTo ?? blank);
+    setTime(order.localTime ?? "");
+    setNote("");
+    setNotify(true);
+    setBy(defaultBy);
+    setHandling(order.status === "awaiting_payment" ? "lower" : order.customerId ? "credit" : "refund_owed");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [order?.id, to]);
+
+  const what = to === "pickup" ? "local pickup" : "local delivery";
+  const t = order ? orderTotals(order) : null;
+  const charged = order?.shippingCents ?? 0;
+  const q = switchQuote(local, { shippingCents: charged, merchandiseCents: t ? t.subtotal - t.discount : 0 }, to);
+  const unpaid = order?.status === "awaiting_payment";
+  const spotReady = !!(local.pickup.name.trim() && local.pickup.street1.trim() && local.pickup.city.trim());
+  const set = (k: keyof Address, v: string) => setA((x) => ({ ...x, [k]: v }));
+  const options = unpaid
+    ? [
+        { id: "lower" as const, label: "Lower the total to pay", hint: `Not paid yet: the customer pays ${fmtMoney((t?.total ?? 0) - q.diffCents)} instead of ${fmtMoney(t?.total ?? 0)}.` },
+        { id: "keep" as const, label: "Keep it", hint: "The total to pay stays the same." },
+      ]
+    : PAID_HANDLING.filter((x) => x.id !== "credit" || !!order?.customerId);
+
+  return (
+    <Sheet
+      open={!!order}
+      onClose={onClose}
+      title={order ? `Switch #${order.number} to ${what}` : ""}
+      footer={
+        <div className="flex gap-2">
+          <Button block onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            block
+            variant="primary"
+            disabled={busy || (to === "pickup" && !spotReady)}
+            onClick={async () => {
+              if (!order) return;
+              setBusy(true);
+              const r = await post(order, {
+                action: "switch-local",
+                to,
+                ...(to === "delivery" ? { address: a } : {}),
+                localTime: time,
+                note,
+                handling: q.diffCents > 0 ? handling : "keep",
+                notify,
+                by,
+                expectedShippingCents: charged,
+              });
+              setBusy(false);
+              if (r) onClose();
+            }}
+          >
+            {busy ? "Saving…" : `Switch to ${what}`}
+          </Button>
+        </div>
+      }
+    >
+      {order && (
+        <div className="space-y-4" data-switch-local>
+          <p className="text-sm text-muted">The order leaves the ship queue, never offers Buy label, and shows in the Local tab.</p>
+          {to === "delivery" ? (
+            <>
+              <Field label="Deliver to">
+                <Input value={a.street1} onChange={(e) => set("street1", e.target.value)} placeholder="Street address" />
+              </Field>
+              <Field label="Apartment, suite (optional)">
+                <Input value={a.street2} onChange={(e) => set("street2", e.target.value)} />
+              </Field>
+              <div className="grid grid-cols-[1fr_5.5rem_6.5rem] gap-3">
+                <Field label="City">
+                  <Input value={a.city} onChange={(e) => set("city", e.target.value)} />
+                </Field>
+                <Field label="State">
+                  <Select value={a.state} onChange={(e) => set("state", e.target.value)}>
+                    <option value="">–</option>
+                    {STATES.map((s) => (
+                      <option key={s}>{s}</option>
+                    ))}
+                  </Select>
+                </Field>
+                <Field label="ZIP">
+                  <Input inputMode="numeric" value={a.zip} onChange={(e) => set("zip", e.target.value)} />
+                </Field>
+              </div>
+            </>
+          ) : spotReady ? (
+            <div className="rounded-xl bg-surface2/70 px-4 py-3 text-sm">
+              <div className="font-medium">Pickup spot</div>
+              <div>{local.pickup.name}</div>
+              <div className="text-muted">{[local.pickup.street1, `${local.pickup.city}, ${local.pickup.state} ${local.pickup.zip}`].join(", ")}</div>
+              {local.pickup.instructions && <div className="mt-1 text-muted">{local.pickup.instructions}</div>}
+            </div>
+          ) : (
+            <div className="flex gap-3 rounded-xl bg-warn/12 px-4 py-3 text-sm text-warn">
+              <AlertTriangle size={18} className="mt-0.5 shrink-0" />
+              <div>Add the pickup spot (name, street and city) in Settings, Local orders first.</div>
+            </div>
+          )}
+          <Field label="Preferred time (optional)">
+            {local.windows.length ? (
+              <Select value={time} onChange={(e) => setTime(e.target.value)}>
+                <option value="">Not set</option>
+                {[...new Set([...(time && !local.windows.includes(time) ? [time] : []), ...local.windows])].map((x) => (
+                  <option key={x}>{x}</option>
+                ))}
+              </Select>
+            ) : (
+              <Input value={time} maxLength={60} onChange={(e) => setTime(e.target.value)} placeholder="e.g. Tuesday evening" />
+            )}
+          </Field>
+          <Field label="Note for the customer (optional)" hint="Shown in the email.">
+            <Textarea value={note} maxLength={500} rows={2} onChange={(e) => setNote(e.target.value)} />
+          </Field>
+          <div className="rounded-xl border border-line px-4 py-3 text-sm tabular-nums" data-switch-amounts>
+            <div className="flex justify-between gap-3">
+              <span>Shipping charged{order.web?.shippingMethod ? ` (${order.web.shippingMethod})` : ""}</span>
+              <span>{fmtMoney(charged)}</span>
+            </div>
+            <div className="flex justify-between gap-3">
+              <span>{to === "pickup" ? "Local pickup" : "Local delivery fee"}</span>
+              <span>{q.feeCents > 0 ? fmtMoney(q.feeCents) : "Free"}</span>
+            </div>
+            <div className="mt-1 flex justify-between gap-3 border-t border-line pt-1 font-semibold">
+              <span>Difference</span>
+              <span>{fmtMoney(q.diffCents)}</span>
+            </div>
+          </div>
+          {q.diffCents > 0 && (
+            <fieldset className="space-y-2">
+              <legend className="mb-1 text-sm font-medium">What to do with the {fmtMoney(q.diffCents)}</legend>
+              {options.map((x) => (
+                <label key={x.id} className={cx("flex cursor-pointer gap-3 rounded-xl border px-4 py-3", handling === x.id ? "border-accent bg-accent/5" : "border-line")}>
+                  <input type="radio" name="switch-handling" className="mt-1" checked={handling === x.id} onChange={() => setHandling(x.id)} />
+                  <span>
+                    <span className="block text-sm font-medium">{x.label}</span>
+                    <span className="block text-xs text-muted">{x.hint}</span>
+                  </span>
+                </label>
+              ))}
+            </fieldset>
+          )}
+          <Field label="Changed by">
+            <Select value={by} onChange={(e) => setBy(e.target.value)}>
+              {[...new Set(partners.filter(Boolean))].map((p) => (
+                <option key={p}>{p}</option>
+              ))}
+            </Select>
+          </Field>
+          <Toggle checked={notify} onChange={setNotify} label="Email the customer about the change" hint={`Sends “Your order #${order.number} ${to === "pickup" ? "is set for local pickup" : "will be delivered locally"}”.`} />
+        </div>
+      )}
     </Sheet>
   );
 }

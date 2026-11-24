@@ -35,7 +35,7 @@ const dn = (s: string | null | undefined) => (s ? new Date(s) : null);
 const j = (v: unknown) => (v === null || v === undefined ? "" : JSON.stringify(v));
 
 function orderRow(o: OrderRec, files: Map<string, { screenshotFile: string; reviewToken: string | null }>) {
-  const { lines: _l, web, localSpot, readyAt, consent, ...rest } = o;
+  const { lines: _l, web, localSpot, readyAt, consent, localSwitch, ...rest } = o;
   const f = files.get(o.id);
   return {
     ...rest,
@@ -62,6 +62,7 @@ function orderRow(o: OrderRec, files: Map<string, { screenshotFile: string; revi
     reminderSentAt: dn(web?.reminderSentAt),
     localJson: localSpot ? JSON.stringify(localSpot) : "",
     readyAt: dn(readyAt ?? null),
+    localSwitchJson: localSwitch ? JSON.stringify(localSwitch) : "",
     consentAt: dn(consent?.at ?? null),
     consentText: consent?.text ?? "",
     consentIp: consent?.ip ?? "",

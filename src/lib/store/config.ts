@@ -53,9 +53,16 @@ export interface StoreSettings {
   checkoutConsent: boolean;
   /** Launch checklist items ticked by hand: item id -> when it was ticked (ISO), or absent. */
   launchTicks: Record<string, string>;
-  /** Local order emails, each on by default: "was delivered" and "was picked up". */
-  handoverEmails: { delivered: boolean; pickedUp: boolean };
+  /**
+   * Local order emails, each on by default: "out for delivery soon" / "ready for pickup" (Mark ready),
+   * "was delivered" / "was picked up" (the handover), and "switched to local" (a shipped order moved to local).
+   */
+  handoverEmails: { delivered: boolean; pickedUp: boolean; readyDelivery: boolean; readyPickup: boolean; switched: boolean };
+  /** The line in the "out for delivery soon" email (Settings > Email). */
+  deliveryReadyLine: string;
 }
+
+export const DEFAULT_DELIVERY_READY_LINE = "We'll deliver it within the next 1 to 2 days.";
 
 export interface PickupSpot {
   /** A PUBLIC meetup place, e.g. "Target parking lot". Only shown after an order is placed. */
@@ -156,7 +163,8 @@ export const DEFAULT_STORE: StoreSettings = {
   entryGate: { enabled: true, minAge: 21 },
   checkoutConsent: true,
   launchTicks: {},
-  handoverEmails: { delivered: true, pickedUp: true },
+  handoverEmails: { delivered: true, pickedUp: true, readyDelivery: true, readyPickup: true, switched: true },
+  deliveryReadyLine: DEFAULT_DELIVERY_READY_LINE,
   local: {
     homeZip: "",
     radiusMiles: 15,
@@ -459,7 +467,14 @@ export function parseStore(json: string | null | undefined): StoreSettings {
   s.entryGate = { enabled: gate.enabled !== false, minAge: Number.isFinite(age) && age >= 18 && age <= 99 ? age : 21 };
   s.checkoutConsent = s.checkoutConsent !== false;
   const he = (s.handoverEmails ?? {}) as Partial<StoreSettings["handoverEmails"]>;
-  s.handoverEmails = { delivered: he.delivered !== false, pickedUp: he.pickedUp !== false };
+  s.handoverEmails = {
+    delivered: he.delivered !== false,
+    pickedUp: he.pickedUp !== false,
+    readyDelivery: he.readyDelivery !== false,
+    readyPickup: he.readyPickup !== false,
+    switched: he.switched !== false,
+  };
+  s.deliveryReadyLine = typeof s.deliveryReadyLine === "string" && s.deliveryReadyLine.trim() ? s.deliveryReadyLine.trim().slice(0, 300) : DEFAULT_DELIVERY_READY_LINE;
   const ticks = s.launchTicks && typeof s.launchTicks === "object" && !Array.isArray(s.launchTicks) ? s.launchTicks : {};
   s.launchTicks = Object.fromEntries(Object.entries(ticks).filter(([k, v]) => /^[a-z0-9-]{1,40}$/.test(k) && typeof v === "string" && v.length <= 40).slice(0, 30));
   return s;

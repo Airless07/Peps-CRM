@@ -196,19 +196,71 @@ export function localOrderReceivedEmail(o: EmailOrder, pay: { name: string; send
   return { subject: `Order #${o.number} received: local ${what}`, preview: `Local ${what}. ${TEXT_CONFIRM_LINE}`, heading: "We got your order", blocks };
 }
 
-/** "Your order is ready for pickup / delivery". */
-export function readyEmail(_store: StoreSettings, o: EmailOrder): EmailContent {
-  const what = o.local?.method === "delivery" ? "delivery" : "pickup";
+/**
+ * Mark ready. Delivery: "Your order #X is out for delivery soon" with the editable line from Settings > Email
+ * ("We'll deliver it within the next 1 to 2 days.") and the address. Pickup: "Your order #X is ready for pickup"
+ * with the pickup spot and its instructions. Both: items, support email, pay-at-pickup amount when unpaid.
+ */
+export function readyEmail(store: Pick<StoreSettings, "deliveryReadyLine">, o: EmailOrder, support = "support@buckshotlabs.com"): EmailContent {
+  const delivery = o.local?.method === "delivery";
+  const pay = o.local?.payAtPickup ? ` Please have ${money(o.totalCents)} ready in cash or by Zelle.` : "";
+  const items: Block = { rows: o.lines.map((l): [string, string] => [`${l.quantity} x ${l.name}`, money(l.totalCents)]) };
+  if (delivery) {
+    const line = (store.deliveryReadyLine ?? "").trim() || "We'll deliver it within the next 1 to 2 days.";
+    return {
+      subject: `Your order #${o.number} is out for delivery soon`,
+      preview: line,
+      heading: "Your order is out for delivery soon",
+      blocks: [
+        { p: `Order #${o.number} is packed and on its way to you soon. ${line}${pay}` },
+        items,
+        ...(o.shipTo.length ? [{ box: { title: "Delivering to", lines: [...o.shipTo, ...(o.local?.time ? [`Preferred time: ${o.local.time}`] : [])] } }] : []),
+        { p: `Questions about this order? Email us at ${support}.` },
+        { button: { label: "View order", url: o.statusUrl } },
+      ],
+    };
+  }
+  const spot = o.local?.spot;
+  const spotLines = spot ? [spot.name, spot.address].filter(Boolean) : [];
+  if (o.local?.time) spotLines.push(`Preferred time: ${o.local.time}`);
+  spotLines.push(TEXT_CONFIRM_LINE);
   return {
-    subject: `Order #${o.number} is ready for ${what}`,
-    preview: `Your order is ready for ${what}. ${TEXT_CONFIRM_LINE}`,
-    heading: `Your order is ready for ${what}`,
+    subject: `Your order #${o.number} is ready for pickup`,
+    preview: spot ? `Ready for pickup at ${spot.name}.` : "Your order is ready for pickup.",
+    heading: "Your order is ready for pickup",
     blocks: [
-      { p: `Good news: order #${o.number} is ready for ${what}.${o.local?.payAtPickup ? ` Please have ${money(o.totalCents)} ready in cash or by Zelle.` : ""}` },
-      ...(o.local ? localBlocks(o) : []),
+      { p: `Good news: order #${o.number} is ready for pickup.${pay}` },
+      items,
+      { box: { title: "Pickup spot", lines: spotLines } },
+      ...(spot?.instructions ? [{ box: { title: "Pickup instructions", lines: [spot.instructions] } }] : []),
+      { p: `Questions about this order? Email us at ${support}.` },
       { button: { label: "View order", url: o.statusUrl } },
     ],
   };
+}
+
+/**
+ * A shipped order switched to local by the store: "Your order #X will be delivered locally" /
+ * "Your order #X is set for local pickup". Items, the address or pickup spot, and any store credit refunded.
+ */
+export function switchedToLocalEmail(o: EmailOrder, v: { creditCents: number; refundCents: number; note: string; support: string }): EmailContent {
+  const delivery = o.local?.method === "delivery";
+  const blocks: Block[] = [
+    {
+      p: delivery
+        ? `Good news: we're delivering order #${o.number} to you ourselves instead of shipping it.`
+        : `Order #${o.number} is now set for local pickup instead of shipping.`,
+    },
+    totalsRows(o),
+    ...localBlocks(o),
+  ];
+  if (v.note.trim()) blocks.push({ box: { title: "Note from us", lines: [v.note.trim()] } });
+  if (v.creditCents > 0) blocks.push({ big: { label: "Store credit added to your account", value: money(v.creditCents) } }, { small: "The difference between the shipping you paid and the local fee. You can use it at checkout on your next order." });
+  if (v.refundCents > 0) blocks.push({ p: `We will refund the ${money(v.refundCents)} difference between the shipping you paid and the local fee.` });
+  blocks.push({ p: `Questions about this order? Email us at ${v.support}.` }, { button: { label: "View order", url: o.statusUrl } });
+  return delivery
+    ? { subject: `Your order #${o.number} will be delivered locally`, preview: "We'll deliver your order ourselves.", heading: "Your order will be delivered locally", blocks }
+    : { subject: `Your order #${o.number} is set for local pickup`, preview: "Your order is set for local pickup.", heading: "Your order is set for local pickup", blocks };
 }
 
 /** "about 12 hours", "about 1 hour", "less than an hour". */
