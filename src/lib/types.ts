@@ -204,6 +204,8 @@ export interface OrderRec {
   referralDiscountCents?: number;
   /** Money given back after the order counted (partial or full refund). */
   refundedCents?: number;
+  /** When a review request was sent for this order (any order, in person too). Null = never. */
+  reviewRequestSentAt?: string | null;
   /** "ship" (default) | "pickup" | "delivery". */
   fulfillment?: "ship" | "pickup" | "delivery";
   /** Local orders: preferred time window and notes from checkout. */

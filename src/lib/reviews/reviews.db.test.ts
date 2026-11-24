@@ -12,7 +12,9 @@ import { DEFAULT_FLAG_WORDS, flagReason, isGibberish } from "./rules";
 
 // The signed-in customer for the "Write a review" page (null = signed out).
 const signedIn: { account: null | { id: string; name: string; email: string; phone: string; addresses: never[]; mustChangePassword: boolean } } = { account: null };
-vi.mock("next/headers", () => ({ cookies: async () => ({ get: () => undefined, set: () => {} }) }));
+// Admin session cookie for admin-only routes (empty = signed out).
+const adminJar: { token: string } = { token: "" };
+vi.mock("next/headers", () => ({ cookies: async () => ({ get: (n: string) => (n === "peps_session" && adminJar.token ? { value: adminJar.token } : undefined), set: () => {} }) }));
 vi.mock("@/lib/account", () => ({ currentAccount: async () => signedIn.account }));
 
 const dir = mkdtempSync(path.join(tmpdir(), "reviews-test-"));
@@ -604,3 +606,182 @@ describe("manual review requests: sending", () => {
     expect((await call({ action: "send-review-request" })).status).toBe(401);
   });
 });
+
+// ---------------------------------------------------------------- Who is eligible (in person, owners, refunds)
+describe("review request eligibility: in-person sales, owner / test accounts, store credit vs refunds", () => {
+  /** An in-person sale: no email on the order itself (like #1004-#1007). */
+  async function sale(over: Record<string, unknown> = {}) {
+    const id = randomUUID();
+    await prisma.order.create({
+      data: {
+        id,
+        number: nextNumber++,
+        date: new Date(Date.now() - 2 * DAY),
+        source: "inperson",
+        status: "completed",
+        soldBy: "A",
+        customer: "Dana Reed",
+        customerId: "dana",
+        paymentMethod: "Cash",
+        lines: { create: [{ id: randomUUID(), productId: "ghk", productName: "GHK-Cu", quantity: 1, unitPriceCents: 5000, unitCostCents: 1000, cutPercent: 10 }] },
+        ...over,
+      },
+    });
+    return prisma.order.findUniqueOrThrow({ where: { id } });
+  }
+  const preview = () => rv.pastCustomerPreview();
+  const reasonOf = async (id: string) => (await preview()).skipped.find((s) => s.orderId === id)?.reason ?? null;
+
+  it("a completed in-person sale is eligible, using the customer record's email when the order has none", async () => {
+    const o = await sale();
+    const p = await preview();
+    expect(p.orders).toEqual([expect.objectContaining({ orderId: o.id, email: "dana@example.com", name: "Dana Reed" })]);
+    expect(p.skipped).toEqual([]);
+    const r = await rv.sendReviewRequestNow(o.id);
+    expect(r.message).toBe("Review request sent to dana@example.com.");
+    expect(sent.map((e) => e.to[0])).toEqual(["dana@example.com"]);
+    // The link works and gives a Verified order.
+    const token = /\/review\/([A-Za-z0-9_-]+)\?rating=5/.exec(sent[0].html)![1];
+    expect(await rv.orderForToken(token)).not.toBeNull();
+    await submit({ token, rating: 5 });
+    expect(await prisma.review.findFirstOrThrow()).toMatchObject({ verified: true, orderId: o.id });
+  });
+
+  it("the order's own email wins over the customer record's", async () => {
+    const o = await order("delivered", { email: "order@x.test" });
+    expect((await preview()).orders.map((c) => [c.orderId, c.email])).toEqual([[o.id, "order@x.test"]]);
+  });
+
+  it("no email on the order or the customer: Not eligible, No email", async () => {
+    await prisma.customer.create({ data: { id: "nomail", name: "Walk In", email: "" } });
+    const o = await sale({ customerId: "nomail", customer: "Walk In" });
+    const none = await sale({ customerId: null, customer: "" });
+    expect(await reasonOf(o.id)).toBe("no_email");
+    expect(await reasonOf(none.id)).toBe("no_email");
+    await expect(rv.sendReviewRequestNow(o.id)).rejects.toThrow(/no email/);
+    expect(sent).toHaveLength(0);
+  });
+
+  it("owner orders and owner / test accounts are never asked", async () => {
+    await prisma.customer.create({ data: { id: "ahmad", name: "Ahmad (owner)", email: "ahmad@x.test" } });
+    await prisma.customer.create({ data: { id: "moe", name: "Moe", email: "moe@x.test" } });
+    await prisma.customer.create({ data: { id: "tester", name: "Test 1", email: "tester@x.test" } });
+    await prisma.customer.create({ data: { id: "alert", name: "Sam", email: "Alerts@X.test" } });
+    await setStore({ alertEmails: ["alerts@x.test"] });
+    const ownerSale = await sale({ owner: "B", customerId: "moe", customer: "Moe" });
+    // Moe made an owner purchase, so his normal orders are an owner account too.
+    const moeOnline = await order("delivered", { customerId: "moe", customer: "Moe", email: "moe@x.test" });
+    const ahmad = await order("delivered", { customerId: "ahmad", customer: "Ahmad (owner)", email: "ahmad@x.test" });
+    const tester = await sale({ customerId: "tester", customer: "Test 1" });
+    const alert = await sale({ customerId: "alert", customer: "Sam" });
+    const guestWithOwnerEmail = await order("delivered", { customerId: null, customer: "Moe", email: "MOE@x.test" });
+    const p = await preview();
+    expect(p.orders).toEqual([]);
+    expect(Object.fromEntries(p.skipped.map((s) => [s.orderId, s.reason]))).toEqual({
+      [ownerSale.id]: "owner_order",
+      [moeOnline.id]: "owner_account",
+      [ahmad.id]: "owner_account",
+      [tester.id]: "owner_account",
+      [alert.id]: "owner_account",
+      [guestWithOwnerEmail.id]: "owner_account",
+    });
+    await expect(rv.sendReviewRequestNow(ownerSale.id)).rejects.toThrow(/owner order/);
+    await expect(rv.sendReviewRequestNow(tester.id)).rejects.toThrow(/owner or test account/);
+    expect(await rv.sendPastCustomerRequests([ownerSale.id, moeOnline.id, tester.id])).toEqual({ sent: 0, skipped: 3 });
+    expect(await rv.sendReviewRequests({ now: new Date(Date.now() + 10 * DAY) })).toBe(0);
+    expect(sent).toHaveLength(0);
+  });
+
+  it("switching to local with the shipping difference as store credit is not a refund (like #1010)", async () => {
+    const { switchToLocal } = await import("../order-ops");
+    await setStore({
+      local: { homeZip: "", radiusMiles: 15, pickup: { enabled: false, name: "", street1: "", city: "", state: "", zip: "", instructions: "" }, delivery: { enabled: true, feeCents: 200, freeOverCents: null }, payAtPickup: false, windows: [] },
+    });
+    const o = await order("paid", { shipToJson: JSON.stringify({ name: "Dana Reed", street1: "1 Main St", street2: "", city: "Dearborn", state: "MI", zip: "48126", country: "US" }) });
+    const rec = await switchToLocal(o.id, { to: "delivery", handling: "credit", notify: false, by: "Mo", expectedShippingCents: 695 });
+    expect(rec.creditCents).toBe(495);
+    expect(await prisma.creditEntry.count({ where: { orderId: o.id } })).toBe(1);
+    await prisma.order.update({ where: { id: o.id }, data: { status: "delivered", deliveredAt: new Date() } });
+    expect((await prisma.order.findUniqueOrThrow({ where: { id: o.id } })).refundedCents).toBe(0);
+    expect((await preview()).orders.map((c) => c.orderId)).toEqual([o.id]);
+    // The automatic email too, X days after delivery.
+    expect(await rv.sendReviewRequests({ now: new Date(Date.now() + 3.1 * DAY) })).toBe(1);
+    expect(sent.map((e) => e.to[0])).toEqual(["dana@example.com"]);
+  });
+
+  it("real refunds and cancellations block it", async () => {
+    const refunded = await order("delivered", { email: "r@x.test", refundedCents: 500 });
+    const refundedSale = await sale({ refundedCents: 1000 });
+    const canceled = await order("canceled", { email: "c@x.test", canceledAt: new Date() });
+    expect(await reasonOf(refunded.id)).toBe("refunded");
+    expect(await reasonOf(refundedSale.id)).toBe("refunded");
+    expect(await reasonOf(canceled.id)).toBe("canceled");
+    await expect(rv.sendReviewRequestNow(refundedSale.id)).rejects.toThrow(/refunded/);
+    expect(await rv.sendReviewRequests({ now: new Date(Date.now() + 10 * DAY) })).toBe(0);
+  });
+
+  it("Not eligible lists already asked, already reviewed, not delivered yet and older orders of a listed customer", async () => {
+    const asked = await sale({ reviewRequestSentAt: new Date() });
+    const reviewed = await order("delivered", { email: "rev@x.test" });
+    await submit({ token: reviewed.reviewToken!, email: "rev@x.test" });
+    const paid = await order("paid", { email: "paid@x.test" });
+    const unpaid = await order("awaiting_payment", { email: "unpaid@x.test" });
+    const older = await order("delivered", { placedAt: new Date(Date.now() - 30 * DAY) });
+    const newer = await order("delivered", { placedAt: new Date(Date.now() - 1 * DAY) });
+    const p = await preview();
+    expect(p.orders.map((c) => c.orderId)).toEqual([newer.id]);
+    expect(Object.fromEntries(p.skipped.map((s) => [s.orderId, s.reason]))).toEqual({
+      [asked.id]: "already_asked",
+      [reviewed.id]: "already_reviewed",
+      [paid.id]: "not_delivered",
+      [unpaid.id]: "not_delivered",
+      [older.id]: "duplicate",
+    });
+  });
+
+  it("automatic email: in-person sales X days after the sale, to the customer record's email, once", async () => {
+    const o = await sale({ date: new Date() });
+    expect(await rv.sendReviewRequests({ now: new Date(Date.now() + 2.9 * DAY) })).toBe(0);
+    expect(await rv.sendReviewRequests({ now: new Date(Date.now() + 3.1 * DAY) })).toBe(1);
+    expect(await rv.sendReviewRequests({ now: new Date(Date.now() + 5 * DAY) })).toBe(0);
+    expect(sent.map((e) => e.to[0])).toEqual(["dana@example.com"]);
+    expect((await prisma.orderEvent.findMany({ where: { orderId: o.id } })).map((e) => e.message)).toContain("Review request sent");
+    // An in-person sale from long ago is never emailed automatically.
+    await sale({ date: new Date(Date.now() - 90 * DAY) });
+    expect(await rv.sendReviewRequests({ now: new Date(Date.now() + 3.1 * DAY) })).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------- Verified order by hand
+describe("admin: toggle Verified order on a review", () => {
+  it("the store can mark a review verified or not verified (admin only), logged on the order", async () => {
+    const o = await sale0();
+    await submit({ email: "someone@x.test" });
+    const r = await prisma.review.findFirstOrThrow();
+    expect(r.verified).toBe(false);
+    await prisma.review.update({ where: { id: r.id }, data: { orderId: o.id } });
+    const { PATCH } = await import("@/app/api/reviews/[id]/route");
+    const { NextRequest } = await import("next/server");
+    const call = (payload: Record<string, unknown>) =>
+      PATCH(new NextRequest(`http://localhost/api/reviews/${r.id}`, { method: "PATCH", body: JSON.stringify(payload), headers: { "content-type": "application/json" } }), { params: Promise.resolve({ id: r.id }) });
+    expect((await call({ verified: true })).status).toBe(401);
+    expect((await prisma.review.findUniqueOrThrow({ where: { id: r.id } })).verified).toBe(false);
+    const { createAdminToken } = await import("../admin-auth");
+    adminJar.token = (await createAdminToken()).token;
+    try {
+      expect((await call({ verified: true })).status).toBe(200);
+      expect(await prisma.review.findUniqueOrThrow({ where: { id: r.id } })).toMatchObject({ verified: true, edited: false });
+      expect((await call({ verified: false })).status).toBe(200);
+      expect((await prisma.review.findUniqueOrThrow({ where: { id: r.id } })).verified).toBe(false);
+      const msgs = (await prisma.orderEvent.findMany({ where: { orderId: o.id }, orderBy: { at: "asc" } })).map((e) => e.message);
+      expect(msgs).toEqual(expect.arrayContaining(["Review marked as a Verified order by the store.", "Review marked as not verified by the store."]));
+      expect((await call({ verified: "yes" })).status).toBe(400);
+    } finally {
+      adminJar.token = "";
+    }
+  });
+});
+
+async function sale0() {
+  return order("delivered", { email: "other@x.test" });
+}

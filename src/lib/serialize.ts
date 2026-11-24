@@ -135,6 +135,7 @@ export function toOrder(o: OrderWithLines): OrderRec {
     referralDiscountPct: o.referralDiscountPct,
     referralDiscountCents: o.referralDiscountCents,
     refundedCents: o.refundedCents,
+    reviewRequestSentAt: isoN(o.reviewRequestSentAt),
     fulfillment: (o.fulfillment === "pickup" || o.fulfillment === "delivery" ? o.fulfillment : "ship") as OrderRec["fulfillment"],
     localTime: o.localTime,
     localNotes: o.localNotes,

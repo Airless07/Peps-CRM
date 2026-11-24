@@ -116,3 +116,101 @@ export function shortName(full: string): string {
 
 /** Statuses where the customer has the order in hand (or it is on its way): enough for a "Verified order". */
 export const VERIFIED_STATUSES = ["shipped", "delivered", "picked_up"] as const;
+
+// ---------------------------------------------------------------- Who can get a review request
+/**
+ * Why an order is not asked for a review. One rule for the "Ask past customers" preview, the per-order
+ * "Send review request" action and the automatic email (server), and for showing the menu item (admin).
+ */
+export type ReviewSkip = "owner_order" | "owner_account" | "canceled" | "refunded" | "not_delivered" | "already_reviewed" | "already_asked" | "no_email";
+
+export const REVIEW_SKIP_TEXT: Record<ReviewSkip, string> = {
+  owner_order: "Owner order",
+  owner_account: "Owner or test account",
+  canceled: "Canceled",
+  refunded: "Refunded",
+  not_delivered: "Not delivered yet",
+  already_reviewed: "Already reviewed",
+  already_asked: "Already asked",
+  no_email: "No email",
+};
+
+/** Plain sentence for an error when one order can't get a request. */
+export const REVIEW_SKIP_SENTENCE: Record<ReviewSkip, string> = {
+  owner_order: "This is an owner order. Owner orders don't get review requests.",
+  owner_account: "This order belongs to an owner or test account.",
+  canceled: "The order is canceled.",
+  refunded: "The order was refunded.",
+  not_delivered: "The order has to be paid and shipped, delivered or picked up first.",
+  already_reviewed: "This order already has a review.",
+  already_asked: "A review request was already sent for this order.",
+  no_email: "The order has no email address, and the customer record has none either.",
+};
+
+export interface ReviewRequestFacts {
+  source: string;
+  status: string;
+  /** Owner purchase at cost ("A" | "B"), null for a normal sale. */
+  owner: string | null | undefined;
+  paid: boolean;
+  canceled: boolean;
+  /**
+   * Money given back with "Refund". A shipping difference given as store credit (or owed) after a switch
+   * to local is NOT a refund: it never touches this number.
+   */
+  refundedCents: number;
+  reviewed: boolean;
+  asked: boolean;
+  /** The order's email, or the linked customer's when the order has none. */
+  email: string;
+  /** The linked customer (or the email) is an owner or a test account. */
+  staff: boolean;
+}
+
+/** The order's own email, or the linked customer's email when the order has none (in-person sales). */
+export const requestEmail = (orderEmail: string | null | undefined, customerEmail: string | null | undefined) => (orderEmail?.trim() || customerEmail?.trim() || "").toLowerCase();
+
+/** Customer has the order: a paid website order shipped / delivered / picked up, or a completed in-person sale. */
+export function orderInHand(f: Pick<ReviewRequestFacts, "source" | "status" | "paid">): boolean {
+  if (f.source === "online") return f.paid && (VERIFIED_STATUSES as readonly string[]).includes(f.status);
+  return f.status === "completed";
+}
+
+/** Null when the order can get a review request. `ignoreAsked`: the per-order action (it can send again once confirmed). */
+export function reviewSkipReason(f: ReviewRequestFacts, opts: { ignoreAsked?: boolean } = {}): ReviewSkip | null {
+  if (f.owner) return "owner_order";
+  if (f.staff) return "owner_account";
+  if (f.canceled || f.status === "canceled") return "canceled";
+  if (f.refundedCents > 0) return "refunded";
+  if (!orderInHand(f)) return "not_delivered";
+  if (f.reviewed) return "already_reviewed";
+  if (f.asked && !opts.ignoreAsked) return "already_asked";
+  if (!f.email) return "no_email";
+  return null;
+}
+
+export interface StaffAccounts {
+  ids: Set<string>;
+  emails: Set<string>;
+}
+
+const TEST_NAME = /\(owner\)|\bowner\b|\btest\b/i;
+
+/**
+ * Owner and test accounts, never asked for reviews: customers who made an owner purchase, customers named
+ * "... (owner)" or "Test ...", and the store's own alert emails.
+ */
+export function staffAccounts(customers: { id: string; name: string; email: string }[], orders: { customerId: string | null; owner?: string | null }[], alertEmails: string[]): StaffAccounts {
+  const ids = new Set<string>(orders.filter((o) => o.owner && o.customerId).map((o) => o.customerId!));
+  for (const c of customers) if (TEST_NAME.test(c.name)) ids.add(c.id);
+  const emails = new Set(alertEmails.map((e) => e.trim().toLowerCase()).filter(Boolean));
+  for (const c of customers) {
+    const e = c.email.trim().toLowerCase();
+    if (!e) continue;
+    if (ids.has(c.id)) emails.add(e);
+    else if (emails.has(e)) ids.add(c.id);
+  }
+  return { ids, emails };
+}
+
+export const isStaff = (s: StaffAccounts, customerId: string | null | undefined, email: string) => (!!customerId && s.ids.has(customerId)) || (!!email && s.emails.has(email));

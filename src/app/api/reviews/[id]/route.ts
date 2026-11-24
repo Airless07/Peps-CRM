@@ -1,15 +1,22 @@
 import { body, route, type Ctx } from "@/lib/api";
 import { prisma } from "@/lib/db";
+import { logEvent } from "@/lib/order-ops";
 import { deleteReview } from "@/lib/reviews/ops";
 import { reviewUpdate } from "@/lib/store/schemas";
 
-/** Approve, hide or edit a review. Changing the words marks it "Edited by store". Reviews can't be created here. */
+/**
+ * Approve, hide or edit a review, or set "Verified order" by hand (a real customer whose order the
+ * automatic check could not match). Changing the words marks it "Edited by store". Reviews can't be created here.
+ */
 export const PATCH = route(async (req, ctx: Ctx<{ id: string }>) => {
   const { id } = await ctx.params;
   const data = await body(req, reviewUpdate);
   const cur = await prisma.review.findUniqueOrThrow({ where: { id } });
   const edited = cur.edited || (data.text !== undefined && data.text !== cur.text) || (data.title !== undefined && data.title !== cur.title);
   await prisma.review.update({ where: { id }, data: { ...data, edited } });
+  if (data.verified !== undefined && data.verified !== cur.verified && cur.orderId) {
+    await logEvent(prisma, cur.orderId, "note", data.verified ? "Review marked as a Verified order by the store." : "Review marked as not verified by the store.").catch(() => {});
+  }
   return { ok: true };
 });
 

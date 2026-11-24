@@ -1,10 +1,10 @@
 import { z } from "zod";
 import { body, route } from "@/lib/api";
 import { requestOrigin } from "@/lib/order-ops";
-import { pastCustomerCandidates, sendPastCustomerRequests } from "@/lib/reviews/ops";
+import { pastCustomerPreview, sendPastCustomerRequests } from "@/lib/reviews/ops";
 
-/** "Ask past customers for reviews": the orders that can still get a request (one per customer). */
-export const GET = route(async () => ({ orders: await pastCustomerCandidates() }));
+/** "Ask past customers for reviews": the orders that can still get a request (one per customer), and the rest with why not. */
+export const GET = route(async () => await pastCustomerPreview());
 
 const input = z.object({ orderIds: z.array(z.string().max(100)).min(1, "Pick at least one order").max(1000) });
 

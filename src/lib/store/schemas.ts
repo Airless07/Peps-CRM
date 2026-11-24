@@ -234,5 +234,5 @@ export const promotionInput = z.object({
   active: z.boolean().default(true),
 });
 
-export const reviewUpdate = z.object({ status: z.enum(["pending", "approved", "hidden"]).optional(), title: text(80).optional(), text: text(1500).optional(), displayName: text(60).min(1).optional() });
+export const reviewUpdate = z.object({ status: z.enum(["pending", "approved", "hidden"]).optional(), title: text(80).optional(), text: text(1500).optional(), displayName: text(60).min(1).optional(), verified: z.boolean().optional() });
 export const coaUpdate = z.object({ lot: text(60).optional(), testDate: optDate, purity: text(40).optional(), isCurrent: z.boolean().optional() });

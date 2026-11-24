@@ -8,6 +8,7 @@ import { customerName, handOverLabel, isLocalOrder, labelsOpened, nextStep, orde
 import { fmtMoney } from "@/lib/format";
 import { switchBlocker, switchQuote } from "@/lib/local/rules";
 import { orderTotals } from "@/lib/money";
+import { isStaff, requestEmail, reviewSkipReason, staffAccounts } from "@/lib/reviews/rules";
 import type { SwitchHandling } from "@/lib/types";
 import { payMethod } from "@/lib/store/payments";
 import { STATES } from "@/lib/store/schemas";
@@ -130,19 +131,20 @@ export function OrderActionsProvider({ children }: { children: React.ReactNode }
   /** "Send review request": asks first, and shows the date with "Send again?" when one was already sent. */
   const sendReviewRequest = useCallback(
     async (o: OrderRec) => {
-      const at = o.web?.reviewRequestSentAt;
+      const at = o.reviewRequestSentAt ?? o.web?.reviewRequestSentAt;
+      const to = requestEmail(o.web?.email, (data?.customers ?? []).find((c) => c.id === o.customerId)?.email);
       const ok = await confirm(
         at
           ? {
               title: "Send again?",
-              body: `A review request for order #${o.number} was already sent on ${new Date(at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}. Send another one to ${o.web?.email}?`,
+              body: `A review request for order #${o.number} was already sent on ${new Date(at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}. Send another one to ${to}?`,
               confirmText: "Send again",
             }
-          : { title: `Send a review request for order #${o.number}?`, body: `${o.web?.email} gets the “How was your order?” email. Its links mark the review as a Verified order.`, confirmText: "Send" },
+          : { title: `Send a review request for order #${o.number}?`, body: `${to} gets the “How was your order?” email. Its links mark the review as a Verified order.`, confirmText: "Send" },
       );
       if (ok) await post(o, { action: "send-review-request", resend: !!at });
     },
-    [confirm, post],
+    [confirm, post, data?.customers],
   );
 
   const markRefundPaid = useCallback(
@@ -152,6 +154,12 @@ export function OrderActionsProvider({ children }: { children: React.ReactNode }
       if (ok) await post(o, { action: "switch-refund-paid", by: data ? (data.settings.defaultSoldBy === "B" ? data.settings.partnerBName : data.settings.partnerAName) : "Admin" });
     },
     [confirm, post, data],
+  );
+
+  // Owner and test accounts: never asked for reviews (same rule as the server).
+  const staff = useMemo(
+    () => staffAccounts(data?.customers ?? [], [...(data?.orders ?? []), ...(data?.pendingOrders ?? [])], data?.store.alertEmails ?? []),
+    [data?.customers, data?.orders, data?.pendingOrders, data?.store.alertEmails],
   );
 
   const step = useCallback<Actions["step"]>((o) => nextStep(o, opened.has(o.id)), [opened]);
@@ -183,9 +191,26 @@ export function OrderActionsProvider({ children }: { children: React.ReactNode }
       if (o.localSwitch && o.localSwitch.refundOwedCents > 0 && !o.localSwitch.refundPaidAt) {
         items.push({ label: `Mark refund paid back (${fmtMoney(o.localSwitch.refundOwedCents)})`, onSelect: () => void markRefundPaid(o) });
       }
-      // Review request: paid, shipped / delivered / picked up, not canceled or refunded, no review yet.
-      const reviewed = (data?.reviews ?? []).some((r) => r.orderId === o.id);
-      if (online && w?.email && o.web?.paidAt && ["shipped", "delivered", "picked_up"].includes(o.status) && !(o.refundedCents ?? 0) && !reviewed) {
+      // Review request: the customer has the order (paid and shipped / delivered / picked up, or a completed
+      // in-person sale), has an email (order or customer record), not an owner order or account, not canceled
+      // or refunded, no review yet. Same rule as the server (src/lib/reviews/rules.ts).
+      const reviewEmail = requestEmail(w?.email, (data?.customers ?? []).find((c) => c.id === o.customerId)?.email);
+      const reviewSkip = reviewSkipReason(
+        {
+          source: o.source,
+          status: o.status,
+          owner: o.owner,
+          paid: !!w?.paidAt,
+          canceled: !!w?.canceledAt,
+          refundedCents: o.refundedCents ?? 0,
+          reviewed: (data?.reviews ?? []).some((r) => r.orderId === o.id),
+          asked: !!(o.reviewRequestSentAt ?? w?.reviewRequestSentAt),
+          email: reviewEmail,
+          staff: isStaff(staff, o.customerId, reviewEmail),
+        },
+        { ignoreAsked: true },
+      );
+      if (!reviewSkip) {
         items.push({ label: "Send review request", onSelect: () => void sendReviewRequest(o) });
       }
       items.push({ label: "Print packing slip", onSelect: () => void window.open(`/admin/print/${o.id}`, "_blank", "noopener") });
@@ -200,7 +225,7 @@ export function OrderActionsProvider({ children }: { children: React.ReactNode }
       items.push(o.archived ? { label: "Move back to orders", onSelect: () => void post(o, { action: "unarchive" }) } : { label: "Archive", onSelect: () => void post(o, { action: "archive" }) });
       return items;
     },
-    [openLabel, post, run, data?.labels, data?.reviews, markRefundPaid, sendReviewRequest],
+    [openLabel, post, run, data?.labels, data?.reviews, data?.customers, staff, markRefundPaid, sendReviewRequest],
   );
 
   const value = useMemo(() => ({ run, menu, step, busyId }), [run, menu, step, busyId]);

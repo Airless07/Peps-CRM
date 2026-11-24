@@ -7,13 +7,14 @@ import { api, useLoaded } from "@/components/store";
 import { useToast } from "@/components/toast";
 import { Badge, Button, Empty, Field, Input, PageHeader, PageSkeleton, Segmented, Sheet, Textarea, cx, useConfirm } from "@/components/ui";
 import { fmtDate } from "@/lib/format";
-import { DEFAULT_FLAG_WORDS, cleanFlagWords } from "@/lib/reviews/rules";
-import type { PastCustomerRequest } from "@/lib/reviews/ops";
+import { DEFAULT_FLAG_WORDS, REVIEW_SKIP_TEXT, cleanFlagWords } from "@/lib/reviews/rules";
+import type { PastCustomerRequest, PastCustomerSkip } from "@/lib/reviews/ops";
 import type { ReviewPhotoRec, ReviewRec, ReviewSource } from "@/lib/types";
 
 type Tab = "live" | "needs" | "photos" | "hidden";
 
 const SOURCE: Record<ReviewSource, string> = { email_link: "From the order email link", account: "Signed in", guest: "Guest" };
+const SKIP_TEXT: Record<PastCustomerSkip["reason"], string> = { ...REVIEW_SKIP_TEXT, duplicate: "Newer order from this customer is listed" };
 const PHOTO_TONE = { pending: "warn", approved: "pos", rejected: "neg" } as const;
 const PHOTO_LABEL = { pending: "Waiting", approved: "Approved, on the site", rejected: "Rejected, never shown" } as const;
 
@@ -36,7 +37,7 @@ export default function ReviewsPage() {
   const [tab, setTab] = useState<Tab | null>(null);
   const [edit, setEdit] = useState<ReviewRec | null>(null);
   const [words, setWords] = useState<string | null>(null);
-  const [ask, setAsk] = useState<{ list: PastCustomerRequest[]; picked: Set<string> } | null>(null);
+  const [ask, setAsk] = useState<{ list: PastCustomerRequest[]; skipped: PastCustomerSkip[]; picked: Set<string> } | null>(null);
   const [asking, setAsking] = useState(false);
 
   if (!s) return <PageSkeleton />;
@@ -91,8 +92,8 @@ export default function ReviewsPage() {
 
   const openAsk = async () => {
     try {
-      const { orders } = await api<{ orders: PastCustomerRequest[] }>("/api/reviews/requests");
-      setAsk({ list: orders, picked: new Set(orders.map((o) => o.orderId)) });
+      const { orders, skipped } = await api<{ orders: PastCustomerRequest[]; skipped?: PastCustomerSkip[] }>("/api/reviews/requests");
+      setAsk({ list: orders, skipped: skipped ?? [], picked: new Set(orders.map((o) => o.orderId)) });
     } catch (e) {
       toast.show({ message: (e as Error).message, tone: "error" });
     }
@@ -163,7 +164,24 @@ export default function ReviewsPage() {
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
                   <Stars n={r.rating} />
                   <span className="font-semibold">{r.displayName}</span>
-                  {r.verified ? <Badge tone="accent">Verified order</Badge> : <Badge>Not verified</Badge>}
+                  <button
+                    type="button"
+                    className="rounded-full focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+                    aria-pressed={r.verified}
+                    title={r.verified ? "Verified order. Click to mark not verified." : "Not verified. Click to mark as a Verified order."}
+                    onClick={() => void patch(r, { verified: !r.verified }, r.verified ? "Marked not verified" : "Marked as a Verified order")}
+                    data-toggle-verified
+                  >
+                    {r.verified ? (
+                      <Badge tone="accent">
+                        <Check size={13} className="mr-1 inline" aria-hidden /> Verified order
+                      </Badge>
+                    ) : (
+                      <Badge>
+                        <Check size={13} className="mr-1 inline opacity-40" aria-hidden /> Not verified
+                      </Badge>
+                    )}
+                  </button>
                   {r.status === "approved" && <Badge tone="pos">Live</Badge>}
                   {r.status === "pending" && <Badge tone="warn">Needs review</Badge>}
                   {r.status === "hidden" && <Badge>Hidden</Badge>}
@@ -312,10 +330,10 @@ export default function ReviewsPage() {
         {ask && (
           <div className="space-y-4" data-ask-past>
             <p className="text-sm text-muted">
-              Paid orders that were shipped, delivered or picked up, not canceled or refunded, with no review and no review request yet. One email per customer (their most recent order). The links mark the review as a Verified order.
+              Website orders that were paid and shipped, delivered or picked up, and completed in-person sales: not canceled or refunded, with an email (on the order or the customer record), no review and no review request yet. Owner orders and owner / test accounts are left out. One email per customer (their most recent order). The links mark the review as a Verified order.
             </p>
             {ask.list.length === 0 ? (
-              <Empty title="Nobody to ask right now" body="Every eligible order already got a review request or has a review." />
+              <Empty title="Nobody to ask right now" body="No order can get a review request. See Not eligible below for why." />
             ) : (
               <>
                 <label className="flex items-center gap-3 text-sm font-medium">
@@ -353,6 +371,23 @@ export default function ReviewsPage() {
                   ))}
                 </ul>
               </>
+            )}
+            {ask.skipped.length > 0 && (
+              <details className="rounded-xl border border-line" data-ask-skipped open={ask.list.length === 0 || undefined}>
+                <summary className="cursor-pointer px-3 py-2.5 text-sm font-medium">Not eligible ({ask.skipped.length})</summary>
+                <ul className="divide-y divide-line border-t border-line">
+                  {ask.skipped.map((o) => (
+                    <li key={o.orderId} className="flex items-center gap-3 px-3 py-2.5 text-sm" data-skip-reason={o.reason}>
+                      <span className="w-14 shrink-0 font-semibold tabular-nums">#{o.number}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-medium">{o.name}</span>
+                        <span className="block truncate text-muted">{o.email || "No email"}</span>
+                      </span>
+                      <span className="shrink-0 text-right text-muted">{SKIP_TEXT[o.reason]}</span>
+                    </li>
+                  ))}
+                </ul>
+              </details>
             )}
           </div>
         )}

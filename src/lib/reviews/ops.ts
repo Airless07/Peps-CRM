@@ -10,7 +10,7 @@ import { LINE_SIZE, toOrder } from "../serialize";
 import { lineName } from "../size";
 import { removeReviewPhoto, saveReviewPhoto } from "../uploads";
 import type { ReviewSource, ReviewStatus } from "../types";
-import { flagReason, isGibberish, REVIEW_LIMITS, VERIFIED_STATUSES } from "./rules";
+import { flagReason, isGibberish, isStaff, orderInHand, REVIEW_LIMITS, REVIEW_SKIP_SENTENCE, requestEmail, reviewSkipReason, staffAccounts, VERIFIED_STATUSES, type ReviewSkip, type StaffAccounts } from "./rules";
 
 const DAY = 24 * 60 * 60_000;
 const norm = (email: string) => email.trim().toLowerCase();
@@ -43,9 +43,12 @@ export const CHECK_MESSAGE = "Thanks! Your review will appear after a quick chec
 type OrderRow = NonNullable<Awaited<ReturnType<typeof orderWithReview>>>;
 const orderWithReview = (where: { id?: string; reviewToken?: string }) => prisma.order.findFirst({ where, include: { lines: LINE_SIZE, review: { select: { id: true } } } });
 
-/** A paid order the customer has (or that is on its way), not canceled and not fully refunded. */
-export function verifiableOrder(row: { source: string; status: string; paidAt: Date | null; refundedCents: number } & Parameters<typeof toOrder>[0]): boolean {
-  if (row.source !== "online" || !(VERIFIED_STATUSES as readonly string[]).includes(row.status) || !row.paidAt) return false;
+/**
+ * An order the customer has: a paid website order (shipped, delivered or picked up) or a completed
+ * in-person sale. Not an owner order, not canceled and not fully refunded.
+ */
+export function verifiableOrder(row: { source: string; status: string; paidAt: Date | null; refundedCents: number; owner: string | null } & Parameters<typeof toOrder>[0]): boolean {
+  if (row.owner || !orderInHand({ source: row.source, status: row.status, paid: !!row.paidAt })) return false;
   if (row.refundedCents > 0 && row.refundedCents >= orderTotals({ ...toOrder(row), refundedCents: 0 }).total) return false;
   return true;
 }
@@ -60,7 +63,7 @@ export async function orderForToken(token: string): Promise<OrderRow | null> {
 /** The signed-in customer's orders that can still be reviewed (newest first). */
 export async function reviewableOrders(customerId: string, email: string) {
   const rows = await prisma.order.findMany({
-    where: { source: "online", OR: [{ customerId }, ...(email ? [{ email: { equals: norm(email) } }] : [])], status: { in: [...VERIFIED_STATUSES] }, review: null },
+    where: { AND: [{ OR: [{ customerId }, ...(email ? [{ email: { equals: norm(email) } }] : [])] }, { OR: IN_HAND }], review: null },
     include: { lines: LINE_SIZE },
     orderBy: { createdAt: "desc" },
     take: 50,
@@ -69,6 +72,12 @@ export async function reviewableOrders(customerId: string, email: string) {
     (r): ReviewableOrder => ({ number: r.number ?? 0, placedAt: (r.placedAt ?? r.date).toISOString(), items: toOrder(r).lines.map((l) => `${l.quantity > 1 ? `${l.quantity}× ` : ""}${lineName(l)}`).join(", ") }),
   );
 }
+
+/** Orders the customer has (website orders shipped / delivered / picked up, completed in-person sales). */
+const IN_HAND = [
+  { source: "online", status: { in: [...VERIFIED_STATUSES] } },
+  { source: "inperson", status: "completed" },
+];
 
 export interface ReviewableOrder {
   number: number;
@@ -128,7 +137,7 @@ export async function submitReview(input: ReviewSubmit, ctx: { ip: string; accou
   } else {
     // Guest (or signed in without picking an order): a paid, shipped / delivered order with this email.
     const rows = await prisma.order.findMany({
-      where: { source: "online", status: { in: [...VERIFIED_STATUSES] }, OR: [{ email }, ...(ctx.account ? [{ customerId: ctx.account.id }] : [])] },
+      where: { OR: IN_HAND, AND: [{ OR: [{ email }, { email: "", linkedCustomer: { is: { email } } }, ...(ctx.account ? [{ customerId: ctx.account.id }] : [])] }] },
       include: { lines: LINE_SIZE, review: { select: { id: true } } },
       orderBy: { createdAt: "desc" },
     });
@@ -258,10 +267,11 @@ const STALE_DAYS = 30;
 
 /**
  * When the review request for this order is due, or null when it never is.
- * Delivered / picked up: X days after that. Shipped without a delivery scan: X days after shipping; if the
- * tracking shows it is still moving, a week more before asking anyway.
+ * Delivered / picked up: X days after that. In-person sale: X days after the sale. Shipped without a
+ * delivery scan: X days after shipping; if the tracking shows it is still moving, a week more before asking anyway.
  */
-export function reviewRequestDueAt(o: { status: string; deliveredAt: Date | null; shippedAt: Date | null; trackingStatus: string }, days: number): Date | null {
+export function reviewRequestDueAt(o: { source?: string; status: string; date?: Date; deliveredAt: Date | null; shippedAt: Date | null; trackingStatus: string }, days: number): Date | null {
+  if (o.source === "inperson") return o.status === "completed" && o.date ? new Date(o.date.getTime() + days * DAY) : null;
   if (o.status === "delivered" || o.status === "picked_up") return o.deliveredAt ? new Date(o.deliveredAt.getTime() + days * DAY) : null;
   if (o.status === "shipped" && o.shippedAt) {
     const moving = ["TRANSIT", "IN_TRANSIT", "OUT_FOR_DELIVERY"].includes(o.trackingStatus.toUpperCase());
@@ -272,36 +282,91 @@ export function reviewRequestDueAt(o: { status: string; deliveredAt: Date | null
 
 export const newReviewToken = () => randomBytes(24).toString("base64url");
 
+type RequestRow = Awaited<ReturnType<typeof requestRows>>[number];
+const requestRows = (where: Record<string, unknown>) =>
+  prisma.order.findMany({
+    where,
+    include: { lines: LINE_SIZE, review: { select: { id: true } }, linkedCustomer: { select: { email: true } } },
+    orderBy: [{ placedAt: "desc" }, { date: "desc" }],
+  });
+
+/** Owner and test accounts (see staffAccounts in ./rules). */
+async function loadStaff(): Promise<StaffAccounts> {
+  const { store } = await getStore();
+  const [customers, owners] = await Promise.all([
+    prisma.customer.findMany({ select: { id: true, name: true, email: true } }),
+    prisma.order.findMany({ where: { owner: { not: null }, customerId: { not: null } }, select: { customerId: true, owner: true } }),
+  ]);
+  return staffAccounts(customers, owners, store.alertEmails ?? []);
+}
+
+/** The address a review request for this order goes to: the order's email, else the customer record's. */
+const emailOf = (row: RequestRow) => requestEmail(row.email, row.linkedCustomer?.email);
+
+/** Why this order can't get a review request, or null when it can. */
+export function requestSkip(row: RequestRow, staff: StaffAccounts, opts: { ignoreAsked?: boolean } = {}): ReviewSkip | null {
+  const email = emailOf(row);
+  return reviewSkipReason(
+    {
+      source: row.source,
+      status: row.status,
+      owner: row.owner,
+      paid: !!row.paidAt,
+      canceled: !!row.canceledAt,
+      refundedCents: row.refundedCents,
+      reviewed: !!row.review,
+      asked: !!row.reviewRequestSentAt,
+      email,
+      staff: isStaff(staff, row.customerId, email),
+    },
+    opts,
+  );
+}
+
+/** Claim, send and log one request. `expectedSentAt` must still match (a double click or two runs send once). */
+async function sendOne(row: RequestRow, expectedSentAt: Date | null, opts: { origin?: string; manual: boolean; now?: Date }): Promise<boolean> {
+  const { store } = await getStore();
+  const now = opts.now ?? new Date();
+  const to = emailOf(row);
+  const token = row.reviewToken ?? newReviewToken();
+  // Built before the claim: a problem here never leaves the order marked as asked with no email sent.
+  const base = siteUrl(store, opts.origin);
+  const content = reviewRequestEmail(store, emailOrder(toOrder({ ...row, reviewToken: token }), base), `${base}/review/${token}`, opts.manual ? { manual: true } : {});
+  const claimed = await prisma.order.updateMany({ where: { id: row.id, reviewRequestSentAt: expectedSentAt, review: null }, data: { reviewRequestSentAt: now, reviewToken: token } });
+  if (claimed.count !== 1) return false;
+  const label = opts.manual ? "Review request (manual)" : "Review request";
+  const out = await sendEmail(store, to, content).catch((e: unknown) => ({ sent: false as const, skipped: false as const, error: e instanceof Error ? e.message : String(e) }));
+  await logEvent(prisma, row.id, "email", out.sent ? (opts.manual ? "Review request sent (manual)" : "Review request sent") : `${label}: ${outcomeText(out)}`, content.subject);
+  return out.sent;
+}
+
 /**
  * Send the "How was your order?" email for every order where it is due. Once per order (the row is
- * claimed before sending), never for canceled or refunded orders, never when the order already has a review.
+ * claimed before sending). Same rules as the manual requests: never owner orders or owner / test
+ * accounts, never canceled or refunded orders, never when the order already has a review.
  */
 export async function sendReviewRequests(opts: { now?: Date; origin?: string } = {}): Promise<number> {
   const now = opts.now ?? new Date();
   const { store } = await getStore();
   if (!store.reviews.requestEmail) return 0;
   const days = store.reviews.requestDays;
-  const rows = await prisma.order.findMany({
-    where: { source: "online", reviewRequestSentAt: null, email: { not: "" }, review: null, refundedCents: 0, canceledAt: null, status: { in: ["delivered", "picked_up", "shipped"] } },
-    include: { lines: LINE_SIZE },
+  const staff = await loadStaff();
+  const rows = await requestRows({
+    reviewRequestSentAt: null,
+    review: null,
+    refundedCents: 0,
+    canceledAt: null,
+    owner: null,
+    OR: [{ source: "online", status: { in: ["delivered", "picked_up", "shipped"] } }, { source: "inperson", status: "completed" }],
   });
   let sent = 0;
   for (const row of rows) {
     const due = reviewRequestDueAt(row, days);
     if (!due || due > now) continue;
     if (now.getTime() - due.getTime() > STALE_DAYS * DAY) continue;
-    if (!verifiableOrder(row)) continue;
-    const token = row.reviewToken ?? newReviewToken();
-    // Claim it first: two runs at once (or a restart mid-send) never email twice.
-    const claimed = await prisma.order.updateMany({ where: { id: row.id, reviewRequestSentAt: null }, data: { reviewRequestSentAt: now, reviewToken: token } });
-    if (claimed.count !== 1) continue;
-    const base = siteUrl(store, opts.origin);
-    const o = toOrder({ ...row, reviewToken: token });
-    const content = reviewRequestEmail(store, emailOrder(o, base), `${base}/review/${token}`);
+    if (requestSkip(row, staff) || !verifiableOrder(row)) continue;
     try {
-      const out = await sendEmail(store, row.email, content);
-      await logEvent(prisma, row.id, "email", out.sent ? "Review request sent" : `Review request: ${outcomeText(out)}`, content.subject);
-      if (out.sent) sent++;
+      if (await sendOne(row, null, { origin: opts.origin, manual: false, now })) sent++;
     } catch (e) {
       console.error("[review request]", e);
     }
@@ -310,38 +375,6 @@ export async function sendReviewRequests(opts: { now?: Date; origin?: string } =
 }
 
 // ---------------------------------------------------------------- Manual review requests (admin)
-type RequestRow = Awaited<ReturnType<typeof requestRows>>[number];
-const requestRows = (where: Record<string, unknown>) =>
-  prisma.order.findMany({ where: { source: "online", ...where }, include: { lines: LINE_SIZE, review: { select: { id: true } } }, orderBy: [{ placedAt: "desc" }, { date: "desc" }] });
-
-/**
- * Why this order can't get a review request, or "" when it can: a paid website order that is shipped,
- * delivered or picked up, not canceled, not refunded (any refund), with an email and no review yet.
- */
-export function requestBlocker(row: RequestRow): string {
-  if (row.source !== "online") return "Only website orders get review requests.";
-  if (row.canceledAt || row.status === "canceled") return "The order is canceled.";
-  if (row.refundedCents > 0) return "The order was refunded.";
-  if (!row.paidAt || !(VERIFIED_STATUSES as readonly string[]).includes(row.status)) return "The order has to be paid and shipped, delivered or picked up first.";
-  if (row.review) return "This order already has a review.";
-  if (!row.email.trim()) return "The order has no email address.";
-  return "";
-}
-
-/** Claim, send and log one manual request. `expectedSentAt` must still match (a double click sends once). */
-async function sendManual(row: RequestRow, expectedSentAt: Date | null, origin?: string): Promise<boolean> {
-  const { store } = await getStore();
-  const now = new Date();
-  const token = row.reviewToken ?? newReviewToken();
-  const claimed = await prisma.order.updateMany({ where: { id: row.id, reviewRequestSentAt: expectedSentAt, review: null }, data: { reviewRequestSentAt: now, reviewToken: token } });
-  if (claimed.count !== 1) return false;
-  const base = siteUrl(store, origin);
-  const content = reviewRequestEmail(store, emailOrder(toOrder({ ...row, reviewToken: token }), base), `${base}/review/${token}`, { manual: true });
-  const out = await sendEmail(store, row.email, content).catch((e: unknown) => ({ sent: false as const, skipped: false as const, error: e instanceof Error ? e.message : String(e) }));
-  await logEvent(prisma, row.id, "email", out.sent ? "Review request sent (manual)" : `Review request (manual): ${outcomeText(out)}`, content.subject);
-  return out.sent;
-}
-
 const OFF = "Review request emails are turned off in Settings, Email. Turn them on to send one.";
 
 /**
@@ -353,18 +386,18 @@ export async function sendReviewRequestNow(orderId: string, opts: { resend?: boo
   if (!store.reviews.requestEmail) throw new HttpError(409, OFF);
   const [row] = await requestRows({ id: orderId });
   if (!row) throw new HttpError(404, "That order was not found. Reload the page.");
-  const why = requestBlocker(row);
-  if (why) throw new HttpError(409, why);
+  const why = requestSkip(row, await loadStaff(), { ignoreAsked: true });
+  if (why) throw new HttpError(409, REVIEW_SKIP_SENTENCE[why]);
   if (row.reviewRequestSentAt && !opts.resend) {
     throw new HttpError(409, `A review request was already sent on ${row.reviewRequestSentAt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}. Confirm to send it again.`);
   }
-  const sent = await sendManual(row, row.reviewRequestSentAt, opts.origin);
+  const sent = await sendOne(row, row.reviewRequestSentAt, { origin: opts.origin, manual: true });
   if (!sent) {
     const fresh = await prisma.order.findUnique({ where: { id: orderId }, select: { reviewRequestSentAt: true } });
     if (fresh?.reviewRequestSentAt?.getTime() !== row.reviewRequestSentAt?.getTime()) throw new HttpError(409, "A review request was just sent for this order. Reload the page.");
     return { sent: false, message: "The review request could not be sent. See the order timeline." };
   }
-  return { sent: true, message: `Review request sent to ${row.email}.` };
+  return { sent: true, message: `Review request sent to ${emailOf(row)}.` };
 }
 
 export interface PastCustomerRequest {
@@ -375,22 +408,39 @@ export interface PastCustomerRequest {
   date: string;
 }
 
+/** An order left out of "Ask past customers", with the reason ("duplicate": a newer order of theirs is listed). */
+export interface PastCustomerSkip extends PastCustomerRequest {
+  reason: ReviewSkip | "duplicate";
+}
+
+const dateOf = (r: RequestRow) => (r.deliveredAt ?? r.shippedAt ?? r.placedAt ?? r.date).toISOString();
+
 /**
  * "Ask past customers for reviews": every order that can get a request and never got one, one per
- * customer email (their most recent such order).
+ * customer email (their most recent such order), plus every other order with the reason it is left out.
  */
-export async function pastCustomerCandidates(): Promise<PastCustomerRequest[]> {
-  const rows = await requestRows({ reviewRequestSentAt: null, status: { in: [...VERIFIED_STATUSES] } });
+export async function pastCustomerPreview(): Promise<{ orders: PastCustomerRequest[]; skipped: PastCustomerSkip[] }> {
+  const [rows, staff] = await Promise.all([requestRows({}), loadStaff()]);
   const seen = new Set<string>();
-  const out: PastCustomerRequest[] = [];
+  const orders: PastCustomerRequest[] = [];
+  const skipped: PastCustomerSkip[] = [];
   for (const r of rows) {
-    if (requestBlocker(r)) continue;
-    const email = norm(r.email);
-    if (seen.has(email)) continue;
-    seen.add(email);
-    out.push({ orderId: r.id, number: r.number ?? 0, name: r.customer || "Customer", email, date: (r.deliveredAt ?? r.shippedAt ?? r.placedAt ?? r.date).toISOString() });
+    const email = emailOf(r);
+    const item = { orderId: r.id, number: r.number ?? 0, name: r.customer || "Customer", email, date: dateOf(r) };
+    const why = requestSkip(r, staff);
+    if (why) skipped.push({ ...item, reason: why });
+    else if (seen.has(email)) skipped.push({ ...item, reason: "duplicate" });
+    else {
+      seen.add(email);
+      orders.push(item);
+    }
   }
-  return out;
+  skipped.sort((a, b) => b.number - a.number);
+  return { orders, skipped };
+}
+
+export async function pastCustomerCandidates(): Promise<PastCustomerRequest[]> {
+  return (await pastCustomerPreview()).orders;
 }
 
 /**
@@ -401,6 +451,7 @@ export async function sendPastCustomerRequests(orderIds: string[], origin?: stri
   const { store } = await getStore();
   if (!store.reviews.requestEmail) throw new HttpError(409, OFF);
   const allowed = new Map((await pastCustomerCandidates()).map((c) => [c.orderId, c]));
+  const staff = await loadStaff();
   const emails = new Set<string>();
   let sent = 0;
   let skipped = 0;
@@ -412,7 +463,7 @@ export async function sendPastCustomerRequests(orderIds: string[], origin?: stri
     }
     emails.add(c.email);
     const [row] = await requestRows({ id });
-    if (row && !requestBlocker(row) && (await sendManual(row, null, origin))) sent++;
+    if (row && !requestSkip(row, staff) && (await sendOne(row, null, { origin, manual: true }))) sent++;
     else skipped++;
   }
   return { sent, skipped };
