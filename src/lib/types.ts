@@ -326,6 +326,8 @@ export interface WebOrderRec {
   canceledAt: string | null;
   /** When the unpaid-order reminder email went out. Null = not sent. */
   reminderSentAt: string | null;
+  /** When the "How was your order?" review request was last sent (automatic or manual). */
+  reviewRequestSentAt?: string | null;
   trackingNumber: string;
   trackingCarrier: string;
   trackingStatus: string;

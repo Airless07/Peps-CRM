@@ -351,14 +351,17 @@ export function shippedEmail(_store: StoreSettings, o: EmailOrder, t: { number: 
  * The automatic review request, X days after delivery. Each star opens the review form for this order with
  * that rating picked; the link works without an account and marks the review "Verified order".
  */
-export function reviewRequestEmail(store: Pick<StoreSettings, "storeName">, o: EmailOrder, reviewUrl: string): EmailContent {
+export function reviewRequestEmail(store: Pick<StoreSettings, "storeName">, o: EmailOrder, reviewUrl: string, opts: { manual?: boolean } = {}): EmailContent {
   const withRating = (n: number) => `${reviewUrl}${reviewUrl.includes("?") ? "&" : "?"}rating=${n}`;
   return {
     subject: `How was your ${store.storeName} order?`,
     preview: `Thanks for your order #${o.number}. Tell us how it went.`,
     heading: "How was your order?",
     blocks: [
-      { p: `Hi ${o.name.split(" ")[0] || "there"}, thanks for ordering from ${store.storeName}. How did order #${o.number} go? Tap a star to rate it.` },
+      ...(opts.manual
+        ? // Sent by hand from the admin (also to past customers): a softer opening.
+          [{ p: "We'd love to hear how your order went: shipping speed, packaging and service." }, { p: `Tap a star to rate order #${o.number}.` }]
+        : [{ p: `Hi ${o.name.split(" ")[0] || "there"}, thanks for ordering from ${store.storeName}. How did order #${o.number} go? Tap a star to rate it.` }]),
       { stars: { urls: [1, 2, 3, 4, 5].map(withRating), caption: "1 star = poor, 5 stars = excellent" } },
       { button: { label: "Write a review", url: reviewUrl } },
       { small: "Tell us about your order experience: shipping, packaging, service. Please don't include dosing, usage or results. All products are for research use only." },

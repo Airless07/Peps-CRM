@@ -61,6 +61,7 @@ function orderRow(o: OrderRec, files: Map<string, { screenshotFile: string; revi
     deliveredAt: dn(web?.deliveredAt),
     canceledAt: dn(web?.canceledAt),
     reminderSentAt: dn(web?.reminderSentAt),
+    reviewRequestSentAt: dn(web?.reviewRequestSentAt ?? null),
     localJson: localSpot ? JSON.stringify(localSpot) : "",
     readyAt: dn(readyAt ?? null),
     localSwitchJson: localSwitch ? JSON.stringify(localSwitch) : "",

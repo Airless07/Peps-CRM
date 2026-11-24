@@ -163,6 +163,7 @@ export function toOrder(o: OrderWithLines): OrderRec {
           deliveredAt: isoN(o.deliveredAt),
           canceledAt: isoN(o.canceledAt),
           reminderSentAt: isoN(o.reminderSentAt),
+          reviewRequestSentAt: isoN(o.reviewRequestSentAt),
           trackingNumber: o.trackingNumber,
           trackingCarrier: o.trackingCarrier,
           trackingStatus: o.trackingStatus,

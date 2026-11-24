@@ -308,3 +308,112 @@ export async function sendReviewRequests(opts: { now?: Date; origin?: string } =
   }
   return sent;
 }
+
+// ---------------------------------------------------------------- Manual review requests (admin)
+type RequestRow = Awaited<ReturnType<typeof requestRows>>[number];
+const requestRows = (where: Record<string, unknown>) =>
+  prisma.order.findMany({ where: { source: "online", ...where }, include: { lines: LINE_SIZE, review: { select: { id: true } } }, orderBy: [{ placedAt: "desc" }, { date: "desc" }] });
+
+/**
+ * Why this order can't get a review request, or "" when it can: a paid website order that is shipped,
+ * delivered or picked up, not canceled, not refunded (any refund), with an email and no review yet.
+ */
+export function requestBlocker(row: RequestRow): string {
+  if (row.source !== "online") return "Only website orders get review requests.";
+  if (row.canceledAt || row.status === "canceled") return "The order is canceled.";
+  if (row.refundedCents > 0) return "The order was refunded.";
+  if (!row.paidAt || !(VERIFIED_STATUSES as readonly string[]).includes(row.status)) return "The order has to be paid and shipped, delivered or picked up first.";
+  if (row.review) return "This order already has a review.";
+  if (!row.email.trim()) return "The order has no email address.";
+  return "";
+}
+
+/** Claim, send and log one manual request. `expectedSentAt` must still match (a double click sends once). */
+async function sendManual(row: RequestRow, expectedSentAt: Date | null, origin?: string): Promise<boolean> {
+  const { store } = await getStore();
+  const now = new Date();
+  const token = row.reviewToken ?? newReviewToken();
+  const claimed = await prisma.order.updateMany({ where: { id: row.id, reviewRequestSentAt: expectedSentAt, review: null }, data: { reviewRequestSentAt: now, reviewToken: token } });
+  if (claimed.count !== 1) return false;
+  const base = siteUrl(store, origin);
+  const content = reviewRequestEmail(store, emailOrder(toOrder({ ...row, reviewToken: token }), base), `${base}/review/${token}`, { manual: true });
+  const out = await sendEmail(store, row.email, content).catch((e: unknown) => ({ sent: false as const, skipped: false as const, error: e instanceof Error ? e.message : String(e) }));
+  await logEvent(prisma, row.id, "email", out.sent ? "Review request sent (manual)" : `Review request (manual): ${outcomeText(out)}`, content.subject);
+  return out.sent;
+}
+
+const OFF = "Review request emails are turned off in Settings, Email. Turn them on to send one.";
+
+/**
+ * "Send review request" on one order. When one was already sent, refuses with the date unless `resend` is
+ * true (the admin confirmed "Send again?").
+ */
+export async function sendReviewRequestNow(orderId: string, opts: { resend?: boolean; origin?: string } = {}): Promise<{ sent: boolean; message: string }> {
+  const { store } = await getStore();
+  if (!store.reviews.requestEmail) throw new HttpError(409, OFF);
+  const [row] = await requestRows({ id: orderId });
+  if (!row) throw new HttpError(404, "That order was not found. Reload the page.");
+  const why = requestBlocker(row);
+  if (why) throw new HttpError(409, why);
+  if (row.reviewRequestSentAt && !opts.resend) {
+    throw new HttpError(409, `A review request was already sent on ${row.reviewRequestSentAt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}. Confirm to send it again.`);
+  }
+  const sent = await sendManual(row, row.reviewRequestSentAt, opts.origin);
+  if (!sent) {
+    const fresh = await prisma.order.findUnique({ where: { id: orderId }, select: { reviewRequestSentAt: true } });
+    if (fresh?.reviewRequestSentAt?.getTime() !== row.reviewRequestSentAt?.getTime()) throw new HttpError(409, "A review request was just sent for this order. Reload the page.");
+    return { sent: false, message: "The review request could not be sent. See the order timeline." };
+  }
+  return { sent: true, message: `Review request sent to ${row.email}.` };
+}
+
+export interface PastCustomerRequest {
+  orderId: string;
+  number: number;
+  name: string;
+  email: string;
+  date: string;
+}
+
+/**
+ * "Ask past customers for reviews": every order that can get a request and never got one, one per
+ * customer email (their most recent such order).
+ */
+export async function pastCustomerCandidates(): Promise<PastCustomerRequest[]> {
+  const rows = await requestRows({ reviewRequestSentAt: null, status: { in: [...VERIFIED_STATUSES] } });
+  const seen = new Set<string>();
+  const out: PastCustomerRequest[] = [];
+  for (const r of rows) {
+    if (requestBlocker(r)) continue;
+    const email = norm(r.email);
+    if (seen.has(email)) continue;
+    seen.add(email);
+    out.push({ orderId: r.id, number: r.number ?? 0, name: r.customer || "Customer", email, date: (r.deliveredAt ?? r.shippedAt ?? r.placedAt ?? r.date).toISOString() });
+  }
+  return out;
+}
+
+/**
+ * Send the requests picked from that list. Each order is checked again: only orders still on the list
+ * get an email (never a second one, never two to the same customer in one run).
+ */
+export async function sendPastCustomerRequests(orderIds: string[], origin?: string): Promise<{ sent: number; skipped: number }> {
+  const { store } = await getStore();
+  if (!store.reviews.requestEmail) throw new HttpError(409, OFF);
+  const allowed = new Map((await pastCustomerCandidates()).map((c) => [c.orderId, c]));
+  const emails = new Set<string>();
+  let sent = 0;
+  let skipped = 0;
+  for (const id of [...new Set(orderIds)]) {
+    const c = allowed.get(id);
+    if (!c || emails.has(c.email)) {
+      skipped++;
+      continue;
+    }
+    emails.add(c.email);
+    const [row] = await requestRows({ id });
+    if (row && !requestBlocker(row) && (await sendManual(row, null, origin))) sent++;
+    else skipped++;
+  }
+  return { sent, skipped };
+}

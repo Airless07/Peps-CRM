@@ -1,6 +1,7 @@
 import { body, HttpError, route, type Ctx } from "@/lib/api";
 import { prisma } from "@/lib/db";
 import { buyLabel, cancelOrder, checkTracking, logEvent, markDelivered, markHandedOver, markPaid, markReady, markShipped, markSwitchRefundPaid, refundOrder, requestOrigin, switchToLocal, HANDLING_TEXT } from "@/lib/order-ops";
+import { sendReviewRequestNow } from "@/lib/reviews/ops";
 import { withLowStockAlert } from "@/lib/stock-alerts";
 import { orderAction } from "@/lib/store/schemas";
 
@@ -27,6 +28,11 @@ export const POST = route(async (req, ctx: Ctx<{ id: string }>) => {
     case "mark-delivered":
       await markDelivered(id, { origin });
       return { ok: true, message: "Marked delivered. The review request email goes out a few days from now (Settings, Email)." };
+    case "send-review-request": {
+      const r = await sendReviewRequestNow(id, { resend: input.resend, origin });
+      if (!r.sent) throw new HttpError(502, r.message);
+      return { ok: true, message: r.message };
+    }
     case "check-tracking": {
       const r = await checkTracking(id, origin);
       return { ok: true, message: r.note, changed: r.changed };

@@ -116,6 +116,7 @@ export const orderAction = z.discriminatedUnion("action", [
   z.object({ action: z.literal("buy-label"), rateId: z.string().max(100).optional() }),
   z.object({ action: z.literal("mark-shipped"), trackingNumber: text(60).default(""), carrier: text(30).default("") }),
   z.object({ action: z.literal("mark-delivered") }),
+  z.object({ action: z.literal("send-review-request"), resend: z.boolean().default(false) }),
   z.object({ action: z.literal("check-tracking") }),
   z.object({ action: z.literal("archive") }),
   z.object({ action: z.literal("unarchive") }),

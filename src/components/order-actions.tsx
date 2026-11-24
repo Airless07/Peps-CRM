@@ -127,6 +127,24 @@ export function OrderActionsProvider({ children }: { children: React.ReactNode }
     [confirm, openLabel, post],
   );
 
+  /** "Send review request": asks first, and shows the date with "Send again?" when one was already sent. */
+  const sendReviewRequest = useCallback(
+    async (o: OrderRec) => {
+      const at = o.web?.reviewRequestSentAt;
+      const ok = await confirm(
+        at
+          ? {
+              title: "Send again?",
+              body: `A review request for order #${o.number} was already sent on ${new Date(at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}. Send another one to ${o.web?.email}?`,
+              confirmText: "Send again",
+            }
+          : { title: `Send a review request for order #${o.number}?`, body: `${o.web?.email} gets the “How was your order?” email. Its links mark the review as a Verified order.`, confirmText: "Send" },
+      );
+      if (ok) await post(o, { action: "send-review-request", resend: !!at });
+    },
+    [confirm, post],
+  );
+
   const markRefundPaid = useCallback(
     async (o: OrderRec) => {
       const owed = o.localSwitch?.refundOwedCents ?? 0;
@@ -165,6 +183,11 @@ export function OrderActionsProvider({ children }: { children: React.ReactNode }
       if (o.localSwitch && o.localSwitch.refundOwedCents > 0 && !o.localSwitch.refundPaidAt) {
         items.push({ label: `Mark refund paid back (${fmtMoney(o.localSwitch.refundOwedCents)})`, onSelect: () => void markRefundPaid(o) });
       }
+      // Review request: paid, shipped / delivered / picked up, not canceled or refunded, no review yet.
+      const reviewed = (data?.reviews ?? []).some((r) => r.orderId === o.id);
+      if (online && w?.email && o.web?.paidAt && ["shipped", "delivered", "picked_up"].includes(o.status) && !(o.refundedCents ?? 0) && !reviewed) {
+        items.push({ label: "Send review request", onSelect: () => void sendReviewRequest(o) });
+      }
       items.push({ label: "Print packing slip", onSelect: () => void window.open(`/admin/print/${o.id}`, "_blank", "noopener") });
       if (online) {
         items.push({ label: "View payment screenshot", onSelect: () => setSheet({ kind: "screenshot", order: o }), disabled: !w?.hasScreenshot, disabledReason: "The customer has not uploaded one." });
@@ -177,7 +200,7 @@ export function OrderActionsProvider({ children }: { children: React.ReactNode }
       items.push(o.archived ? { label: "Move back to orders", onSelect: () => void post(o, { action: "unarchive" }) } : { label: "Archive", onSelect: () => void post(o, { action: "archive" }) });
       return items;
     },
-    [openLabel, post, run, data?.labels, markRefundPaid],
+    [openLabel, post, run, data?.labels, data?.reviews, markRefundPaid, sendReviewRequest],
   );
 
   const value = useMemo(() => ({ run, menu, step, busyId }), [run, menu, step, busyId]);

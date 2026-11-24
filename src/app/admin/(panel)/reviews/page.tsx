@@ -8,6 +8,7 @@ import { useToast } from "@/components/toast";
 import { Badge, Button, Empty, Field, Input, PageHeader, PageSkeleton, Segmented, Sheet, Textarea, cx, useConfirm } from "@/components/ui";
 import { fmtDate } from "@/lib/format";
 import { DEFAULT_FLAG_WORDS, cleanFlagWords } from "@/lib/reviews/rules";
+import type { PastCustomerRequest } from "@/lib/reviews/ops";
 import type { ReviewPhotoRec, ReviewRec, ReviewSource } from "@/lib/types";
 
 type Tab = "live" | "needs" | "photos" | "hidden";
@@ -35,6 +36,8 @@ export default function ReviewsPage() {
   const [tab, setTab] = useState<Tab | null>(null);
   const [edit, setEdit] = useState<ReviewRec | null>(null);
   const [words, setWords] = useState<string | null>(null);
+  const [ask, setAsk] = useState<{ list: PastCustomerRequest[]; picked: Set<string> } | null>(null);
+  const [asking, setAsking] = useState(false);
 
   if (!s) return <PageSkeleton />;
   const { data, mutate } = s;
@@ -86,6 +89,29 @@ export default function ReviewsPage() {
     }
   };
 
+  const openAsk = async () => {
+    try {
+      const { orders } = await api<{ orders: PastCustomerRequest[] }>("/api/reviews/requests");
+      setAsk({ list: orders, picked: new Set(orders.map((o) => o.orderId)) });
+    } catch (e) {
+      toast.show({ message: (e as Error).message, tone: "error" });
+    }
+  };
+  const sendAsk = async () => {
+    if (!ask || ask.picked.size === 0) return;
+    setAsking(true);
+    try {
+      const r = await api<{ message: string }>("/api/reviews/requests", "POST", { orderIds: [...ask.picked] });
+      toast.show({ message: r.message, tone: "success", duration: 6000 });
+      setAsk(null);
+      await s.refresh();
+    } catch (e) {
+      toast.show({ message: (e as Error).message, tone: "error", duration: 7000 });
+    }
+    setAsking(false);
+  };
+  const requestsOn = data.store.reviews?.requestEmail !== false;
+
   const empty: Record<Tab, string> = {
     live: "No live reviews",
     needs: "Nothing waiting for a check",
@@ -99,9 +125,14 @@ export default function ReviewsPage() {
         title="Reviews"
         sub="Clean reviews go live right away. Text with flagged words waits here. Photos always wait for your approval."
         actions={
-          <Button className="h-10" onClick={() => setWords((data.store.reviews?.flagWords ?? DEFAULT_FLAG_WORDS).join("\n"))}>
-            Filter words
-          </Button>
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button className="h-10" onClick={openAsk} disabled={!requestsOn} title={requestsOn ? undefined : "Review request emails are off in Settings, Email."} data-ask-past-button>
+              Ask past customers for reviews
+            </Button>
+            <Button className="h-10" onClick={() => setWords((data.store.reviews?.flagWords ?? DEFAULT_FLAG_WORDS).join("\n"))}>
+              Filter words
+            </Button>
+          </div>
         }
       />
       <div className="mb-5 overflow-x-auto">
@@ -258,6 +289,71 @@ export default function ReviewsPage() {
             <Field label="Review">
               <Textarea value={edit.text} maxLength={1500} className="min-h-[140px]" onChange={(e) => setEdit({ ...edit, text: e.target.value })} />
             </Field>
+          </div>
+        )}
+      </Sheet>
+
+      <Sheet
+        open={ask !== null}
+        onClose={() => setAsk(null)}
+        title="Ask past customers for reviews"
+        wide
+        footer={
+          <div className="flex gap-2">
+            <Button block onClick={() => setAsk(null)}>
+              Cancel
+            </Button>
+            <Button block variant="primary" disabled={!ask?.picked.size || asking} onClick={sendAsk}>
+              {asking ? "Sending…" : `Send ${ask?.picked.size ?? 0} email${ask?.picked.size === 1 ? "" : "s"}`}
+            </Button>
+          </div>
+        }
+      >
+        {ask && (
+          <div className="space-y-4" data-ask-past>
+            <p className="text-sm text-muted">
+              Paid orders that were shipped, delivered or picked up, not canceled or refunded, with no review and no review request yet. One email per customer (their most recent order). The links mark the review as a Verified order.
+            </p>
+            {ask.list.length === 0 ? (
+              <Empty title="Nobody to ask right now" body="Every eligible order already got a review request or has a review." />
+            ) : (
+              <>
+                <label className="flex items-center gap-3 text-sm font-medium">
+                  <input
+                    type="checkbox"
+                    className="h-5 w-5 accent-[var(--accent)]"
+                    checked={ask.picked.size === ask.list.length}
+                    onChange={(e) => setAsk({ ...ask, picked: new Set(e.target.checked ? ask.list.map((o) => o.orderId) : []) })}
+                  />
+                  All {ask.list.length}
+                </label>
+                <ul className="divide-y divide-line rounded-xl border border-line">
+                  {ask.list.map((o) => (
+                    <li key={o.orderId}>
+                      <label className="flex cursor-pointer items-center gap-3 px-3 py-2.5 text-sm">
+                        <input
+                          type="checkbox"
+                          className="h-5 w-5 shrink-0 accent-[var(--accent)]"
+                          checked={ask.picked.has(o.orderId)}
+                          onChange={(e) => {
+                            const picked = new Set(ask.picked);
+                            if (e.target.checked) picked.add(o.orderId);
+                            else picked.delete(o.orderId);
+                            setAsk({ ...ask, picked });
+                          }}
+                        />
+                        <span className="w-14 shrink-0 font-semibold tabular-nums">#{o.number}</span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate font-medium">{o.name}</span>
+                          <span className="block truncate text-muted">{o.email}</span>
+                        </span>
+                        <span className="shrink-0 text-muted">{fmtDate(o.date)}</span>
+                      </label>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
           </div>
         )}
       </Sheet>

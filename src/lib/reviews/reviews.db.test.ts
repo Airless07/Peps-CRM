@@ -486,3 +486,121 @@ describe("review request email", () => {
     expect(await run(4)).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------- Manual review requests
+describe("manual review requests: eligibility", () => {
+  it("only paid, shipped / delivered / picked up orders with no review, not canceled or refunded", async () => {
+    const ok = await Promise.all(["shipped", "delivered", "picked_up"].map((s) => order(s, { email: `${s}@x.test` })));
+    const unpaid = await order("awaiting_payment", { email: "unpaid@x.test" });
+    const notShipped = await order("paid", { email: "notshipped@x.test" });
+    const canceled = await order("canceled", { email: "canceled@x.test", canceledAt: new Date() });
+    const refunded = await order("delivered", { email: "refunded@x.test", refundedCents: 500 });
+    const reviewed = await order("delivered", { email: "reviewed@x.test" });
+    await submit({ token: reviewed.reviewToken!, email: "reviewed@x.test" });
+    const list = await rv.pastCustomerCandidates();
+    expect(list.map((c) => c.orderId).sort()).toEqual(ok.map((o) => o.id).sort());
+    expect(list[0]).toMatchObject({ name: "Dana Reed", number: expect.any(Number), date: expect.any(String) });
+    for (const [o, why] of [
+      [unpaid, /paid and shipped/],
+      [notShipped, /paid and shipped/],
+      [canceled, /canceled/],
+      [refunded, /refunded/],
+      [reviewed, /already has a review/],
+    ] as const) {
+      await expect(rv.sendReviewRequestNow(o.id)).rejects.toThrow(why);
+    }
+    expect(sent).toHaveLength(0);
+  });
+
+  it("the preview skips orders already asked (automatic or manual) and lists one order per customer: the most recent", async () => {
+    const older = await order("delivered", { placedAt: new Date(Date.now() - 30 * DAY) });
+    const newer = await order("delivered", { placedAt: new Date(Date.now() - 3 * DAY) });
+    await order("delivered", { email: "asked@x.test", reviewRequestSentAt: new Date() });
+    const list = await rv.pastCustomerCandidates();
+    expect(list.map((c) => c.orderId)).toEqual([newer.id]);
+    expect(list.map((c) => c.orderId)).not.toContain(older.id);
+  });
+});
+
+describe("manual review requests: sending", () => {
+  it("same email with the manual opening line, verified links, logged as manual", async () => {
+    const o = await order("delivered");
+    const r = await rv.sendReviewRequestNow(o.id);
+    expect(r).toEqual({ sent: true, message: "Review request sent to dana@example.com." });
+    expect(sent).toHaveLength(1);
+    expect(sent[0].subject).toBe("How was your Buckshot Labs order?");
+    expect(sent[0].text).toContain("We'd love to hear how your order went: shipping speed, packaging and service.");
+    expect(sent[0].html).toContain(`https://shop.test/review/${o.reviewToken}?rating=5`);
+    const events = await prisma.orderEvent.findMany({ where: { orderId: o.id } });
+    expect(events.map((e) => e.message)).toContain("Review request sent (manual)");
+    await submit({ token: o.reviewToken!, rating: 5 });
+    expect(await prisma.review.findFirstOrThrow()).toMatchObject({ verified: true, orderId: o.id });
+  });
+
+  it("never twice to the same order unless resending is confirmed; the date is shown", async () => {
+    const o = await order("delivered");
+    await rv.sendReviewRequestNow(o.id);
+    const day = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    await expect(rv.sendReviewRequestNow(o.id)).rejects.toThrow(`already sent on ${day}`);
+    expect(sent).toHaveLength(1);
+    await rv.sendReviewRequestNow(o.id, { resend: true });
+    expect(sent).toHaveLength(2);
+    // The automatic job never sends one after a manual request.
+    expect(await rv.sendReviewRequests({ now: new Date(Date.now() + 20 * DAY) })).toBe(0);
+    expect(sent).toHaveLength(2);
+  });
+
+  it("a double click sends one email", async () => {
+    const o = await order("delivered");
+    const results = await Promise.allSettled([rv.sendReviewRequestNow(o.id), rv.sendReviewRequestNow(o.id), rv.sendReviewRequestNow(o.id)]);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect(sent).toHaveLength(1);
+  });
+
+  it("bulk: one per picked order, never again on a second run, stale or duplicate picks skipped", async () => {
+    const a = await order("delivered", { email: "a@x.test" });
+    const b = await order("shipped", { email: "b@x.test" });
+    const c = await order("delivered", { email: "c@x.test" });
+    const ids = (await rv.pastCustomerCandidates()).map((x) => x.orderId);
+    expect(ids.sort()).toEqual([a.id, b.id, c.id].sort());
+    // c is unticked; a got a manual request after the preview opened.
+    await rv.sendReviewRequestNow(a.id);
+    sent.length = 0;
+    expect(await rv.sendPastCustomerRequests([a.id, b.id, b.id, "made-up-id"])).toEqual({ sent: 1, skipped: 2 });
+    expect(sent.map((e) => e.to[0])).toEqual(["b@x.test"]);
+    expect(await rv.sendPastCustomerRequests([a.id, b.id])).toEqual({ sent: 0, skipped: 2 });
+    expect(sent).toHaveLength(1);
+    expect((await prisma.orderEvent.findMany({ where: { orderId: b.id } })).map((e) => e.message)).toContain("Review request sent (manual)");
+    expect((await rv.pastCustomerCandidates()).map((x) => x.orderId)).toEqual([c.id]);
+  });
+
+  it("bulk: a customer with several orders gets one email, for the most recent", async () => {
+    await order("delivered", { placedAt: new Date(Date.now() - 20 * DAY) });
+    const recent = await order("delivered", { placedAt: new Date(Date.now() - 2 * DAY) });
+    const all = await prisma.order.findMany({ select: { id: true } });
+    expect(await rv.sendPastCustomerRequests(all.map((x) => x.id))).toEqual({ sent: 1, skipped: 1 });
+    expect(sent).toHaveLength(1);
+    expect(sent[0].text).toContain(`order #${recent.number}`);
+  });
+
+  it("respects the review email on/off switch", async () => {
+    const o = await order("delivered");
+    await setStore({ reviews: { requestEmail: false, requestDays: 3 } });
+    await expect(rv.sendReviewRequestNow(o.id)).rejects.toThrow(/turned off/);
+    await expect(rv.sendPastCustomerRequests([o.id])).rejects.toThrow(/turned off/);
+    expect(sent).toHaveLength(0);
+    expect((await prisma.order.findUniqueOrThrow({ where: { id: o.id } })).reviewRequestSentAt).toBeNull();
+  });
+
+  it("the send-review-request order action is admin-only", async () => {
+    const o = await order("delivered");
+    const { POST } = await import("@/app/api/orders/[id]/action/route");
+    const call = async (payload: Record<string, unknown>) => {
+      const { NextRequest } = await import("next/server");
+      const req = new NextRequest(`http://localhost/api/orders/${o.id}/action`, { method: "POST", body: JSON.stringify(payload), headers: { "content-type": "application/json" } });
+      return POST(req, { params: Promise.resolve({ id: o.id }) });
+    };
+    // The test admin session is not set, so prove the handler is admin-only first.
+    expect((await call({ action: "send-review-request" })).status).toBe(401);
+  });
+});
