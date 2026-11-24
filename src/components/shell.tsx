@@ -66,7 +66,7 @@ const CRM: NavItem[] = [
 const STORE: NavItem[] = [
   { href: "/admin/promotions", label: "Promotions", icon: BadgePercent },
   { href: "/admin/referrals", label: "Referrals", icon: Share2 },
-  { href: "/admin/reviews", label: "Reviews", icon: Star, badges: (c) => [{ n: c.reviews, title: "reviews to approve", tone: "accent" }] },
+  { href: "/admin/reviews", label: "Reviews", icon: Star, badges: (c) => [{ n: c.reviews, title: "reviews waiting (flagged text or photos)", tone: "accent" }] },
   { href: "/admin/content", label: "Content", icon: PanelsTopLeft, badges: (c) => [{ n: c.messages, title: "new messages", tone: "accent" }] },
   { href: "/admin/analytics", label: "Analytics", icon: ChartNoAxesColumn },
 ];

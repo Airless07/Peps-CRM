@@ -107,7 +107,7 @@ export function OrderActionsProvider({ children }: { children: React.ReactNode }
       } else if (step === "mark-delivered") {
         const ok = await confirm({
           title: `Mark order #${o.number} delivered?`,
-          body: "The customer gets a “How was your order?” email with a link to leave a review. This can’t be undone.",
+          body: "A few days later (Settings, Email) the customer gets a “How was your order?” email asking for a review. This can’t be undone.",
           confirmText: "Mark delivered",
         });
         if (ok) await post(o, { action: "mark-delivered" });

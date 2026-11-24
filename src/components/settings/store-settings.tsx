@@ -636,6 +636,19 @@ export function StoreSettingsTabs({ tab, onTab }: { tab: StoreTab; onTab: (t: st
               hint="Sent once when you mark a local pickup order Picked up: the items and the support email."
             />
           </div>
+          <div className="border-t border-line pt-3" data-review-request-settings>
+            <Toggle
+              checked={form.reviews.requestEmail}
+              onChange={(v) => set("reviews", { ...form.reviews, requestEmail: v })}
+              label="Review request: “How was your Buckshot Labs order?”"
+              hint={`Sent once per order, ${form.reviews.requestDays} day${form.reviews.requestDays === 1 ? "" : "s"} after it is delivered or picked up (shipped orders with no delivery scan: that many days after shipping). Never for canceled or refunded orders, or when the order already has a review. Each star links to the review form with that rating picked.`}
+            />
+            {form.reviews.requestEmail && (
+              <Field className="mt-3" label="Days after delivery" hint="1 to 60 days.">
+                <NumberInput className="w-40" value={form.reviews.requestDays} min={1} max={60} step={1} suffix="days" onChange={(n) => set("reviews", { ...form.reviews, requestDays: Math.max(1, Math.min(60, Math.round(n ?? 3))) })} label="days after delivery" />
+              </Field>
+            )}
+          </div>
         </Card>
 
         <SectionTitle>Sender</SectionTitle>

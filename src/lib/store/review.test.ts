@@ -8,7 +8,7 @@ import { sellGroups, sellVariantLabel } from "../admin/sell-groups";
 import {
   adminNewOrderEmail,
   canceledEmail,
-  deliveredEmail,
+  reviewRequestEmail,
   lowStockEmail,
   orderReceivedEmail,
   passwordResetEmail,
@@ -106,7 +106,7 @@ describe("rebrand to Buckshot Labs", () => {
       paymentReminderEmail(DEFAULT_STORE, o, pay, new Date(day(16)), new Date(day(15))),
       paymentConfirmedEmail(DEFAULT_STORE, o),
       shippedEmail(DEFAULT_STORE, o, { number: "9400", carrier: "USPS", url: null }),
-      deliveredEmail(DEFAULT_STORE, o, "https://x.test/review/r"),
+      reviewRequestEmail(DEFAULT_STORE, o, "https://x.test/review/r"),
       canceledEmail(DEFAULT_STORE, o, "Canceled"),
       passwordResetEmail(DEFAULT_STORE, "https://x.test/reset"),
       adminNewOrderEmail(DEFAULT_STORE, o, "https://x.test/admin"),

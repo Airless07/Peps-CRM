@@ -18,6 +18,8 @@ type Block =
   | { big: { label: string; value: string } }
   | { rows: [string, string][]; strongLast?: boolean }
   | { button: { label: string; url: string } }
+  /** A row of 5 stars, each a link (star 1 = urls[0]). */
+  | { stars: { urls: string[]; caption: string } }
   | { box: { title: string; lines: string[] } }
   | { small: string };
 
@@ -62,6 +64,13 @@ export function renderEmail(store: Pick<StoreSettings, "storeName" | "accentColo
         `<table role="presentation" style="margin:4px 0 20px"><tr><td style="background:${accent};border-radius:8px"><a href="${esc(b.button.url)}" style="display:inline-block;padding:13px 22px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none">${esc(b.button.label)}</a></td></tr></table>`,
       );
       text.push(`${b.button.label}: ${b.button.url}`, "");
+    } else if ("stars" in b) {
+      html.push(
+        `<table role="presentation" style="margin:4px 0 6px"><tr>${b.stars.urls
+          .map((u, i) => `<td style="padding:0 4px 0 0"><a href="${esc(u)}" title="${i + 1} star${i ? "s" : ""}" style="display:inline-block;font-size:38px;line-height:44px;color:${accent};text-decoration:none">&#9733;</a></td>`)
+          .join("")}</tr></table><p style="margin:0 0 18px;font-size:13px;color:#6d6d72">${esc(b.stars.caption)}</p>`,
+      );
+      text.push(b.stars.caption, ...b.stars.urls.map((u, i) => `${i + 1} star${i ? "s" : ""}: ${u}`), "");
     } else if ("box" in b) {
       html.push(
         `<table role="presentation" width="100%" style="margin:0 0 16px;background:#f7f5f1;border-radius:10px"><tr><td style="padding:16px 18px"><div style="font-size:14px;font-weight:700;color:#1b1b1d;margin-bottom:6px">${esc(b.box.title)}</div>${b.box.lines
@@ -338,15 +347,21 @@ export function shippedEmail(_store: StoreSettings, o: EmailOrder, t: { number: 
   return { subject: `Order #${o.number} has shipped`, preview: t.number ? `Tracking number ${t.number}` : "Your order is on its way.", heading: "Your order has shipped", blocks };
 }
 
-export function deliveredEmail(_store: StoreSettings, o: EmailOrder, reviewUrl: string): EmailContent {
+/**
+ * The automatic review request, X days after delivery. Each star opens the review form for this order with
+ * that rating picked; the link works without an account and marks the review "Verified order".
+ */
+export function reviewRequestEmail(store: Pick<StoreSettings, "storeName">, o: EmailOrder, reviewUrl: string): EmailContent {
+  const withRating = (n: number) => `${reviewUrl}${reviewUrl.includes("?") ? "&" : "?"}rating=${n}`;
   return {
-    subject: `How was your order #${o.number}?`,
-    preview: "Your order was delivered. Tell us how it went.",
+    subject: `How was your ${store.storeName} order?`,
+    preview: `Thanks for your order #${o.number}. Tell us how it went.`,
     heading: "How was your order?",
     blocks: [
-      { p: `Order #${o.number} was delivered. We would like to hear how the experience was: shipping speed, packaging and service.` },
-      { button: { label: "Rate your order experience", url: reviewUrl } },
-      { small: "Please review your order experience only. Reviews about product use or results will not be published." },
+      { p: `Hi ${o.name.split(" ")[0] || "there"}, thanks for ordering from ${store.storeName}. How did order #${o.number} go? Tap a star to rate it.` },
+      { stars: { urls: [1, 2, 3, 4, 5].map(withRating), caption: "1 star = poor, 5 stars = excellent" } },
+      { button: { label: "Write a review", url: reviewUrl } },
+      { small: "Tell us about your order experience: shipping, packaging, service. Please don't include dosing, usage or results. All products are for research use only." },
     ],
   };
 }

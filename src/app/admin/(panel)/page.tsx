@@ -47,7 +47,7 @@ export default function DashboardPage() {
       todos.push({ key: `low-${x.p.id}`, text: `${x.stock <= 0 ? "Out of stock" : "Low stock"}: ${x.p.name}`, sub: `${x.stock} left (warning at ${x.lowAt}).`, button: "Restock", href: "/admin/inventory", tone: x.stock <= 0 ? "neg" : "warn" });
     }
     if (low.length > 4) todos.push({ key: "low-more", text: `${low.length - 4} more products are low on stock`, button: "Open inventory", href: "/admin/inventory", tone: "warn" });
-    if (c.reviews > 0) todos.push({ key: "reviews", text: plur(c.reviews, "review to approve", "reviews to approve"), button: "Open reviews", href: "/admin/reviews", tone: "neutral" });
+    if (c.reviews > 0) todos.push({ key: "reviews", text: plur(c.reviews, "review waiting for you", "reviews waiting for you"), sub: "Flagged text or photos to approve.", button: "Open reviews", href: "/admin/reviews", tone: "neutral" });
     if (c.messages > 0) todos.push({ key: "msgs", text: plur(c.messages, "new message", "new messages"), button: "Read messages", href: "/admin/content?tab=messages", tone: "neutral" });
     for (const [i, w] of paymentWarnings(data.store.payments).entries()) todos.push({ key: `pay-${i}`, text: w, button: "Open settings", href: "/admin/settings?tab=payments", tone: "warn" });
 

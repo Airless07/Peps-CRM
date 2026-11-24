@@ -6,7 +6,8 @@ import { bestSellerRow } from "@/lib/store/catalog";
 import type { SiteContent } from "@/lib/store/config";
 import { faqForDisplay } from "@/lib/store/copy";
 import { storeSnapshot } from "@/lib/store/server";
-import type { ReviewRec } from "@/lib/types";
+import { StarRow, VerifiedBadge } from "@/components/storefront/reviews";
+import { latestGoodReviews, reviewSummary } from "@/lib/reviews/ops";
 
 const DEFAULT_HERO_VIALS = {
   left: "/hero/klow-80mg.png",
@@ -119,7 +120,9 @@ export default async function HomePage() {
   const faq = faqForDisplay(content.faq, data.store.payments);
   const sizes = catalog.products.flatMap((p) => p.variants);
   const sizesWithCoa = sizes.filter((v) => v.testing === "coa_available" && v.coa).length;
-  const reviews: ReviewRec[] = data.reviews.filter((r) => r.status === "approved").slice(0, 6);
+  // "What customers say": only with at least 3 live reviews. Latest live 4-5 star ones, read fresh (no cache).
+  const [summary, goodReviews] = await Promise.all([reviewSummary(), latestGoodReviews(6)]);
+  const reviews = summary.count >= 3 ? goodReviews : [];
   const tested = catalog.products.filter((p) => leadVariant(p).testing === "coa_available").slice(0, 4);
 
   const sections: Record<string, (title: string) => React.ReactNode> = {
@@ -211,15 +214,30 @@ export default async function HomePage() {
     ),
     reviews: (title) =>
       reviews.length > 0 && (
-        <section key="reviews" className="s-wrap py-16 sm:py-24">
-          <SectionHead title={title} />
+        <section key="reviews" className="s-wrap py-16 sm:py-24" data-home-reviews>
+          <div className="mb-9 flex flex-wrap items-end justify-between gap-6" data-reveal>
+            <div>
+              <h2 className="s-h2">{title}</h2>
+              <p className="mt-3 flex items-center gap-2 text-[15px] text-stone">
+                <StarRow n={summary.average} />
+                <span>
+                  <strong className="font-semibold text-coal tabular-nums">{summary.average.toFixed(1)}</strong> out of 5 from {summary.count} reviews
+                </span>
+              </p>
+            </div>
+            <Link href="/reviews" className="inline-flex shrink-0 items-center gap-1 text-[15px] font-medium text-coal underline decoration-rule underline-offset-[6px] transition hover:decoration-coal">
+              Read all reviews <ArrowUpRight size={16} />
+            </Link>
+          </div>
           <ul className="grid gap-x-10 gap-y-10 md:grid-cols-2 lg:grid-cols-3">
             {reviews.map((r, i) => (
               <li key={r.id} className="border-t border-coal pt-5" data-reveal style={{ ["--i" as string]: i % 3 }}>
-                <Stars n={r.rating} />
-                {r.text && <blockquote className="mt-3 text-[1.0625rem] leading-relaxed">{r.text}</blockquote>}
-                <p className="mt-4 text-sm text-stone">
-                  <span className="font-medium text-coal">{r.displayName}</span> · Verified buyer{r.edited ? " · Edited by store" : ""}
+                <StarRow n={r.rating} />
+                {r.title && <p className="mt-3 font-semibold">{r.title}</p>}
+                <blockquote className={`${r.title ? "mt-1" : "mt-3"} line-clamp-6 text-[1.0625rem] leading-relaxed`}>{r.text}</blockquote>
+                <p className="mt-4 flex flex-wrap items-center gap-2 text-sm text-stone">
+                  <span className="font-medium text-coal">{r.displayName}</span>
+                  {r.verified && <VerifiedBadge />}
                 </p>
               </li>
             ))}

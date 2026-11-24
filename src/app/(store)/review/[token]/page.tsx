@@ -1,33 +1,31 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ReviewForm } from "@/components/storefront/forms";
-import { prisma } from "@/lib/db";
+import { ReviewForm } from "@/components/storefront/reviews";
+import { orderForToken } from "@/lib/reviews/ops";
+import { shortName } from "@/lib/reviews/rules";
 
 export const metadata: Metadata = { title: "Review your order", robots: { index: false, follow: false } };
 export const dynamic = "force-dynamic";
 
-/** "Mike Johnson" -> "Mike J." */
-function shortName(full: string): string {
-  const parts = full.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "";
-  return parts.length === 1 ? parts[0] : `${parts[0]} ${parts[parts.length - 1][0].toUpperCase()}.`;
-}
-
-export default async function ReviewPage({ params }: { params: Promise<{ token: string }> }) {
+/**
+ * The review link from the order email. It already identifies the order, so there is no sign in / guest
+ * choice: straight to the form, rating preselected from the star that was tapped (?rating=4).
+ */
+export default async function ReviewPage({ params, searchParams }: { params: Promise<{ token: string }>; searchParams: Promise<{ rating?: string }> }) {
   const { token } = await params;
-  const order = token.length >= 16 ? await prisma.order.findUnique({ where: { reviewToken: token }, include: { review: true } }) : null;
-  const valid = order && (order.status === "delivered" || order.status === "picked_up");
+  const { rating } = await searchParams;
+  const order = await orderForToken(token);
   return (
     <div className="s-wrap pb-8 pt-10 sm:pt-16">
       <div className="mx-auto max-w-xl">
-        {!valid ? (
+        {!order ? (
           <>
             <h1 className="text-4xl font-semibold" style={{ letterSpacing: "-0.03em" }}>
               This review link is not valid
             </h1>
-            <p className="mt-3 text-[1.0625rem] leading-relaxed text-stone">Use the link from your “How was your order?” email. It works once the order is delivered.</p>
-            <Link href="/" className="s-btn-primary mt-6">
-              Go to the store
+            <p className="mt-3 text-[1.0625rem] leading-relaxed text-stone">Use the link from your “How was your order?” email. You can also leave a review from the reviews page.</p>
+            <Link href="/reviews" className="s-btn-primary mt-6">
+              Go to reviews
             </Link>
           </>
         ) : order.review ? (
@@ -36,8 +34,8 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
               You already reviewed this order
             </h1>
             <p className="mt-3 text-[1.0625rem] leading-relaxed text-stone">Thank you. One review per order.</p>
-            <Link href="/shop" className="s-btn-primary mt-6">
-              Back to the shop
+            <Link href="/reviews" className="s-btn-primary mt-6">
+              See all reviews
             </Link>
           </>
         ) : (
@@ -45,8 +43,8 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
             <h1 className="text-4xl font-semibold leading-[1.05]" style={{ letterSpacing: "-0.03em" }}>
               How was your order?
             </h1>
-            <p className="mb-8 mt-3 text-[1.0625rem] leading-relaxed text-stone">Order #{order.number}. Tell us how shipping, packaging and service went.</p>
-            <ReviewForm token={token} defaultName={shortName(order.customer)} orderNumber={order.number ?? 0} />
+            <p className="mb-8 mt-3 text-[1.0625rem] leading-relaxed text-stone">Thanks for ordering. Your review shows a “Verified order” badge.</p>
+            <ReviewForm token={token} orderNumber={order.number ?? 0} initialRating={Number(rating) || 0} defaultName={shortName(order.customer)} defaultEmail={order.email} />
           </>
         )}
       </div>

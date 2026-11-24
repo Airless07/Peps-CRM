@@ -11,6 +11,7 @@ export async function wipe(tx: Tx) {
   await tx.payout.deleteMany();
   await tx.splitItem.deleteMany();
   await tx.split.deleteMany();
+  await tx.reviewPhoto.deleteMany();
   await tx.review.deleteMany();
   await tx.promotionUse.deleteMany();
   await tx.promotion.deleteMany();
@@ -156,7 +157,12 @@ export async function restore(input: AppData | Parameters<typeof normalizeBackup
       });
       await tx.promotionUse.createMany({ data: data.promotions.flatMap((p) => p.uses.map((u) => ({ ...u, createdAt: d(u.createdAt) }))) });
       await tx.review.createMany({
-        data: data.reviews.map((r) => ({ ...r, orderId: r.orderId && orderIds.has(r.orderId) ? r.orderId : null, createdAt: d(r.createdAt) })),
+        // Older backups have no "verified": every review then came from the order email link.
+        data: data.reviews.map(({ photos: _p, ...r }) => ({ ...r, verified: r.verified ?? !!r.orderId, orderId: r.orderId && orderIds.has(r.orderId) ? r.orderId : null, createdAt: d(r.createdAt) })),
+      });
+      // Backups from before review photos have none. The photo files themselves are not part of a backup.
+      await tx.reviewPhoto.createMany({
+        data: data.reviews.flatMap((r) => (r.photos ?? []).map((p) => ({ ...p, reviewId: r.id, createdAt: d(p.createdAt) }))),
       });
       await tx.contactMessage.createMany({ data: data.messages.map((m) => ({ ...m, createdAt: d(m.createdAt) })) });
       await tx.savedOrder.createMany({

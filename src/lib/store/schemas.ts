@@ -108,11 +108,6 @@ export const contactInput = z.object({
   website: z.string().max(0).optional(),
 });
 
-export const reviewInput = z.object({
-  rating: z.number().int().min(1).max(5),
-  text: text(1500).default(""),
-  displayName: text(60).min(1, "Enter a display name"),
-});
 
 // ---------------------------------------------------------------- Admin
 export const orderAction = z.discriminatedUnion("action", [
@@ -238,5 +233,5 @@ export const promotionInput = z.object({
   active: z.boolean().default(true),
 });
 
-export const reviewUpdate = z.object({ status: z.enum(["pending", "approved", "hidden"]).optional(), text: text(1500).optional(), displayName: text(60).min(1).optional() });
+export const reviewUpdate = z.object({ status: z.enum(["pending", "approved", "hidden"]).optional(), title: text(80).optional(), text: text(1500).optional(), displayName: text(60).min(1).optional() });
 export const coaUpdate = z.object({ lot: text(60).optional(), testDate: optDate, purity: text(40).optional(), isCurrent: z.boolean().optional() });

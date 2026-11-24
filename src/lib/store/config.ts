@@ -2,6 +2,8 @@
 // over these defaults, so adding a field later never needs a database migration.
 // Pure: safe to import from server and client.
 
+import { cleanFlagWords, DEFAULT_FLAG_WORDS } from "../reviews/rules";
+
 export interface ShipFrom {
   name: string;
   street1: string;
@@ -60,6 +62,11 @@ export interface StoreSettings {
   handoverEmails: { delivered: boolean; pickedUp: boolean; readyDelivery: boolean; readyPickup: boolean; switched: boolean };
   /** The line in the "out for delivery soon" email (Settings > Email). */
   deliveryReadyLine: string;
+  /**
+   * Reviews: the automatic "How was your order?" email (on/off, days after delivery) and the words that
+   * hold a review for a check before it goes live (Admin > Reviews).
+   */
+  reviews: { requestEmail: boolean; requestDays: number; flagWords: string[] };
 }
 
 export const DEFAULT_DELIVERY_READY_LINE = "We'll deliver it within the next 1 to 2 days.";
@@ -170,6 +177,7 @@ export const DEFAULT_STORE: StoreSettings = {
   launchTicks: {},
   handoverEmails: { delivered: true, pickedUp: true, readyDelivery: true, readyPickup: true, switched: true },
   deliveryReadyLine: DEFAULT_DELIVERY_READY_LINE,
+  reviews: { requestEmail: true, requestDays: 3, flagWords: [...DEFAULT_FLAG_WORDS] },
   local: {
     homeZip: "",
     radiusMiles: 15,
@@ -257,7 +265,7 @@ export const DEFAULT_CONTENT: SiteContent = {
     { id: "groups", title: "Shop by category", show: true },
     { id: "products", title: "All products", show: true },
     { id: "quality", title: "Testing, shown honestly", show: true },
-    { id: "reviews", title: "Order experience", show: true },
+    { id: "reviews", title: "What customers say", show: true },
     { id: "faq", title: "Common questions", show: true },
   ],
   quality: {
@@ -484,6 +492,9 @@ export function parseStore(json: string | null | undefined): StoreSettings {
     switched: he.switched !== false,
   };
   s.deliveryReadyLine = typeof s.deliveryReadyLine === "string" && s.deliveryReadyLine.trim() ? s.deliveryReadyLine.trim().slice(0, 300) : DEFAULT_DELIVERY_READY_LINE;
+  const rv = (s.reviews ?? {}) as Partial<StoreSettings["reviews"]>;
+  const days = Math.round(Number(rv.requestDays));
+  s.reviews = { requestEmail: rv.requestEmail !== false, requestDays: Number.isFinite(days) && days >= 1 && days <= 60 ? days : 3, flagWords: rv.flagWords === undefined ? [...DEFAULT_FLAG_WORDS] : cleanFlagWords(rv.flagWords) };
   const ticks = s.launchTicks && typeof s.launchTicks === "object" && !Array.isArray(s.launchTicks) ? s.launchTicks : {};
   s.launchTicks = Object.fromEntries(Object.entries(ticks).filter(([k, v]) => /^[a-z0-9-]{1,40}$/.test(k) && typeof v === "string" && v.length <= 40).slice(0, 30));
   return s;
@@ -533,7 +544,8 @@ export function parseContent(json: string | null | undefined): SiteContent {
     return true;
   });
   for (const s of DEFAULT_CONTENT.sections) if (!seen.has(s.id)) sections.push(s);
-  c.sections = sections;
+  // The reviews section was called "Order experience" before the reviews page: the old default gets the new one.
+  c.sections = sections.map((s) => (s.id === "reviews" && s.title === "Order experience" ? { ...s, title: "What customers say" } : s));
   if (!Array.isArray(c.faq)) c.faq = DEFAULT_CONTENT.faq;
   return c;
 }

@@ -90,6 +90,7 @@ const NAV = [
   { href: "/collections", label: "Collections" },
   { href: "/testing", label: "Testing" },
   { href: "/about", label: "About" },
+  { href: "/reviews", label: "Reviews" },
   { href: "/faq", label: "FAQ" },
   { href: "/refer", label: "Refer & Earn" },
 ];

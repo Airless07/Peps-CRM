@@ -468,17 +468,38 @@ export interface PromotionRec {
   uses: PromotionUseRec[];
 }
 
+/** "approved" = live on the site, "pending" = needs review (flagged text), "hidden". */
 export type ReviewStatus = "pending" | "approved" | "hidden";
+export type ReviewPhotoStatus = "pending" | "approved" | "rejected";
+export type ReviewSource = "email_link" | "account" | "guest";
+
+export interface ReviewPhotoRec {
+  id: string;
+  file: string;
+  width: number;
+  height: number;
+  status: ReviewPhotoStatus;
+  sort: number;
+  createdAt: string;
+}
 
 export interface ReviewRec {
   id: string;
   orderId: string | null;
   rating: number;
+  title: string;
   text: string;
   displayName: string;
+  /** Never shown publicly. */
+  email: string;
   status: ReviewStatus;
+  /** Why the text is waiting for a check. Empty = clean. */
+  flagReason: string;
+  verified: boolean;
+  source: ReviewSource;
   edited: boolean;
   createdAt: string;
+  photos: ReviewPhotoRec[];
 }
 
 export interface MessageRec {

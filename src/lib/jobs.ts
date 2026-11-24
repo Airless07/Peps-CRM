@@ -2,10 +2,12 @@
 //  - every 3 minutes: cancel unpaid website orders whose time ran out, and send the
 //    halfway payment reminder to the ones that still have time
 //  - every hour: make today's database backup if it doesn't exist yet
+//  - every 30 minutes: send the "How was your order?" review requests that are due (X days after delivery)
 //  - at startup: make sure every product has a parent and every parent has a URL slug
 import { ensureDailyBackup } from "./backups";
 import { ensureCatalog } from "./catalog-ops";
 import { autoCancelDue, sendUnpaidReminders } from "./order-ops";
+import { sendReviewRequests } from "./reviews/ops";
 
 const g = globalThis as unknown as { __storeJobs?: boolean };
 
@@ -25,7 +27,9 @@ export function startJobs() {
     safely("ensureCatalog", ensureCatalog);
     safely("autoCancel", () => autoCancelDue()).then(() => safely("unpaidReminders", () => sendUnpaidReminders()));
     safely("dailyBackup", () => ensureDailyBackup());
+    safely("reviewRequests", () => sendReviewRequests());
   }, 4000).unref?.();
+  setInterval(() => safely("reviewRequests", () => sendReviewRequests()), 30 * 60_000).unref?.();
   setInterval(() => safely("autoCancel", () => autoCancelDue()).then(() => safely("unpaidReminders", () => sendUnpaidReminders())), 3 * 60_000).unref?.();
   setInterval(() => safely("dailyBackup", () => ensureDailyBackup()), 60 * 60_000).unref?.();
 }

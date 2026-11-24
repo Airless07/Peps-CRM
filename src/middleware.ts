@@ -25,12 +25,12 @@ function sameOrigin(req: NextRequest): boolean {
 }
 
 /** Pages that show one person's data (account, cart, checkout, an order): never cached anywhere. */
-const PRIVATE_PAGES = ["/account", "/checkout", "/cart", "/order/", "/order-lookup", "/refer", "/review/"];
+const PRIVATE_PAGES = ["/account", "/checkout", "/cart", "/order/", "/order-lookup", "/refer", "/review/", "/reviews/write"];
 const isPrivatePage = (p: string) => PRIVATE_PAGES.some((x) => p === x || p.startsWith(x.endsWith("/") ? x : `${x}/`));
 const NO_STORE = "private, no-store";
 
 /** Pages and APIs the gate below looks at. Every other path only gets the domain redirect. */
-const GATED = /^\/(admin|api|account|checkout|cart|order|order-lookup|refer|review)(\/|$)/;
+const GATED = /^\/(admin|api|account|checkout|cart|order|order-lookup|refer|review|reviews\/write)(\/|$)/;
 
 export async function middleware(req: NextRequest) {
   // www.buckshotlabs.com and the railway.app address move to SITE_URL for good (301), keeping the path and query.

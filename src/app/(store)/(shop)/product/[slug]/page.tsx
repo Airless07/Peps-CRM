@@ -35,7 +35,6 @@ export default async function ProductPage({ params }: Props) {
   const base = siteUrl(data.store);
   const group = catalog.groups.find((g) => p.groupIds.includes(g.id));
   const related = catalog.products.filter((x) => x.id !== p.id && (x.groupIds.some((g) => p.groupIds.includes(g)) || p.groupIds.length === 0)).slice(0, 4);
-  const reviews = data.reviews.filter((r) => r.status === "approved").slice(0, 3);
 
   // Structured data for search engines: public facts only.
   const jsonLd = {
@@ -78,26 +77,6 @@ export default async function ProductPage({ params }: Props) {
       <TrackProductView id={p.id} />
       <ProductView p={p} />
 
-      {reviews.length > 0 && (
-        <section className="mt-24 border-t border-rule pt-14">
-          <h2 className="s-h2">Order experience</h2>
-          <p className="mt-2 text-[15px] text-stone">What verified buyers say about shipping, packaging and service.</p>
-          <ul className="mt-8 grid gap-x-10 gap-y-8 md:grid-cols-3">
-            {reviews.map((r) => (
-              <li key={r.id} className="border-t border-coal pt-5" data-reveal>
-                <span className="text-sm font-semibold text-brand" role="img" aria-label={`${r.rating} out of 5 stars`}>
-                  {"★".repeat(r.rating)}
-                  <span className="text-rule">{"★".repeat(5 - r.rating)}</span>
-                </span>
-                {r.text && <blockquote className="mt-2 text-[15px] leading-relaxed">{r.text}</blockquote>}
-                <p className="mt-3 text-sm text-stone">
-                  <span className="font-medium text-coal">{r.displayName}</span> · Verified buyer{r.edited ? " · Edited by store" : ""}
-                </p>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
 
       {related.length > 0 && (
         <section className="mt-24">

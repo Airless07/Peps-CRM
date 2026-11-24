@@ -118,6 +118,7 @@ export default async function StoreLayout({ children }: { children: React.ReactN
                     ["/shop", "All products"],
                     ["/collections", "Collections"],
                     ["/testing", "Testing and COAs"],
+                    ["/reviews", "Customer reviews"],
                     ["/cart", "Cart"],
                   ]}
                 />

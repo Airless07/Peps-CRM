@@ -8,6 +8,7 @@ export interface AdminCounts {
   readyToShip: number;
   /** Local orders still to hand over. */
   local: number;
+  /** Reviews waiting for you: flagged text, or a photo to approve. */
   reviews: number;
   messages: number;
   total: number;
@@ -27,7 +28,7 @@ export function adminCounts(data: AppData | null): AdminCounts {
     screenshots: awaiting.filter((o) => o.web?.hasScreenshot).length,
     readyToShip: data.orders.filter(isReadyToShip).length,
     local: [...data.orders, ...data.pendingOrders].filter(isOpenLocal).length,
-    reviews: data.reviews.filter((r) => r.status === "pending").length,
+    reviews: data.reviews.filter((r) => r.status === "pending" || (r.status !== "hidden" && (r.photos ?? []).some((p) => p.status === "pending"))).length,
     messages: data.messages.filter((m) => !m.handled).length,
   };
   return { ...c, total: c.awaitingPayment + c.readyToShip + c.reviews + c.messages };

@@ -85,7 +85,7 @@ export function toPublicOrder(row: NonNullable<Awaited<ReturnType<typeof findRow
     cancelReason: w.cancelReason,
     tracking: w.trackingNumber ? { number: w.trackingNumber, carrier: w.trackingCarrier, url: trackingUrl(w.trackingCarrier, w.trackingNumber) } : null,
     steps,
-    canReview: (s === "delivered" || s === "picked_up") && !row.review && !!row.reviewToken,
+    canReview: (s === "delivered" || s === "picked_up") && !row.review,
     local: local
       ? {
           method: local,
@@ -126,7 +126,7 @@ export async function publicOrderByToken(token: string, store: StoreSettings): P
   if (!token || token.length < 16) return null;
   const row = await findRow(token);
   if (!row || row.source !== "online") return null;
-  return { ...toPublicOrder(row, store), reviewToken: row.status === "delivered" && !row.review ? row.reviewToken : null };
+  return { ...toPublicOrder(row, store), reviewToken: (row.status === "delivered" || row.status === "picked_up") && !row.review ? row.reviewToken : null };
 }
 
 export async function accountOrders(customerId: string, store: StoreSettings): Promise<PublicOrder[]> {

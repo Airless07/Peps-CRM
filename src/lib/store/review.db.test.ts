@@ -163,7 +163,9 @@ describe("migration 20261116120000_labs_review on stored values", () => {
     expect(c.faq).toEqual(DEFAULT_CONTENT.faq);
     expect(c.about).toEqual(DEFAULT_CONTENT.about);
     expect(c.seo).toEqual(DEFAULT_CONTENT.seo);
-    expect(c.sections).toEqual(DEFAULT_CONTENT.sections);
+    // Read back through parseContent: the old reviews section title "Order experience" becomes "What customers say".
+    const { parseContent } = await import("./config");
+    expect(parseContent(JSON.stringify(c)).sections).toEqual(DEFAULT_CONTENT.sections);
     // The policies this migration wrote are the ones the startup policy update (data-migrations.ts,
     // "policies-and-contact-2026-11") recognizes and replaces with today's defaults.
     const before = (await import("./policies-before-2026-11.json")).default;
@@ -230,7 +232,10 @@ describe("internal order notes", () => {
     await ops.markPaid(id, { paymentMethod: "Zelle" });
     await ops.markShipped(id, { trackingNumber: "9400100000000000000000", carrier: "USPS" });
     await ops.markDelivered(id);
-    expect(sent.map((e) => e.subject)).toEqual([expect.stringContaining("Payment confirmed"), expect.stringContaining("has shipped"), expect.stringContaining("How was your order")]);
+    // The review request now goes out a few days after delivery (reviews/ops), not at delivery.
+    const { sendReviewRequests } = await import("../reviews/ops");
+    await sendReviewRequests({ now: new Date(Date.now() + 4 * 24 * 3600_000) });
+    expect(sent.map((e) => e.subject)).toEqual([expect.stringContaining("Payment confirmed"), expect.stringContaining("has shipped"), expect.stringContaining("How was your")]);
     for (const e of sent) expect(e.html + e.text + e.subject).not.toContain("INTERNAL-ONLY");
     // Marking paid, shipped and delivered keeps the note.
     expect((await ser.loadAll()).orders.find((o) => o.id === id)!.adminNote).toBe(SECRET);

@@ -1,6 +1,6 @@
 "use client";
 
-// Small store forms: order lookup, contact, review, password reset, and the account page.
+// Small store forms: order lookup, contact, password reset, and the account page. (Reviews: reviews.tsx)
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -145,87 +145,6 @@ export function ContactForm({ account }: { account: { name: string; email: strin
       {error && <Alert>{error}</Alert>}
       <button className="s-btn-primary" disabled={busy}>
         {busy ? "Sending…" : "Send message"}
-      </button>
-    </form>
-  );
-}
-
-// ---------------------------------------------------------------- Review
-export function ReviewForm({ token, defaultName, orderNumber }: { token: string; defaultName: string; orderNumber: number }) {
-  const [rating, setRating] = useState(0);
-  const [hover, setHover] = useState(0);
-  const [text, setText] = useState("");
-  const [name, setName] = useState(defaultName);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [sent, setSent] = useState(false);
-  if (sent) {
-    return (
-      <div className="rounded-2xl bg-soft p-7" role="status">
-        <h2 className="text-2xl font-semibold">Thank you</h2>
-        <p className="mt-2 text-[15px] leading-relaxed text-stone">Your review of order #{orderNumber} was received. It appears on the site once our team has looked at it.</p>
-        <Link href="/shop" className="s-btn-line mt-5">
-          Back to the shop
-        </Link>
-      </div>
-    );
-  }
-  const words = ["", "Poor", "Fair", "Good", "Very good", "Excellent"];
-  return (
-    <form
-      noValidate
-      className="space-y-6"
-      onSubmit={async (e) => {
-        e.preventDefault();
-        setError("");
-        if (rating < 1) return setError("Pick a star rating from 1 to 5.");
-        if (!name.trim()) return setError("Enter a display name.");
-        setBusy(true);
-        try {
-          await post(`/api/store/review/${token}`, { rating, text, displayName: name });
-          setSent(true);
-        } catch (err) {
-          setError((err as Error).message);
-        }
-        setBusy(false);
-      }}
-    >
-      <fieldset>
-        <legend className="s-label">Shipping speed, packaging and service</legend>
-        <div className="flex items-center gap-1" onMouseLeave={() => setHover(0)}>
-          {[1, 2, 3, 4, 5].map((n) => (
-            <label key={n} className="cursor-pointer p-1" onMouseEnter={() => setHover(n)}>
-              <input type="radio" name="rating" value={n} checked={rating === n} onChange={() => setRating(n)} className="peer sr-only" />
-              <svg viewBox="0 0 20 20" className={`h-10 w-10 transition peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-brand ${n <= (hover || rating) ? "fill-brand" : "fill-rule"}`} aria-hidden>
-                <path d="M10 1.6l2.6 5.3 5.8.8-4.2 4.1 1 5.8L10 14.9l-5.2 2.7 1-5.8L1.6 7.7l5.8-.8z" />
-              </svg>
-              <span className="sr-only">
-                {n} {n === 1 ? "star" : "stars"}
-              </span>
-            </label>
-          ))}
-          <span className="ml-3 text-[15px] font-medium" aria-live="polite">
-            {words[hover || rating]}
-          </span>
-        </div>
-      </fieldset>
-      <div>
-        <label className="s-label" htmlFor="rv-t">
-          Your review (optional)
-        </label>
-        <textarea id="rv-t" className="s-input h-auto min-h-[130px] py-3" maxLength={1500} value={text} onChange={(e) => setText(e.target.value)} />
-        <span className="s-hint">Please review your order experience. Reviews about product use or results will not be published.</span>
-      </div>
-      <div>
-        <label className="s-label" htmlFor="rv-n">
-          Display name
-        </label>
-        <input id="rv-n" className="s-input max-w-xs" maxLength={60} value={name} onChange={(e) => setName(e.target.value)} />
-        <span className="s-hint">Shown next to your review with a “Verified buyer” label.</span>
-      </div>
-      {error && <Alert>{error}</Alert>}
-      <button className="s-btn-primary" disabled={busy}>
-        {busy ? "Sending…" : "Submit review"}
       </button>
     </form>
   );
@@ -468,6 +387,11 @@ export function AccountView({ account, orders, statusText, credit }: { account: 
                     </span>
                     <span className="font-semibold tabular-nums">{money(o.totalCents)}</span>
                   </Link>
+                  {o.canReview && (
+                    <Link href={`/reviews/write?order=${o.number}`} className="s-link -mt-2 mb-4 inline-block text-sm sm:ml-[6.5rem]" data-review-order-link>
+                      Review this order
+                    </Link>
+                  )}
                 </li>
               ))}
             </ul>

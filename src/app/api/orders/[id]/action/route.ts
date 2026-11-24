@@ -26,7 +26,7 @@ export const POST = route(async (req, ctx: Ctx<{ id: string }>) => {
       return { ok: true, message: "Marked shipped." };
     case "mark-delivered":
       await markDelivered(id, { origin });
-      return { ok: true, message: "Marked delivered. The customer was asked for a review." };
+      return { ok: true, message: "Marked delivered. The review request email goes out a few days from now (Settings, Email)." };
     case "check-tracking": {
       const r = await checkTracking(id, origin);
       return { ok: true, message: r.note, changed: r.changed };

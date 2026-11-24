@@ -24,7 +24,7 @@ const SECTION_HELP: Record<string, string> = {
   groups: "Your product groups as collection tiles.",
   products: "Every product on the website.",
   quality: "The testing and COA section.",
-  reviews: "Published store experience reviews.",
+  reviews: "The latest live 4 and 5 star reviews with the average rating. Hidden until there are 3 live reviews.",
   faq: "The first few questions from the FAQ.",
 };
 const POLICY_PATH: Record<PolicyId, string> = { terms: "/terms", privacy: "/privacy", shipping: "/shipping", refunds: "/refunds", "research-use": "/research-use" };

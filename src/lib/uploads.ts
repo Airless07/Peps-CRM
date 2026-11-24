@@ -105,7 +105,34 @@ export async function saveScreenshot(buf: Buffer): Promise<string> {
   return file;
 }
 
-const MIME: Record<string, string> = { webp: "image/webp", png: "image/png", pdf: "application/pdf" };
+/** Review photo sizes: a card thumbnail and the "click to enlarge" view. */
+export const REVIEW_PHOTO_WIDTHS = [480, 1600] as const;
+
+/**
+ * Customer review photo: JPG, PNG or WebP only, up to 8 MB. Turned upright, resized, re-encoded as WebP.
+ * Re-encoding writes no metadata, so EXIF (camera, date, GPS location) never reaches the saved file.
+ * Saved PRIVATE: a photo is only served publicly after the owner approves it.
+ */
+export async function saveReviewPhoto(buf: Buffer): Promise<{ id: string; width: number; height: number }> {
+  tooBig(buf, 8, "photo");
+  const meta = await imageMeta(buf, "photo");
+  if (!["jpeg", "png", "webp"].includes(meta.format!)) throw new HttpError(400, "Photos must be JPG, PNG or WebP.");
+  const id = newId();
+  let size = { width: 0, height: 0 };
+  for (const w of REVIEW_PHOTO_WIDTHS) {
+    const out = await sharp(buf).rotate().resize({ width: w, height: w, fit: "inside", withoutEnlargement: true }).webp({ quality: 82 }).toFile(path.join(privateUploadsDir(), `${id}-${w}.webp`));
+    if (w === 1600) size = { width: out.width, height: out.height };
+  }
+  return { id, ...size };
+}
+
+/** Remove both sizes of a review photo (best effort). */
+export async function removeReviewPhoto(id: string) {
+  if (!/^[a-f0-9]{16}$/.test(id)) return;
+  await Promise.all(REVIEW_PHOTO_WIDTHS.map((w) => unlink(path.join(privateUploadsDir(), `${id}-${w}.webp`)).catch(() => {})));
+}
+
+const MIME: Record<string, string> ={ webp: "image/webp", png: "image/png", pdf: "application/pdf" };
 
 export async function readUpload(file: string, scope: "public" | "private"): Promise<{ body: Buffer; mime: string } | null> {
   if (!FILE_RE.test(file)) return null;

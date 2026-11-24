@@ -8,7 +8,6 @@ import {
   adminNewOrderEmail,
   adminScreenshotEmail,
   canceledEmail,
-  deliveredEmail,
   readyEmail,
   orderReceivedEmail,
   outcomeText,
@@ -656,18 +655,12 @@ export async function markDelivered(orderId: string, opts: { at?: Date; origin?:
   }
   const reviewToken = row.reviewToken ?? newToken();
   const at = opts.at ?? new Date();
-  // Only the request that changes the status emails (no double review request on a double click).
-  const changed = await prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx) => {
     const done = await tx.order.updateMany({ where: { id: orderId, status: order.status }, data: { status: "delivered", deliveredAt: at, shippedAt: row.shippedAt ?? at, reviewToken } });
-    if (done.count !== 1) return false;
+    if (done.count !== 1) return;
     await logEvent(tx, orderId, "status", opts.auto ? "Carrier reports delivered." : "Marked delivered.");
-    return true;
   });
-  if (changed && order.web?.email) {
-    const { store } = await getStore();
-    const base = siteUrl(store, opts.origin);
-    await mailOrder(store, orderId, order.web.email, "Review request email", deliveredEmail(store, emailOrder(order, base), `${base}/review/${reviewToken}`));
-  }
+  // No email now: the "How was your order?" review request goes out X days later (Settings > Email; reviews/ops).
 }
 
 // ---------------------------------------------------------------- Local pickup / delivery
@@ -732,7 +725,7 @@ export async function markHandedOver(orderId: string, opts: { at?: Date; origin?
   }
   const base = siteUrl(store, opts.origin);
   const { order: fresh } = await loadOrder(orderId);
-  await mailOrder(store, orderId, order.web.email, what, handedOverEmail(store, emailOrder(fresh, base), kind, content.contact.email.trim() || SUPPORT_EMAIL, `${base}/review/${reviewToken}`));
+  await mailOrder(store, orderId, order.web.email, what, handedOverEmail(store, emailOrder(fresh, base), kind, content.contact.email.trim() || SUPPORT_EMAIL, null));
 }
 
 // ---------------------------------------------------------------- Switch a shipped order to local

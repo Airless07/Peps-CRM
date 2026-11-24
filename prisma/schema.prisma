@@ -33,12 +33,12 @@ model Settings {
   sellButtonsJson      String   @default("")
   updatedAt            DateTime @updatedAt
   /// Bumped by "Sign out everywhere": every admin session made before stops working.
-  adminSessionVersion Int     @default(0)
+  adminSessionVersion  Int      @default(0)
   /// Optional two-step sign in for the admin (TOTP, RFC 6238). Base32 secret; empty = not set up.
-  totpSecret          String  @default("")
-  totpEnabled         Boolean @default(false)
+  totpSecret           String   @default("")
+  totpEnabled          Boolean  @default(false)
   /// Last 30-second step a code was accepted for: the same code can't be used twice.
-  totpLastStep        Int     @default(0)
+  totpLastStep         Int      @default(0)
 }
 
 /// Parent product shown on the website. Its variants are Product rows (one per size).
@@ -162,111 +162,113 @@ model StockAdjustment {
 }
 
 model Order {
-  id               String          @id
-  date             DateTime
+  id                    String          @id
+  date                  DateTime
   /// Snapshot of the customer name (kept in sync with the linked customer)
-  customer         String          @default("")
-  customerId       String?
-  linkedCustomer   Customer?       @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  customer              String          @default("")
+  customerId            String?
+  linkedCustomer        Customer?       @relation(fields: [customerId], references: [id], onDelete: SetNull)
   /// Name of the payment method at the time of sale ("Unknown" for old orders)
-  paymentMethod    String          @default("Unknown")
-  note             String          @default("")
+  paymentMethod         String          @default("Unknown")
+  note                  String          @default("")
   /// "A" | "B" | "W" (website)
-  soldBy           String          @default("A")
+  soldBy                String          @default("A")
   /// "$" | "%"
-  discountType     String          @default("$")
+  discountType          String          @default("$")
   /// Cents when discountType is "$", percent when "%"
-  discountValue    Float           @default(0)
-  tipCents         Int             @default(0)
-  createdAt        DateTime        @default(now())
+  discountValue         Float           @default(0)
+  tipCents              Int             @default(0)
+  createdAt             DateTime        @default(now())
   /// Sequential order number starting at 1001
-  number           Int?
+  number                Int?
   /// "inperson" | "online"
-  source           String          @default("inperson")
+  source                String          @default("inperson")
   /// In-person: "completed". Online: "awaiting_payment" | "paid" | "label_purchased" | "shipped" | "delivered" | "canceled"
-  status           String          @default("completed")
-  archived         Boolean         @default(false)
-  email            String          @default("")
-  phone            String          @default("")
+  status                String          @default("completed")
+  archived              Boolean         @default(false)
+  email                 String          @default("")
+  phone                 String          @default("")
   /// JSON { name, street1, street2, city, state, zip, country }
-  shipToJson       String          @default("")
+  shipToJson            String          @default("")
   /// Shipping charged to the customer. Goes 100% to business money.
-  shippingCents    Int             @default(0)
+  shippingCents         Int             @default(0)
   /// What the customer picked, e.g. "USPS Ground Advantage" or "Flat rate"
-  shippingMethod   String          @default("")
+  shippingMethod        String          @default("")
   /// JSON { carrier, service, cents } of the live rate picked at checkout
-  shippingRateJson String          @default("")
+  shippingRateJson      String          @default("")
   /// JSON { code, promotionIds, labels, freeShipping }
-  promoJson        String          @default("")
+  promoJson             String          @default("")
   /// Payment method id the customer picked at checkout ("zelle", "cashapp", "venmo", ...)
-  payChoice        String          @default("")
+  payChoice             String          @default("")
   /// Shipping tier id picked at checkout ("standard" | "priority" | "express")
-  shippingTier     String          @default("")
+  shippingTier          String          @default("")
   /// Secret link tokens
-  token            String?
-  reviewToken      String?
+  token                 String?
+  reviewToken           String?
   /// Private upload (payment screenshot)
-  screenshotFile   String          @default("")
-  cancelReason     String          @default("")
-  placedAt         DateTime?
-  expiresAt        DateTime?
-  paidAt           DateTime?
-  shippedAt        DateTime?
-  deliveredAt      DateTime?
-  canceledAt       DateTime?
-  trackingNumber   String          @default("")
-  trackingCarrier  String          @default("")
-  trackingStatus   String          @default("")
-  labelUrl         String          @default("")
+  screenshotFile        String          @default("")
+  cancelReason          String          @default("")
+  placedAt              DateTime?
+  expiresAt             DateTime?
+  paidAt                DateTime?
+  shippedAt             DateTime?
+  deliveredAt           DateTime?
+  canceledAt            DateTime?
+  trackingNumber        String          @default("")
+  trackingCarrier       String          @default("")
+  trackingStatus        String          @default("")
+  labelUrl              String          @default("")
   /// Internal note for the team. Never sent to or shown to the customer.
-  adminNote        String          @default("")
+  adminNote             String          @default("")
   /// When the unpaid-order reminder email was sent (once per order)
-  reminderSentAt   DateTime?
+  reminderSentAt        DateTime?
+  /// When the automatic "How was your order?" review request was sent (once per order). Null = not sent.
+  reviewRequestSentAt   DateTime?
   /// Owner purchase at cost: "A" | "B" (which partner). Null = a normal sale.
-  owner            String?
+  owner                 String?
   /// Cash sales: who received the cash, "A" | "B". Null = not recorded.
-  cashTo           String?
+  cashTo                String?
   /// Website orders: who received the payment, "A" | "B" (from Settings > Payments when marked paid). Null = Bank.
-  paidTo           String?
+  paidTo                String?
   /// Store credit used on this order (works like a discount). Taken from the balance only once the order counts.
-  storeCreditCents Int             @default(0)
+  storeCreditCents      Int             @default(0)
   /// Customer who referred this sale (earns referral credit once it counts). No relation on purpose.
-  referredById     String?
+  referredById          String?
   /// Referral code as typed / shown at the time of the order (kept even if the owner changes their code later).
-  referralCode     String          @default("")
+  referralCode          String          @default("")
   /// Referrer reward percent at the time of the order. Null = no referral. Later Settings changes never touch it.
-  referralRatePct  Float?
+  referralRatePct       Float?
   /// Buyer referral discount percent at the time of the order (already inside discountValue).
-  referralDiscountPct Float        @default(0)
+  referralDiscountPct   Float           @default(0)
   /// The buyer referral discount in cents (already inside discountValue; kept for display).
-  referralDiscountCents Int        @default(0)
+  referralDiscountCents Int             @default(0)
   /// Money given back to the customer after the order counted (partial or full refund). Lowers revenue.
-  refundedCents    Int             @default(0)
+  refundedCents         Int             @default(0)
   /// "ship" | "pickup" | "delivery". Local orders never go to the ship queue or buy a label.
-  fulfillment      String          @default("ship")
+  fulfillment           String          @default("ship")
   /// Local orders: preferred time window picked at checkout, and the customer's notes.
-  localTime        String          @default("")
-  localNotes       String          @default("")
+  localTime             String          @default("")
+  localNotes            String          @default("")
   /// Local pickup: JSON { name, street1, city, state, zip, instructions } of the pickup spot at order time.
-  localJson        String          @default("")
+  localJson             String          @default("")
   /// Local orders: "pay at pickup / delivery" (no auto-cancel; marked paid when the money is received).
-  payAtPickup      Boolean         @default(false)
+  payAtPickup           Boolean         @default(false)
   /// Local orders: when it was marked ready for pickup / delivery.
-  readyAt          DateTime?
+  readyAt               DateTime?
   /// Shipped order switched to local pickup / delivery from the admin: JSON { at, by, from, to, shipping
   /// charged before/after, difference, what was done with it, refund owed / paid back }. Empty = never switched.
-  localSwitchJson  String          @default("")
+  localSwitchJson       String          @default("")
   /// Label purchase in progress (set atomically before Shippo is called). Stops a label being bought twice.
-  labelLockAt      DateTime?
+  labelLockAt           DateTime?
   /// Website orders: the checkout consent box (21+, research use only, Terms). When, exact text, buyer IP.
-  consentAt        DateTime?
-  consentText      String          @default("")
-  consentIp        String          @default("")
-  lines            OrderLine[]
-  splitItems       SplitItem[]
-  labels           LabelPurchase[]
-  events           OrderEvent[]
-  review           Review?
+  consentAt             DateTime?
+  consentText           String          @default("")
+  consentIp             String          @default("")
+  lines                 OrderLine[]
+  splitItems            SplitItem[]
+  labels                LabelPurchase[]
+  events                OrderEvent[]
+  review                Review?
 
   @@unique([number])
   @@unique([token])
@@ -279,65 +281,65 @@ model Order {
 /// An in-person order saved for later on the Sell screen. Not an order yet: it never touches stock or money.
 /// Completing it creates a normal Order and removes this row.
 model SavedOrder {
-  id            String   @id
-  customer      String   @default("")
+  id               String   @id
+  customer         String   @default("")
   /// Linked customer, or a new id to create with the order when it is completed. No relation on purpose.
-  customerId    String?
-  paymentMethod String   @default("")
-  note          String   @default("")
+  customerId       String?
+  paymentMethod    String   @default("")
+  note             String   @default("")
   /// "A" | "B"
-  soldBy        String   @default("A")
+  soldBy           String   @default("A")
   /// "$" | "%"
-  discountType  String   @default("$")
-  discountValue Float    @default(0)
-  tipCents      Int      @default(0)
+  discountType     String   @default("$")
+  discountValue    Float    @default(0)
+  tipCents         Int      @default(0)
   /// JSON array of { id, productId, productName, quantity, unitPriceCents, unitCostCents, cutPercent, listPriceCents }
-  linesJson     String   @default("[]")
-  savedAt       DateTime @default(now())
+  linesJson        String   @default("[]")
+  savedAt          DateTime @default(now())
   /// Owner purchase at cost: "A" | "B". Null = normal.
-  owner         String?
+  owner            String?
   /// Cash: who will receive it, "A" | "B". Null = the seller.
-  cashTo        String?
+  cashTo           String?
   /// Store credit picked for this order. Only taken from the balance when it is completed.
-  storeCreditCents Int   @default(0)
-  referredById  String?
+  storeCreditCents Int      @default(0)
+  referredById     String?
 }
 
 model Customer {
-  id        String   @id
-  name      String
-  phone     String   @default("")
-  email     String   @default("")
-  notes     String   @default("")
-  createdAt DateTime @default(now())
+  id                  String               @id
+  name                String
+  phone               String               @default("")
+  email               String               @default("")
+  notes               String               @default("")
+  createdAt           DateTime             @default(now())
   /// Set when the customer has a website account
-  passwordHash   String?
+  passwordHash        String?
   /// JSON array of saved shipping addresses
-  addressesJson  String    @default("[]")
-  resetTokenHash String?
-  resetExpiresAt DateTime?
+  addressesJson       String               @default("[]")
+  resetTokenHash      String?
+  resetExpiresAt      DateTime?
   /// Invite / claim link (sha256 of the secret token). Single use; a new link replaces it.
-  inviteTokenHash String?
-  inviteExpiresAt DateTime?
+  inviteTokenHash     String?
+  inviteExpiresAt     DateTime?
   /// When the current (or last) invite link was made.
-  inviteCreatedAt DateTime?
+  inviteCreatedAt     DateTime?
   /// When an invite link was used, and the email it was claimed with.
-  inviteClaimedAt DateTime?
-  inviteClaimedEmail String?
+  inviteClaimedAt     DateTime?
+  inviteClaimedEmail  String?
   /// Set by "Set temporary password": the customer must choose a new one at next sign in.
-  mustChangePassword Boolean  @default(false)
-  lastLoginAt    DateTime?
+  mustChangePassword  Boolean              @default(false)
+  lastLoginAt         DateTime?
   /// Code this customer shares with friends, normalized UPPERCASE. Filled in for every customer.
   /// Unique across all referral codes AND discount codes (CodeClaim table, kept in sync by SQL triggers).
-  referralCode   String?      @unique
+  referralCode        String?              @unique
   /// The code as the customer typed it (e.g. "Sarah-K"). Null = show referralCode.
   referralCodeDisplay String?
   /// Who referred this customer. No relation on purpose (a deleted referrer just unlinks).
-  referredById   String?
-  orders    Order[]
-  credits   CreditEntry[]
-  codeChanges ReferralCodeChange[]
-  cart      CustomerCart?
+  referredById        String?
+  orders              Order[]
+  credits             CreditEntry[]
+  codeChanges         ReferralCodeChange[]
+  cart                CustomerCart?
 }
 
 /// A signed-in customer's cart, kept on the server so it follows the account (any device) and is
@@ -463,31 +465,31 @@ model OrderEvent {
 }
 
 model Promotion {
-  id               String         @id
+  id                String         @id
   /// "code" | "auto" | "free_shipping" | "bogo"
-  kind             String
-  name             String         @default("")
+  kind              String
+  name              String         @default("")
   /// Uppercase, only for kind "code"
-  code             String         @default("")
+  code              String         @default("")
   /// "$" | "%"
-  discountType     String         @default("$")
+  discountType      String         @default("$")
   /// Cents when "$", percent when "%"
-  discountValue    Float          @default(0)
-  minSubtotalCents Int            @default(0)
-  startsAt         DateTime?
-  endsAt           DateTime?
-  maxUses          Int?
-  oncePerEmail     Boolean        @default(false)
+  discountValue     Float          @default(0)
+  minSubtotalCents  Int            @default(0)
+  startsAt          DateTime?
+  endsAt            DateTime?
+  maxUses           Int?
+  oncePerEmail      Boolean        @default(false)
   /// JSON arrays. Empty = applies to everything.
-  listingIdsJson   String         @default("[]")
-  groupIdsJson     String         @default("[]")
+  listingIdsJson    String         @default("[]")
+  groupIdsJson      String         @default("[]")
   /// Free shipping rules only: JSON array of the shipping option ids it makes free ("standard" | "priority" | "express"). At least one.
-  shippingTiersJson String        @default("[]")
+  shippingTiersJson String         @default("[]")
   /// BOGO deals only (kind "bogo"): JSON { buy, get, online, inPerson, noCodes }. See src/lib/bogo.ts
-  bogoJson         String         @default("")
-  active           Boolean        @default(true)
-  createdAt        DateTime       @default(now())
-  uses             PromotionUse[]
+  bogoJson          String         @default("")
+  active            Boolean        @default(true)
+  createdAt         DateTime       @default(now())
+  uses              PromotionUse[]
 }
 
 /// One use of a promotion by an order. Removed when the order is canceled.
@@ -503,18 +505,50 @@ model PromotionUse {
   @@index([orderId])
 }
 
-/// Store experience review left through the secret link in the delivered email.
+/// Store experience review. From the order email link (verified), a signed-in account, or a guest.
 model Review {
-  id          String   @id
-  orderId     String?  @unique
-  order       Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  id          String        @id
+  orderId     String?       @unique
+  order       Order?        @relation(fields: [orderId], references: [id], onDelete: SetNull)
   rating      Int
-  text        String   @default("")
-  displayName String   @default("")
-  /// "pending" | "approved" | "hidden"
-  status      String   @default("pending")
-  edited      Boolean  @default(false)
-  createdAt   DateTime @default(now())
+  title       String        @default("")
+  text        String        @default("")
+  displayName String        @default("")
+  /// Never shown publicly. Used for the "Verified order" match and the per-email limits.
+  email       String        @default("")
+  /// "approved" (live) | "pending" (needs review: flagged text) | "hidden"
+  status      String        @default("pending")
+  /// Why the text was held for a check (flagged words, link, phone number). Empty = clean.
+  flagReason  String        @default("")
+  /// Shows the "Verified order" badge: came from the order email link, or the email matches a paid, delivered order.
+  verified    Boolean       @default(false)
+  /// "email_link" | "account" | "guest"
+  source      String        @default("email_link")
+  /// sha256 of the IP address (never the address itself), for the per-IP daily limit.
+  ipHash      String        @default("")
+  edited      Boolean       @default(false)
+  createdAt   DateTime      @default(now())
+  photos      ReviewPhoto[]
+
+  @@index([email, createdAt])
+  @@index([ipHash, createdAt])
+}
+
+/// Customer photo on a review. Private until approved in the admin; only approved photos are ever served publicly.
+model ReviewPhoto {
+  id        String   @id
+  reviewId  String
+  review    Review   @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  /// Upload id: files {file}-480.webp and {file}-1600.webp in the private uploads folder (EXIF/location stripped).
+  file      String
+  width     Int      @default(0)
+  height    Int      @default(0)
+  /// "pending" | "approved" | "rejected"
+  status    String   @default("pending")
+  sort      Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([reviewId])
 }
 
 model ContactMessage {
