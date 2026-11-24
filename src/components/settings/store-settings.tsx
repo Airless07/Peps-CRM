@@ -369,6 +369,17 @@ export function StoreSettingsTabs({ tab, onTab }: { tab: StoreTab; onTab: (t: st
                       <Input value={v.details} maxLength={120} onChange={(e) => set("payments", { ...p, [id]: { ...v, details: e.target.value } })} />
                     </Field>
                   )}
+                  <Field label="Who receives this money" hint="Website orders paid this way count toward that person’s cash held on the Money page (from when they are marked paid). Bank = business account.">
+                    <Select
+                      value={v.receiver ?? "bank"}
+                      onChange={(e) => set("payments", { ...p, [id]: { ...v, receiver: e.target.value as "A" | "B" | "bank" } })}
+                      data-pay-receiver={id}
+                    >
+                      <option value="A">{s?.data.settings.partnerAName || "Partner A"}</option>
+                      <option value="B">{s?.data.settings.partnerBName || "Partner B"}</option>
+                      <option value="bank">Bank</option>
+                    </Select>
+                  </Field>
                 </Card>
               );
             }

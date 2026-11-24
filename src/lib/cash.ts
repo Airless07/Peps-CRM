@@ -1,5 +1,6 @@
 // Cash tracking: where business money sits. Pure.
-// Each in-person cash sale is assigned to the partner who received the cash. Hand-offs move money
+// Each in-person cash sale is assigned to the partner who received the cash; each paid website order to
+// whoever receives its payment method (e.g. Zelle -> Mo). Refunds lower the same holder (the order total drops). Hand-offs move money
 // between Ahmad, Mo and the bank. Business money never changes here: Bank is simply whatever
 // business money is not held as cash by a partner.
 import { fmtMoney } from "./format";
@@ -8,8 +9,13 @@ import type { AppData, CashHandoffRec, CashHolder, OrderRec, Partner } from "./t
 
 export const isCash = (method: string | null | undefined) => (method ?? "").trim().toLowerCase() === "cash";
 
-/** Who received the cash for this sale (null when it isn't cash or wasn't recorded). */
-export const cashHolderOf = (o: Pick<OrderRec, "paymentMethod" | "cashTo" | "source">): Partner | null => (o.source === "inperson" && isCash(o.paymentMethod) && o.cashTo ? o.cashTo : null);
+/**
+ * Who holds the money from this sale (null = the bank).
+ * In person: the partner who received the cash (cash sales only). Website: whoever receives that payment
+ * method (Settings > Payments), saved on the order when it was marked paid.
+ */
+export const cashHolderOf = (o: Pick<OrderRec, "paymentMethod" | "cashTo" | "source"> & { paidTo?: Partner | null }): Partner | null =>
+  o.source === "inperson" ? (isCash(o.paymentMethod) && o.cashTo ? o.cashTo : null) : o.paidTo ?? null;
 
 export interface CashPosition {
   /** Cash each partner holds now (received + handed to them - handed away). */

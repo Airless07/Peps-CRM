@@ -126,6 +126,7 @@ export function toOrder(o: OrderWithLines): OrderRec {
     adminNote: o.adminNote,
     owner: partnerOrNull(o.owner),
     cashTo: partnerOrNull(o.cashTo),
+    paidTo: online ? partnerOrNull(o.paidTo) : null,
     storeCreditCents: o.storeCreditCents,
     referredById: o.referredById,
     referralCode: o.referralCode,

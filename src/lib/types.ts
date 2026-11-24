@@ -189,6 +189,8 @@ export interface OrderRec {
   owner?: Partner | null;
   /** Cash sales: who received the cash. Null/absent = not recorded. */
   cashTo?: Partner | null;
+  /** Website orders: who received the payment (Settings > Payments, saved when marked paid). Null/absent = Bank. */
+  paidTo?: Partner | null;
   /** Store credit used on this order. Works like a discount. Absent = 0. */
   storeCreditCents?: number;
   /** Customer who referred this sale (the referral code owner). */

@@ -27,7 +27,7 @@ import { lineName } from "./size";
 import { buyRate, parcelFor, pickRate, quoteRates, ratesByTier, registerTracking, trackPackage, trackingUrl, type RateOption, type TrackResult } from "./shippo";
 import { pricedVariants } from "./store/catalog";
 import { parseContent, parseStore, type ShippingTierId, type StoreSettings } from "./store/config";
-import { checkoutMethods, payInstructions, payMethod } from "./store/payments";
+import { checkoutMethods, payInstructions, payMethod, receiverOf } from "./store/payments";
 import { orderLinesOf, priceCart, shippingOptions, type CartItemInput } from "./store/pricing";
 import type { Address, AppData, LocalSwitch, OrderRec, PromoSnapshot, SwitchHandling } from "./types";
 import { track } from "./analytics";
@@ -401,6 +401,7 @@ export async function markPaid(orderId: string, opts: { paymentMethod: string; o
   const ledger = computeLedger(data);
   const now = new Date();
   const email = order.web?.email ?? "";
+  const paidTo = receiverOf(data.store.payments, opts.paymentMethod);
 
   await prisma.$transaction(async (tx) => {
     let customerId = order.customerId;
@@ -425,11 +426,12 @@ export async function markPaid(orderId: string, opts: { paymentMethod: string; o
     await tx.order.update({
       where: { id: orderId },
       // A local order already marked ready (pay at pickup) goes straight to "ready" once paid.
-      data: { status: order.readyAt ? "ready" : "paid", date: now, paidAt: now, soldBy: "W", paymentMethod: opts.paymentMethod.trim() || "Unknown", customerId, customer: customerName },
+      // paidTo: who receives this payment method (Settings > Payments) as it is now. Later Settings changes never touch it.
+      data: { status: order.readyAt ? "ready" : "paid", date: now, paidAt: now, soldBy: "W", paymentMethod: opts.paymentMethod.trim() || "Unknown", paidTo, customerId, customer: customerName },
     });
     // Paid: the store credit it used comes off the balance now, and the referrer earns their reward.
     await syncOrderCredit(tx, orderId, { by: "Website order" });
-    await logEvent(tx, orderId, "status", "Marked paid.", opts.paymentMethod);
+    await logEvent(tx, orderId, "status", "Marked paid.", `${opts.paymentMethod} · held by ${paidTo === "A" ? data.settings.partnerAName : paidTo === "B" ? data.settings.partnerBName : "Bank"}`);
   });
 
   if (opts.notify !== false && email) {

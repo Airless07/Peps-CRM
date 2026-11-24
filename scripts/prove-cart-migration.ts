@@ -105,6 +105,7 @@ const EXPECT: Record<string, { tables: string[]; orderCols: string[] }> = {
   "20261126120000_order_consent": { tables: [], orderCols: ["consentAt", "consentText", "consentIp"] },
   "20261128120000_revoked_sessions": { tables: ["RevokedSession"], orderCols: [] },
   "20261129120000_local_switch": { tables: [], orderCols: ["localSwitchJson"] },
+  "20261130120000_online_paid_to": { tables: [], orderCols: ["paidTo"] },
 };
 const want = EXPECT[NEW] ?? { tables: [], orderCols: [] };
 if (added.join() !== want.tables.join()) fail(`unexpected new tables: ${added.join()}`);

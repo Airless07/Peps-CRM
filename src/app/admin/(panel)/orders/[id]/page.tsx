@@ -267,6 +267,13 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
             {w?.paidAt && <Row label="Paid">{fmtDateTime(w.paidAt)}</Row>}
             <Row label="Sold by">{s.name(order.soldBy)}</Row>
             {order.cashTo && <Row label="Cash received by">{s.name(order.cashTo)}</Row>}
+            {online && w?.paidAt && order.status !== "canceled" && (
+              <Row label="Money held by">
+                <span data-paid-to>
+                  Paid via {order.paymentMethod} → held by {order.paidTo ? s.name(order.paidTo) : "Bank"}
+                </span>
+              </Row>
+            )}
             {order.note && <p className="mt-2 text-sm text-muted">Note: {order.note}</p>}
             {w?.hasScreenshot && (
               <div className="mt-3">

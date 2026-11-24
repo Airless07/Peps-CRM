@@ -3,7 +3,9 @@
 // owner changes afterwards (for example a size cleared on purpose) is never written back.
 import { prisma } from "./db";
 import { sizeInName } from "./store/product-info";
-import { DEFAULT_CONTENT, POLICY_IDS, SUPPORT_EMAIL } from "./store/config";
+import { DEFAULT_CONTENT, parseStore, POLICY_IDS, SUPPORT_EMAIL } from "./store/config";
+import { receiverOf } from "./store/payments";
+import { countsInMoney, type OrderStatus } from "./types";
 import OLD_POLICIES from "./store/policies-before-2026-11.json";
 
 export const SIZE_BACKFILL_ID = "sizes-from-names";
@@ -225,12 +227,60 @@ export async function removeTestOrder(): Promise<{ removed: boolean; why: string
   });
 }
 
+export const PAID_TO_ID = "online-paid-to-2026-11";
+
+export interface PaidToMove {
+  number: number | null;
+  paymentMethod: string;
+  /** Order total net of refunds (what the holder has). Cents. */
+  totalCents: number;
+  from: "bank";
+  to: "A" | "B";
+}
+
+/**
+ * Website orders already paid before "Who receives this money" existed: their money sat in Bank.
+ * Once, give each one the holder its payment method has in Settings > Payments now (Zelle -> Mo).
+ * Only who holds the cash changes: business money, payback, profit and the split are computed from the
+ * same records and do not move. Every moved order is kept in the DataMigration detail.
+ */
+export async function backfillPaidTo(totalOf: (orderId: string) => number): Promise<PaidToMove[] | null> {
+  return prisma.$transaction(async (tx) => {
+    if (await tx.dataMigration.findUnique({ where: { id: PAID_TO_ID } })) return null;
+    const row = await tx.settings.findUnique({ where: { id: 1 }, select: { storeJson: true } });
+    const payments = parseStore(row?.storeJson).payments;
+    const orders = await tx.order.findMany({ where: { source: "online", paidTo: null }, select: { id: true, number: true, status: true, paymentMethod: true }, orderBy: { number: "asc" } });
+    const moved: (PaidToMove & { id: string })[] = [];
+    for (const o of orders) {
+      if (!countsInMoney(o.status as OrderStatus)) continue;
+      const to = receiverOf(payments, o.paymentMethod);
+      if (!to) continue;
+      await tx.order.update({ where: { id: o.id }, data: { paidTo: to } });
+      moved.push({ id: o.id, number: o.number, paymentMethod: o.paymentMethod, totalCents: totalOf(o.id), from: "bank", to });
+    }
+    await tx.dataMigration.create({ data: { id: PAID_TO_ID, detail: JSON.stringify({ moved }) } });
+    return moved;
+  });
+}
+
 export async function runDataMigrations() {
   try {
     const t = await removeTestOrder();
     if (t) console.log(`[data] Test order #1008: ${t.why}`);
   } catch (e) {
     console.error("[data] test order removal failed:", e instanceof Error ? e.message : e);
+  }
+  try {
+    const { loadAll } = await import("./serialize");
+    const { computeLedger } = await import("./money");
+    const data = await loadAll();
+    const ledger = computeLedger(data);
+    const names = { A: data.settings.partnerAName, B: data.settings.partnerBName };
+    const moved = await backfillPaidTo((id) => ledger.orders.get(id)?.total ?? 0);
+    if (moved) console.log(`[data] Website payments now held by who received them (${moved.length}):${moved.map((m) => `
+  #${m.number} ${m.paymentMethod} $${(m.totalCents / 100).toFixed(2)}: Bank -> ${names[m.to]}`).join("")}`);
+  } catch (e) {
+    console.error("[data] paid-to backfill failed:", e instanceof Error ? e.message : e);
   }
   try {
     const p = await updatePolicies();

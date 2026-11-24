@@ -226,6 +226,8 @@ model Order {
   owner            String?
   /// Cash sales: who received the cash, "A" | "B". Null = not recorded.
   cashTo           String?
+  /// Website orders: who received the payment, "A" | "B" (from Settings > Payments when marked paid). Null = Bank.
+  paidTo           String?
   /// Store credit used on this order (works like a discount). Taken from the balance only once the order counts.
   storeCreditCents Int             @default(0)
   /// Customer who referred this sale (earns referral credit once it counts). No relation on purpose.

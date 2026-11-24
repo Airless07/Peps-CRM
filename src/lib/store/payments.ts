@@ -85,3 +85,15 @@ export function payInstructions(store: Pick<StoreSettings, "payments" | "payment
   if (!m || !isManual(m.id)) return null;
   return { name: m.name, sendTo: store.payments[m.id].details.trim(), note: store.paymentNote.trim() };
 }
+
+/**
+ * Who receives a website payment made with this method (the payment method name saved on the sale, e.g. "Zelle").
+ * "A" | "B" = that partner holds the money (cash held); null = the bank. Methods without a choice go to the bank.
+ */
+export function receiverOf(p: PaymentSettings, paymentMethod: string): "A" | "B" | null {
+  const name = paymentMethod.trim().toLowerCase();
+  const m = PAY_METHODS.find((x) => x.saleName.toLowerCase() === name || x.name.toLowerCase() === name || x.id === name);
+  if (!m || !isManual(m.id)) return null;
+  const r = p[m.id].receiver;
+  return r === "A" || r === "B" ? r : null;
+}

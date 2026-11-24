@@ -114,10 +114,14 @@ export const TIER_SERVICE: Record<ShippingTierId, { token: string; label: string
 };
 
 export type PayMethodId = "zelle" | "cashapp" | "venmo" | "bank" | "card";
+/** Who receives a website payment: a partner ("A" | "B") or the business bank account. */
+export type PayReceiver = "A" | "B" | "bank";
+
 export interface PaymentSettings {
-  zelle: { enabled: boolean; details: string };
-  cashapp: { enabled: boolean; details: string };
-  venmo: { enabled: boolean; details: string };
+  /** receiver: who the money goes to (Settings > Payments). Counts toward that partner's cash held. */
+  zelle: { enabled: boolean; details: string; receiver?: PayReceiver };
+  cashapp: { enabled: boolean; details: string; receiver?: PayReceiver };
+  venmo: { enabled: boolean; details: string; receiver?: PayReceiver };
   /** Not available yet. "show" lists it greyed out with a Coming soon tag. */
   bank: { enabled: boolean; comingSoon: "show" | "hide" };
   card: { enabled: boolean; comingSoon: "show" | "hide" };
@@ -132,9 +136,10 @@ export const DEFAULT_STORE: StoreSettings = {
   favicon: "",
   accentColor: DEFAULT_ACCENT,
   payments: {
-    zelle: { enabled: true, details: "" },
-    cashapp: { enabled: false, details: "" },
-    venmo: { enabled: false, details: "" },
+    // Website Zelle payments go to Mo's Zelle (partner B). Others: the bank until set.
+    zelle: { enabled: true, details: "", receiver: "B" },
+    cashapp: { enabled: false, details: "", receiver: "bank" },
+    venmo: { enabled: false, details: "", receiver: "bank" },
     bank: { enabled: false, comingSoon: "hide" },
     card: { enabled: false, comingSoon: "hide" },
   },
@@ -456,6 +461,10 @@ export function parseStore(json: string | null | undefined): StoreSettings {
   // Which options are free is now set on each free shipping rule (Promotions), not here.
   delete (s as { freeShippingTiers?: unknown }).freeShippingTiers;
   s.qtyDeals = cleanQtyDeals(s.qtyDeals) ?? [];
+  for (const m of ["zelle", "cashapp", "venmo"] as const) {
+    const r = s.payments[m]?.receiver;
+    s.payments[m] = { ...s.payments[m], receiver: r === "A" || r === "B" || r === "bank" ? r : DEFAULT_STORE.payments[m].receiver };
+  }
   s.autoCancelHours = Math.min(720, Math.max(1, Number(s.autoCancelHours) || 24));
   // Both default to on, also for settings saved before these switches existed.
   s.unpaidReminder = s.unpaidReminder !== false;
