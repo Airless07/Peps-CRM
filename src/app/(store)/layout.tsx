@@ -55,7 +55,8 @@ export default async function StoreLayout({ children }: { children: React.ReactN
   const live = store.open || admin;
   // Entry gate: drawn by the server (no flash) unless answered in the last 30 days, or a crawler.
   const [jar, hdrs] = await Promise.all([cookies(), headers()]);
-  const gate = live && store.entryGate.enabled && !entryCookieValid(jar.get(ENTRY_COOKIE)?.value) && !isBot(hdrs.get("user-agent"));
+  // Shown first for new visitors, open or closed (accounts work while the store is closed).
+  const gate = store.entryGate.enabled && !entryCookieValid(jar.get(ENTRY_COOKIE)?.value) && !isBot(hdrs.get("user-agent"));
   const promos = live ? promoItems(content, data.promotions, new Date(), data.store.shippingTiers) : [];
   const accent = /^#[0-9a-fA-F]{6}$/.test(store.accentColor) ? store.accentColor : DEFAULT_ACCENT;
   const year = new Date().getFullYear();
@@ -67,7 +68,7 @@ export default async function StoreLayout({ children }: { children: React.ReactN
         <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[100] focus:rounded-full focus:bg-coal focus:px-4 focus:py-2 focus:text-sm focus:text-white">
           Skip to content
         </a>
-        <CartProvider products={live ? catalog.products : []} accountId={account?.id ?? null}>
+        <CartProvider products={live ? catalog.products : []} accountId={account?.id ?? null} storeOpen={live}>
           <StandaloneRedirect admin={admin} />
           {!store.open && admin && (
             <div className="bg-coal px-4 py-2 text-center text-[13px] text-white">
@@ -87,10 +88,27 @@ export default async function StoreLayout({ children }: { children: React.ReactN
               <Header name={store.storeName} logo={store.logo} signedIn={!!account} />
             </div>
           ) : (
-            <header className="s-wrap flex h-16 items-center">
+            <header className="s-wrap flex h-16 items-center justify-between gap-3">
               <Link href="/" aria-label={`${store.storeName} home`} className="tap">
                 <Wordmark name={store.storeName} logo={store.logo} />
               </Link>
+              {/* The store is closed but accounts work: sign in, your account, referrals. */}
+              <nav aria-label="Account" className="flex items-center gap-1 text-[15px]" data-closed-nav>
+                {account ? (
+                  <>
+                    <Link href="/account/referrals" className="hidden min-h-11 items-center px-3 text-stone hover:text-coal sm:inline-flex">
+                      Referrals
+                    </Link>
+                    <Link href="/account" className="inline-flex min-h-11 items-center px-3 font-medium text-coal hover:text-brand">
+                      My account
+                    </Link>
+                  </>
+                ) : (
+                  <Link href="/account" className="inline-flex min-h-11 items-center px-3 font-medium text-coal hover:text-brand">
+                    Sign in
+                  </Link>
+                )}
+              </nav>
             </header>
           )}
 

@@ -7,8 +7,9 @@ import { storeSnapshot } from "@/lib/store/server";
 
 export const metadata: Metadata = { title: "Your account", robots: { index: false } };
 
-export default async function AccountPage() {
+export default async function AccountPage({ searchParams }: { searchParams?: Promise<Record<string, string | string[] | undefined>> }) {
   const account = await currentAccount();
+  const start = (await searchParams)?.start === "signup" ? "signup" : "signin";
   const { data } = await storeSnapshot();
   const orders = account && !account.mustChangePassword ? await accountOrders(account.id, data.store) : [];
   // Balance, referral code and history. Only what the customer should see (no internal "who did it",
@@ -24,7 +25,7 @@ export default async function AccountPage() {
       : null;
   return (
     <div className="s-wrap pb-8 pt-10 sm:pt-14">
-      <AccountView account={account} orders={orders} statusText={PUBLIC_STATUS} credit={credit} />
+      <AccountView account={account} orders={orders} statusText={PUBLIC_STATUS} credit={credit} initial={start} />
     </div>
   );
 }

@@ -284,11 +284,11 @@ export function AccountGate({ account, title = "Your account", intro = "Sign in 
   );
 }
 
-export function AccountView({ account, orders, statusText, credit }: { account: AccountInfo | null; orders: PublicOrder[]; statusText: Record<string, string>; credit?: AccountCredit | null }) {
+export function AccountView({ account, orders, statusText, credit, initial = "signin" }: { account: AccountInfo | null; orders: PublicOrder[]; statusText: Record<string, string>; credit?: AccountCredit | null; initial?: "signin" | "signup" }) {
   const router = useRouter();
   const [addresses, setAddresses] = useState(account?.addresses ?? []);
   const [copied, setCopied] = useState(false);
-  if (!account || account.mustChangePassword) return <AccountGate account={account} />;
+  if (!account || account.mustChangePassword) return <AccountGate account={account} initial={initial} />;
   const date = (iso: string) => new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
   return (
     <div>

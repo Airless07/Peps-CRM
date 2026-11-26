@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { SESSION_COOKIE, verifySessionToken } from "@/lib/session";
 import { canonicalRedirect, envSiteUrl } from "@/lib/site";
+import { REF_COOKIE, REF_COOKIE_DAYS, cleanRefCode } from "@/lib/store/referral-cookie";
 
 /**
  * Who can reach what:
@@ -36,8 +37,12 @@ export async function middleware(req: NextRequest) {
   // www.buckshotlabs.com and the railway.app address move to SITE_URL for good (301), keeping the path and query.
   const to = canonicalRedirect(req.headers.get("x-forwarded-host") ?? req.headers.get("host"), req.nextUrl.pathname, req.nextUrl.search);
   if (to) return NextResponse.redirect(to, 301);
-  if (!GATED.test(req.nextUrl.pathname)) return NextResponse.next();
-  const res = await gate(req);
+  const res = GATED.test(req.nextUrl.pathname) ? await gate(req) : NextResponse.next();
+  // A friend's share link (?ref=CODE, on a store page): keep the code 30 days, open or closed.
+  const ref = req.nextUrl.pathname.startsWith("/api/") || req.nextUrl.pathname.startsWith("/admin") ? "" : cleanRefCode(req.nextUrl.searchParams.get("ref"));
+  if (ref)
+    res.cookies.set(REF_COOKIE, ref, { maxAge: REF_COOKIE_DAYS * 86_400, path: "/", sameSite: "lax", secure: (req.headers.get("x-forwarded-proto") ?? req.nextUrl.protocol.replace(":", "")) === "https" });
+  if (!GATED.test(req.nextUrl.pathname)) return res;
   // Admin pages and every API answer are per session too.
   const p = req.nextUrl.pathname;
   if (isPrivatePage(p) || p.startsWith("/admin") || p.startsWith("/api/")) res.headers.set("Cache-Control", NO_STORE);

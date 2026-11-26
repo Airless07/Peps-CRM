@@ -10,6 +10,8 @@
 import Link from "next/link";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { readRefCookie } from "./saved-referral";
+import { REF_COOKIE, referralOnLoad } from "@/lib/store/referral-cookie";
 import { Minus, Plus, ShoppingBag, Tag, X } from "lucide-react";
 import { sizeWithVolume } from "@/lib/size";
 import type { PublicProduct } from "@/lib/store/catalog";
@@ -182,7 +184,7 @@ async function cartApi(body: Record<string, unknown>) {
   return { res, json: (await res.json().catch(() => ({}))) as Record<string, unknown> };
 }
 
-export function CartProvider({ products, accountId = null, children }: { products: PublicProduct[]; accountId?: string | null; children: React.ReactNode }) {
+export function CartProvider({ products, accountId = null, storeOpen = true, children }: { products: PublicProduct[]; accountId?: string | null; storeOpen?: boolean; children: React.ReactNode }) {
   const [owner, setOwner] = useState<string | null>(accountId);
   const [items, setItems] = useState<CartItem[]>([]);
   const [code, setCodeState] = useState("");
@@ -334,8 +336,13 @@ export function CartProvider({ products, accountId = null, children }: { product
         window.history.replaceState(null, "", u.pathname + u.search);
         if (fromUrl) setOpen(true);
       }
+      // A friend's code saved while the store was closed (30-day cookie): once the store is open it goes on
+      // the cart (unless the cart already has one), then the cookie is cleared so removing it sticks.
+      const saved = readRefCookie();
+      if (saved && !refUrl) setReferralState((cur) => referralOnLoad(cur, "", saved, storeOpen).referral);
+      if (referralOnLoad("", refUrl ? cleanTyped(refUrl) : "", saved, storeOpen).clearSaved) document.cookie = `${REF_COOKIE}=; Max-Age=0; path=/; SameSite=Lax`;
     } catch {}
-  }, [ready]);
+  }, [ready, storeOpen]);
 
   // Save: guest -> this browser; signed in -> the account on the server (debounced). The account id goes
   // with every save and the server refuses it when the session is someone else's.
