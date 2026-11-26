@@ -105,6 +105,24 @@ export async function saveScreenshot(buf: Buffer): Promise<string> {
   return file;
 }
 
+/** Expense invoice: private, admin only. A PDF is kept as is, an image is compressed. */
+export async function saveInvoice(buf: Buffer): Promise<{ file: string; mime: string }> {
+  tooBig(buf, 15, "file");
+  if (buf.subarray(0, 5).toString("latin1") === "%PDF-") {
+    const file = `${newId()}.pdf`;
+    await writeFile(path.join(privateUploadsDir(), file), buf);
+    return { file, mime: "application/pdf" };
+  }
+  try {
+    await imageMeta(buf, "file");
+  } catch {
+    throw new HttpError(400, "An invoice must be a PDF or an image (JPG, PNG, WebP). That file is neither.");
+  }
+  const file = `${newId()}.webp`;
+  await sharp(buf).rotate().resize({ width: 2000, height: 3200, fit: "inside", withoutEnlargement: true }).webp({ quality: 85 }).toFile(path.join(privateUploadsDir(), file));
+  return { file, mime: "image/webp" };
+}
+
 /** Review photo sizes: a card thumbnail and the "click to enlarge" view. */
 export const REVIEW_PHOTO_WIDTHS = [480, 1600] as const;
 

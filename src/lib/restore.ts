@@ -29,6 +29,8 @@ export async function wipe(tx: Tx) {
   await tx.contactMessage.deleteMany();
   await tx.savedOrder.deleteMany();
   await tx.cashHandoff.deleteMany();
+  await tx.expense.deleteMany();
+  await tx.expenseEvent.deleteMany();
 }
 
 const d = (s: string) => new Date(s);
@@ -171,6 +173,12 @@ export async function restore(input: AppData | Parameters<typeof normalizeBackup
       });
       await tx.cashHandoff.createMany({
         data: (data.cashHandoffs ?? []).map(({ from, to, ...h }) => ({ ...h, fromHolder: from, toHolder: to, date: d(h.date), createdAt: d(h.createdAt) })),
+      });
+      await tx.expense.createMany({
+        data: (data.expenses ?? []).map((x) => ({ ...x, paidBy: x.paidBy, productIds: JSON.stringify(x.productIds ?? []), date: d(x.date), createdAt: d(x.createdAt), updatedAt: d(x.updatedAt ?? x.createdAt) })),
+      });
+      await tx.expenseEvent.createMany({
+        data: (data.expenseEvents ?? []).map((e) => ({ id: e.id, expenseId: e.expenseId, action: e.action, message: e.message, at: d(e.at) })),
       });
       await tx.creditEntry.createMany({
         data: (data.creditEntries ?? []).map((e) => ({ ...e, date: d(e.date), createdAt: d(e.createdAt) })),

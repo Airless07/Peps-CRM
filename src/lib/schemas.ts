@@ -143,6 +143,24 @@ export const cashHandoffCreate = z
   })
   .refine((h) => h.from !== h.to, "Pick two different places");
 
+// Expenses. "Paid by" has NO default: it must be picked (Ahmad, Mo or Bank).
+const EXPENSE_CATEGORY_VALUES = ["lab_testing", "shipping_supplies", "labels", "packaging", "software", "other"] as const;
+export const expenseInput = z.object({
+  date: dateStr,
+  category: z.enum(EXPENSE_CATEGORY_VALUES).default("lab_testing"),
+  vendor: text(120).default(""),
+  amountCents: z.number().int().min(1, "Enter the amount").max(1_000_000_000),
+  paidBy: z.enum(["A", "B", "bank"], { message: "Pick who paid (Ahmad, Mo or Bank)." }),
+  productIds: z.array(idStr).max(100).default([]),
+  lots: text(300).default(""),
+  notes: text(2000).default(""),
+  /** Private upload from POST /api/expenses/file ("" = none). */
+  file: z.string().regex(/^([a-f0-9]{16}.(webp|pdf))?$/, "Upload the file again.").default(""),
+  fileName: text(120).default(""),
+  mime: z.enum(["", "application/pdf", "image/webp"]).default(""),
+});
+export const expenseCreate = expenseInput.extend({ id: idStr });
+
 const sellButtonList = <T extends z.ZodType>(item: T, what: string) =>
   z.array(item).min(MIN_SELL_BUTTONS, `Keep at least ${MIN_SELL_BUTTONS} ${what} button`).max(MAX_SELL_BUTTONS, `No more than ${MAX_SELL_BUTTONS} ${what} buttons`);
 export const sellButtonsInput = z

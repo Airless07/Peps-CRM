@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { ArrowRightLeft, Crown, Scale, Trash2, TrendingUp } from "lucide-react";
 import { BarChart, type Bucket } from "@/components/bar-chart";
 import { OrderEditSheet } from "@/components/order-edit";
+import { ExpensesTab } from "@/components/expenses";
 import { api, useLoaded } from "@/components/store";
 import { useToast } from "@/components/toast";
 import { Badge, Button, Card, Empty, Field, Input, Money, MoneyInput, PageHeader, PageSkeleton, Row, SectionTitle, Segmented, Select, Sheet, cx, useConfirm } from "@/components/ui";
@@ -13,6 +14,7 @@ import { ownerSummary } from "@/lib/owner";
 import { paymentBreakdown } from "@/lib/insights";
 import { creditSummary } from "@/lib/credit";
 import { planSplit } from "@/lib/money";
+import { periodExpenses } from "@/lib/expenses";
 import type { CashHandoffRec, CashHolder, SplitRec } from "@/lib/types";
 
 type Period = "today" | "week" | "month" | "all" | "custom";
@@ -24,6 +26,7 @@ export default function MoneyPage() {
   const [to, setTo] = useState(dayKey(new Date()));
   const [splitOpen, setSplitOpen] = useState(false);
   const [handoffOpen, setHandoffOpen] = useState(false);
+  const [tab, setTab] = useState<"overview" | "expenses">("overview");
 
   const range = useMemo((): [string, string] | null => {
     const today = dayKey(new Date());
@@ -48,7 +51,7 @@ export default function MoneyPage() {
     // Owner purchases (a partner buying at cost) are not sales: they stay out of every sales number and get their own section.
     const inRange = inPeriod.filter((o) => !o.owner);
     const owner = ownerSummary(inPeriod, ledger);
-    const t = { revenue: 0, discount: 0, credit: 0, tip: 0, cost: 0, profit: 0, orders: inRange.length, units: 0 };
+    const t = { revenue: 0, discount: 0, credit: 0, tip: 0, cost: 0, itemCost: 0, expenses: 0, testing: 0, profit: 0, orders: inRange.length, units: 0 };
     const byProduct = new Map<string, { name: string; units: number; revenue: number; cost: number }>();
     const bySeller = new Map<string, { orders: number; revenue: number; tips: number; units: number }>();
     const byDay = new Map<string, { revenue: number; profit: number }>();
@@ -89,7 +92,19 @@ export default function MoneyPage() {
       d.profit += r.profit + r.tip;
       byDay.set(dk, d);
     }
+    // Expenses in the period (lab testing, supplies...) count as cost and come off profit, on their own day.
+    const inRangeDay = (iso: string) => !range || (dayKey(iso) >= range[0] && dayKey(iso) <= range[1]);
+    const exp = periodExpenses(data.expenses ?? [], inRangeDay);
+    t.itemCost = t.cost;
+    t.expenses = exp.total;
+    t.testing = exp.testing;
+    t.cost += exp.total;
     t.profit = t.revenue + t.tip - t.cost;
+    for (const [dk, c] of exp.byDay) {
+      const d = byDay.get(dk) ?? { revenue: 0, profit: 0 };
+      d.profit -= c;
+      byDay.set(dk, d);
+    }
 
     // Chart buckets: one per day (or per month for long ranges)
     let start: Date;
@@ -157,6 +172,19 @@ export default function MoneyPage() {
   return (
     <div>
       <PageHeader title="Money" />
+      <Segmented
+        value={tab}
+        onChange={setTab}
+        className="mb-4"
+        options={[
+          { value: "overview", label: "Overview" },
+          { value: "expenses", label: "Expenses" },
+        ]}
+      />
+      {tab === "expenses" ? (
+        <ExpensesTab />
+      ) : (
+        <>
 
       {/* Top cards */}
       <div className="grid gap-3 md:grid-cols-2">
@@ -238,18 +266,20 @@ export default function MoneyPage() {
 
       <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatCard label="Revenue" value={fmtMoney(t.revenue)} sub="after discounts" />
-        <StatCard label="Profit" value={fmtMoney(t.profit)} tone={t.profit < 0 ? "neg" : "pos"} sub="incl. tips" />
-        <StatCard label="Cost" value={fmtMoney(t.cost)} />
+        <StatCard label="Profit" value={fmtMoney(t.profit)} tone={t.profit < 0 ? "neg" : "pos"} sub={t.expenses ? "incl. tips, after expenses" : "incl. tips"} />
+        <StatCard label="Cost" value={fmtMoney(t.cost)} sub={t.expenses ? `items ${fmtMoney(t.itemCost)} + expenses ${fmtMoney(t.expenses)}` : undefined} />
         <StatCard label="Tips" value={fmtMoney(t.tip)} />
         <StatCard label="Discounts given" value={t.discount ? `-${fmtMoney(t.discount)}` : fmtMoney(0)} tone={t.discount ? "neg" : undefined} sub={t.credit ? `plus ${fmtMoney(t.credit)} store credit` : undefined} />
         <StatCard label="Orders" value={String(t.orders)} />
         <StatCard label="Units sold" value={String(t.units)} />
         <StatCard label="Avg order" value={t.orders ? fmtMoney(Math.round((t.revenue + t.tip) / t.orders)) : "—"} />
+        <StatCard label="Expenses" value={fmtMoney(t.expenses)} sub="all categories" />
+        <StatCard label="Testing spent" value={fmtMoney(t.testing)} sub="lab testing" />
       </div>
 
       <Card className="mt-3 p-4">
         <div className="mb-1 text-sm font-medium">{stats.monthly ? "Monthly" : "Daily"} revenue & profit</div>
-        {t.orders === 0 && period !== "today" ? (
+        {t.orders === 0 && t.expenses === 0 && period !== "today" ? (
           <div className="flex h-40 items-center justify-center text-sm text-muted">No sales in this period</div>
         ) : (
           <BarChart buckets={stats.buckets} />
@@ -426,6 +456,9 @@ export default function MoneyPage() {
         )}
         <p className="mt-3 text-xs text-muted">Charged at cost: $0 profit and nothing to split. The money goes to business money and stock goes down, but these are left out of revenue, profit, orders, average order and sales by product above.</p>
       </Card>
+
+        </>
+      )}
 
       <SplitSheet open={splitOpen} onClose={() => setSplitOpen(false)} />
       <HandoffSheet open={handoffOpen} onClose={() => setHandoffOpen(false)} />

@@ -442,6 +442,44 @@ export interface CashHandoffRec {
   createdAt: string;
 }
 
+export const EXPENSE_CATEGORIES = [
+  { value: "lab_testing", label: "Lab testing" },
+  { value: "shipping_supplies", label: "Shipping supplies" },
+  { value: "labels", label: "Labels" },
+  { value: "packaging", label: "Packaging" },
+  { value: "software", label: "Software/website" },
+  { value: "other", label: "Other" },
+] as const;
+export type ExpenseCategory = (typeof EXPENSE_CATEGORIES)[number]["value"];
+export const expenseCategoryLabel = (c: string) => EXPENSE_CATEGORIES.find((x) => x.value === c)?.label ?? "Other";
+
+/** A business expense. Lowers business money on its date (like a restock) and the cash of whoever paid. */
+export interface ExpenseRec {
+  id: string;
+  date: string;
+  category: ExpenseCategory;
+  vendor: string;
+  amountCents: number;
+  paidBy: CashHolder;
+  productIds: string[];
+  lots: string;
+  notes: string;
+  /** Private invoice upload ("" = none). Opened through /api/expenses/file/{file}. */
+  file: string;
+  fileName: string;
+  mime: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ExpenseEventRec {
+  id: string;
+  expenseId: string;
+  at: string;
+  action: "created" | "edited" | "deleted";
+  message: string;
+}
+
 export interface PromotionUseRec {
   id: string;
   promotionId: string;
@@ -584,6 +622,10 @@ export interface AppData {
   cashHandoffs?: CashHandoffRec[];
   /** Store credit history of every customer. */
   creditEntries?: CreditEntryRec[];
+  /** Business expenses (lab testing, supplies...). Each lowers business money on its date. */
+  expenses?: ExpenseRec[];
+  /** Every expense change, newest first (kept after an expense is deleted). */
+  expenseEvents?: ExpenseEventRec[];
   store: StoreSettings;
   content: SiteContent;
   /** The one-time "sizes from product names" fill-in: when it ran and what it filled. Null before it ran. */
@@ -621,6 +663,8 @@ export const emptyStoreData = () => ({
   savedOrders: [] as SavedOrderRec[],
   cashHandoffs: [] as CashHandoffRec[],
   creditEntries: [] as CreditEntryRec[],
+  expenses: [] as ExpenseRec[],
+  expenseEvents: [] as ExpenseEventRec[],
   store: structuredClone(DEFAULT_STORE),
   content: structuredClone(DEFAULT_CONTENT),
 });

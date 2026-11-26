@@ -191,6 +191,8 @@ export interface Ledger {
   shippingCollected: number;
   /** What was spent on shipping labels (already subtracted from businessCents). */
   labelCosts: number;
+  /** All expenses (lab testing, supplies...), already subtracted from businessCents. */
+  expenseCosts: number;
   inPayback: boolean;
   /** Cents left to reach $0 (0 when not in payback). */
   leftToBreakEven: number;
@@ -323,6 +325,23 @@ export function computeLedger(data: AppData): Ledger {
         bal -= l.costCents;
         labelCosts += l.costCents;
         track(l.date);
+      },
+    });
+  }
+
+  // Expenses: business money spent on their date, exactly like a restock (it can push the business below $0,
+  // which turns on payback mode until sales bring it back). Same place in the day as restocks.
+  let expenseCosts = 0;
+  for (const x of data.expenses ?? []) {
+    if (!(x.amountCents > 0)) continue;
+    events.push({
+      kind: 0,
+      date: x.date,
+      tie: x.createdAt + x.id,
+      apply: () => {
+        bal -= x.amountCents;
+        expenseCosts += x.amountCents;
+        track(x.date);
       },
     });
   }
@@ -470,6 +489,7 @@ export function computeLedger(data: AppData): Ledger {
     paidB,
     shippingCollected,
     labelCosts,
+    expenseCosts,
     inPayback: bal < 0,
     leftToBreakEven: bal < 0 ? -bal : 0,
     paybackLow: bal < 0 ? Math.min(low, bal) : 0,

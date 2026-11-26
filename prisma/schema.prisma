@@ -596,6 +596,43 @@ model CashHandoff {
   createdAt   DateTime @default(now())
 }
 
+/// A business expense (lab testing, supplies, software...). Lowers business money on its date, like a restock,
+/// and comes out of the cash held by whoever paid ("A" | "B" | "bank").
+model Expense {
+  id          String   @id
+  date        DateTime
+  /// lab_testing | shipping_supplies | labels | packaging | software | other
+  category    String
+  vendor      String   @default("")
+  amountCents Int
+  paidBy      String
+  /// JSON array of product ids tested
+  productIds  String   @default("[]")
+  /// Free-text lots, e.g. BL2611-RETA10
+  lots        String   @default("")
+  notes       String   @default("")
+  /// Private upload (invoice PDF or image), "" when none
+  file        String   @default("")
+  fileName    String   @default("")
+  mime        String   @default("")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
+}
+
+/// History of every expense change (kept after the expense is deleted).
+model ExpenseEvent {
+  id        String   @id
+  expenseId String
+  at        DateTime @default(now())
+  /// created | edited | deleted
+  action    String
+  message   String
+  /// JSON snapshot of the expense after the change (before, for a delete)
+  detail    String   @default("")
+
+  @@index([expenseId])
+}
+
 model Split {
   id            String      @id
   date          DateTime

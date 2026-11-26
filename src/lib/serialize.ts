@@ -7,6 +7,8 @@ import type {
   AppData,
   BogoRule,
   CashHandoffRec,
+  ExpenseEventRec,
+  ExpenseRec,
   CoaRec,
   CreditEntryRec,
   CustomerRec,
@@ -301,10 +303,34 @@ export const toHandoff = (h: Prisma.CashHandoffGetPayload<object>): CashHandoffR
   createdAt: iso(h.createdAt),
 });
 
+export const toExpense = (x: Prisma.ExpenseGetPayload<object>): ExpenseRec => ({
+  id: x.id,
+  date: iso(x.date),
+  category: x.category as ExpenseRec["category"],
+  vendor: x.vendor,
+  amountCents: x.amountCents,
+  paidBy: holder(x.paidBy),
+  productIds: json<string[]>(x.productIds, []).filter((p) => typeof p === "string"),
+  lots: x.lots,
+  notes: x.notes,
+  file: x.file,
+  fileName: x.fileName,
+  mime: x.mime,
+  createdAt: iso(x.createdAt),
+  updatedAt: iso(x.updatedAt),
+});
+export const toExpenseEvent = (e: Prisma.ExpenseEventGetPayload<object>): ExpenseEventRec => ({
+  id: e.id,
+  expenseId: e.expenseId,
+  at: iso(e.at),
+  action: e.action as ExpenseEventRec["action"],
+  message: e.message,
+});
+
 export async function loadAll(): Promise<AppData> {
   // Every customer has a referral code (older rows get theirs here, once).
   await assignMissingReferralCodes().catch((e) => console.error("[referral codes]", e));
-  const [settings, products, customers, purchases, adjustments, orders, splits, payouts, labels, listings, groups, coas, promotions, reviews, messages, savedOrders, handoffs, credits] =
+  const [settings, products, customers, purchases, adjustments, orders, splits, payouts, labels, listings, groups, coas, promotions, reviews, messages, savedOrders, handoffs, credits, expenses, expenseEvents] =
     await Promise.all([
       getSettingsRow(),
       prisma.product.findMany({ orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] }),
@@ -324,6 +350,8 @@ export async function loadAll(): Promise<AppData> {
       prisma.savedOrder.findMany({ orderBy: { savedAt: "desc" } }),
       prisma.cashHandoff.findMany({ orderBy: { date: "desc" } }),
       prisma.creditEntry.findMany({ orderBy: [{ date: "desc" }, { createdAt: "desc" }] }),
+      prisma.expense.findMany({ orderBy: [{ date: "desc" }, { createdAt: "desc" }] }),
+      prisma.expenseEvent.findMany({ orderBy: { at: "desc" }, take: 500 }),
     ]);
   const allOrders = orders.map(toOrder);
   const backfill = await prisma.dataMigration.findUnique({ where: { id: "sizes-from-names" } }).catch(() => null);
@@ -367,6 +395,8 @@ export async function loadAll(): Promise<AppData> {
     savedOrders: savedOrders.map(toSavedOrder),
     cashHandoffs: handoffs.map(toHandoff),
     creditEntries: credits.map(toCreditEntry),
+    expenses: expenses.map(toExpense),
+    expenseEvents: expenseEvents.map(toExpenseEvent),
     store: parseStore(settings.storeJson),
     content: parseContent(settings.contentJson),
     sizeBackfill: backfill ? { ranAt: iso(backfill.ranAt), items: json<{ productId: string; product: string; size: string }[]>(backfill.detail, []) } : null,

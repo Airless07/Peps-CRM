@@ -6,7 +6,19 @@ import type { CashHolder } from "@/lib/types";
 import { Segmented, cx } from "./ui";
 import { useStore } from "./store";
 
-export function MoneyToPicker({ value, onChange, missing = false, className }: { value: CashHolder | null | undefined; onChange: (v: CashHolder) => void; missing?: boolean; className?: string }) {
+export function MoneyToPicker({
+  value,
+  onChange,
+  missing = false,
+  missingText = "Pick who received the money.",
+  className,
+}: {
+  value: CashHolder | null | undefined;
+  onChange: (v: CashHolder) => void;
+  missing?: boolean;
+  missingText?: string;
+  className?: string;
+}) {
   const { name } = useStore();
   return (
     <div data-money-to-picker className={className}>
@@ -22,7 +34,7 @@ export function MoneyToPicker({ value, onChange, missing = false, className }: {
       />
       {missing && (
         <p className="mt-1.5 text-sm font-medium text-neg" data-money-to-missing>
-          Pick who received the money.
+          {missingText}
         </p>
       )}
     </div>

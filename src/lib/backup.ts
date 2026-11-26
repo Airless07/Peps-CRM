@@ -13,6 +13,8 @@ import type {
   CoaRec,
   CreditEntryRec,
   CustomerRec,
+  ExpenseEventRec,
+  ExpenseRec,
   GroupRec,
   LabelRec,
   ListingRec,
@@ -191,6 +193,9 @@ export function normalizeBackup(raw: Loose & { orders: Loose[] }, makeId: () => 
     // Cash hand-offs: missing in older backups.
     cashHandoffs: arr<CashHandoffRec>(data.cashHandoffs).filter((h) => h && typeof h.id === "string" && typeof h.amountCents === "number"),
     events: arr<OrderEventRec>(data.events),
+    // Expenses and their history: missing in older backups.
+    expenses: arr<ExpenseRec>(data.expenses).filter((x) => x && typeof x.id === "string" && typeof x.amountCents === "number"),
+    expenseEvents: arr<ExpenseEventRec>(data.expenseEvents).filter((e) => e && typeof e.id === "string"),
     // Store credit history: missing in older backups. Only entries of customers in the file.
     creditEntries: arr<CreditEntryRec>(data.creditEntries).filter((e) => e && typeof e.id === "string" && typeof e.amountCents === "number" && customers.some((c) => c.id === e.customerId)),
     store,
