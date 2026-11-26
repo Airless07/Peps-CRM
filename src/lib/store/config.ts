@@ -27,6 +27,12 @@ export interface StoreSettings {
   payments: PaymentSettings;
   /** Extra line shown with the payment instructions. */
   paymentNote: string;
+  /**
+   * Who receives website order payments (Cash held on the Money page): Mo while payments go to his Zelle,
+   * Bank once the business account is set up. Saved on each order when it is marked paid, so a change
+   * only affects orders paid after it.
+   */
+  onlineReceiver: PayReceiver;
   autoCancelHours: number;
   /** "live" = Shippo rates by address, "flat" = the flat price of each tier. */
   shippingMode: "flat" | "live";
@@ -125,10 +131,9 @@ export type PayMethodId = "zelle" | "cashapp" | "venmo" | "bank" | "card";
 export type PayReceiver = "A" | "B" | "bank";
 
 export interface PaymentSettings {
-  /** receiver: who the money goes to (Settings > Payments). Counts toward that partner's cash held. */
-  zelle: { enabled: boolean; details: string; receiver?: PayReceiver };
-  cashapp: { enabled: boolean; details: string; receiver?: PayReceiver };
-  venmo: { enabled: boolean; details: string; receiver?: PayReceiver };
+  zelle: { enabled: boolean; details: string };
+  cashapp: { enabled: boolean; details: string };
+  venmo: { enabled: boolean; details: string };
   /** Not available yet. "show" lists it greyed out with a Coming soon tag. */
   bank: { enabled: boolean; comingSoon: "show" | "hide" };
   card: { enabled: boolean; comingSoon: "show" | "hide" };
@@ -143,14 +148,15 @@ export const DEFAULT_STORE: StoreSettings = {
   favicon: "",
   accentColor: DEFAULT_ACCENT,
   payments: {
-    // Website Zelle payments go to Mo's Zelle (partner B). Others: the bank until set.
-    zelle: { enabled: true, details: "", receiver: "B" },
-    cashapp: { enabled: false, details: "", receiver: "bank" },
-    venmo: { enabled: false, details: "", receiver: "bank" },
+    zelle: { enabled: true, details: "" },
+    cashapp: { enabled: false, details: "" },
+    venmo: { enabled: false, details: "" },
     bank: { enabled: false, comingSoon: "hide" },
     card: { enabled: false, comingSoon: "hide" },
   },
   paymentNote: "",
+  // Website payments go to Mo's Zelle (partner B) until the business bank account is set up.
+  onlineReceiver: "B",
   autoCancelHours: 24,
   shippingMode: "flat",
   shippingTiers: [
@@ -460,7 +466,8 @@ function parse(json: string | null | undefined): unknown {
 }
 
 export function parseStore(json: string | null | undefined): StoreSettings {
-  const s = mergeDeep(DEFAULT_STORE, parse(json));
+  const raw = parse(json);
+  const s = mergeDeep(DEFAULT_STORE, raw);
   if (!/^#[0-9a-fA-F]{6}$/.test(s.accentColor)) s.accentColor = DEFAULT_ACCENT;
   if (!Array.isArray(s.alertEmails)) s.alertEmails = [];
   // Tiers: always the three known ids, in order, with saved values on top.
@@ -469,10 +476,12 @@ export function parseStore(json: string | null | undefined): StoreSettings {
   // Which options are free is now set on each free shipping rule (Promotions), not here.
   delete (s as { freeShippingTiers?: unknown }).freeShippingTiers;
   s.qtyDeals = cleanQtyDeals(s.qtyDeals) ?? [];
-  for (const m of ["zelle", "cashapp", "venmo"] as const) {
-    const r = s.payments[m]?.receiver;
-    s.payments[m] = { ...s.payments[m], receiver: r === "A" || r === "B" || r === "bank" ? r : DEFAULT_STORE.payments[m].receiver };
-  }
+  // Who receives website payments. Settings saved before this single choice had one per method: Zelle's wins.
+  const okReceiver = (r: unknown): r is PayReceiver => r === "A" || r === "B" || r === "bank";
+  const legacy = (s.payments.zelle as { receiver?: unknown } | undefined)?.receiver;
+  const own = (raw as { onlineReceiver?: unknown } | null)?.onlineReceiver;
+  s.onlineReceiver = okReceiver(own) ? own : okReceiver(legacy) ? legacy : DEFAULT_STORE.onlineReceiver;
+  for (const m of ["zelle", "cashapp", "venmo"] as const) delete (s.payments[m] as { receiver?: unknown }).receiver;
   s.autoCancelHours = Math.min(720, Math.max(1, Number(s.autoCancelHours) || 24));
   // Both default to on, also for settings saved before these switches existed.
   s.unpaidReminder = s.unpaidReminder !== false;

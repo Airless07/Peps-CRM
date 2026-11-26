@@ -31,7 +31,7 @@ interface Store {
    * then re-sync with the server. On failure the server state is restored and an error shown.
    */
   mutate: (update: ((d: AppData) => AppData) | null, request: () => Promise<unknown>) => Promise<boolean>;
-  name: (p: Seller) => string;
+  name: (p: Seller | "bank") => string;
 }
 
 const Ctx = createContext<Store | null>(null);
@@ -82,7 +82,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   const ledger = useMemo(() => (data ? computeLedger(data) : null), [data]);
   const name = useCallback(
-    (p: Seller) => (p === "W" ? "Website" : p === "A" ? data?.settings.partnerAName ?? "Partner A" : data?.settings.partnerBName ?? "Partner B"),
+    (p: Seller | "bank") => (p === "bank" ? "Bank" : p === "W" ? "Website" : p === "A" ? data?.settings.partnerAName ?? "Partner A" : data?.settings.partnerBName ?? "Partner B"),
     [data],
   );
 

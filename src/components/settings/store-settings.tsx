@@ -369,17 +369,6 @@ export function StoreSettingsTabs({ tab, onTab }: { tab: StoreTab; onTab: (t: st
                       <Input value={v.details} maxLength={120} onChange={(e) => set("payments", { ...p, [id]: { ...v, details: e.target.value } })} />
                     </Field>
                   )}
-                  <Field label="Who receives this money" hint="Website orders paid this way count toward that person’s cash held on the Money page (from when they are marked paid). Bank = business account.">
-                    <Select
-                      value={v.receiver ?? "bank"}
-                      onChange={(e) => set("payments", { ...p, [id]: { ...v, receiver: e.target.value as "A" | "B" | "bank" } })}
-                      data-pay-receiver={id}
-                    >
-                      <option value="A">{s?.data.settings.partnerAName || "Partner A"}</option>
-                      <option value="B">{s?.data.settings.partnerBName || "Partner B"}</option>
-                      <option value="bank">Bank</option>
-                    </Select>
-                  </Field>
                 </Card>
               );
             }
@@ -406,6 +395,21 @@ export function StoreSettingsTabs({ tab, onTab }: { tab: StoreTab; onTab: (t: st
             );
           })}
         </div>
+        <SectionTitle>Who receives online payments</SectionTitle>
+        <Card className="p-4">
+          <Field label="Online order payments go to" hint="Website orders count toward this person’s Cash held on the Money page. Saved on each order when it is marked paid, so changing this only affects orders paid after the change. Switch to Bank once the business bank account is set up.">
+            <Segmented<"A" | "B" | "bank">
+              className="max-w-md"
+              value={form.onlineReceiver}
+              onChange={(x) => set("onlineReceiver", x)}
+              options={[
+                { value: "A", label: s?.data.settings.partnerAName || "Partner A" },
+                { value: "B", label: s?.data.settings.partnerBName || "Partner B" },
+                { value: "bank", label: "Bank" },
+              ]}
+            />
+          </Field>
+        </Card>
         <SectionTitle>Extra payment instructions</SectionTitle>
         <Card className="p-4">
           <Field label="Shown under the payment details (optional)" hint="For example: “Send as Friends and Family” or “Payments are checked within a few hours”.">

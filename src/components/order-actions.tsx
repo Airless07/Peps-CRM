@@ -14,6 +14,9 @@ import { payMethod } from "@/lib/store/payments";
 import { STATES } from "@/lib/store/schemas";
 import type { Address, OrderRec } from "@/lib/types";
 import { OrderEditSheet } from "./order-edit";
+import { MoneyToPicker } from "./money-to";
+import { moneyHolderOf } from "@/lib/cash";
+import type { CashHolder } from "@/lib/types";
 import type { RowMenuItem } from "./row-menu";
 import { api, useStore } from "./store";
 import { useToast } from "./toast";
@@ -58,6 +61,7 @@ type SheetState =
   | { kind: "screenshot"; order: OrderRec }
   | { kind: "contact"; order: OrderRec }
   | { kind: "switch"; order: OrderRec; to: "pickup" | "delivery" }
+  | { kind: "moneyTo"; order: OrderRec }
   | null;
 
 export function OrderActionsProvider({ children }: { children: React.ReactNode }) {
@@ -213,6 +217,10 @@ export function OrderActionsProvider({ children }: { children: React.ReactNode }
       if (!reviewSkip) {
         items.push({ label: "Send review request", onSelect: () => void sendReviewRequest(o) });
       }
+      // Who received the money (Cash held). In person: any sale. Website: once paid, not canceled.
+      if (!online || (w?.paidAt && o.status !== "canceled")) {
+        items.push({ label: "Money received by…", onSelect: () => setSheet({ kind: "moneyTo", order: o }) });
+      }
       items.push({ label: "Print packing slip", onSelect: () => void window.open(`/admin/print/${o.id}`, "_blank", "noopener") });
       if (online) {
         items.push({ label: "View payment screenshot", onSelect: () => setSheet({ kind: "screenshot", order: o }), disabled: !w?.hasScreenshot, disabledReason: "The customer has not uploaded one." });
@@ -243,6 +251,7 @@ export function OrderActionsProvider({ children }: { children: React.ReactNode }
           <ShippedSheet order={sheet?.kind === "shipped" ? live(sheet.order) : null} onClose={close} post={post} />
           <CancelSheet order={sheet?.kind === "cancel" ? live(sheet.order) : null} onClose={close} post={post} />
           <ContactSheet order={sheet?.kind === "contact" ? live(sheet.order) : null} onClose={close} post={post} />
+          <MoneyToSheet order={sheet?.kind === "moneyTo" ? live(sheet.order) : null} onClose={close} post={post} />
           <SwitchLocalSheet
             order={sheet?.kind === "switch" ? live(sheet.order) : null}
             to={sheet?.kind === "switch" ? sheet.to : "delivery"}
@@ -561,6 +570,44 @@ function ShippedSheet({ order, onClose, post }: { order: OrderRec | null; onClos
 }
 
 // ---------------------------------------------------------------- Cancel
+/** Change who received the money: Ahmad, Mo or Bank. Moves Cash held only. */
+function MoneyToSheet({ order, onClose, post }: { order: OrderRec | null; onClose: () => void; post: Post }) {
+  const [to, setTo] = useState<CashHolder | null>(null);
+  useEffect(() => {
+    // Starts on what the order has now (an older in-person sale with nothing recorded: nothing picked).
+    setTo(order ? (order.source === "inperson" ? order.cashTo ?? null : moneyHolderOf(order)) : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [order?.id]);
+  return (
+    <Sheet
+      open={!!order}
+      onClose={onClose}
+      title={order ? `Money received by · #${order.number}` : ""}
+      footer={
+        <Button
+          variant="primary"
+          size="lg"
+          block
+          disabled={!to}
+          data-money-to-save
+          onClick={async () => {
+            if (!order || !to) return;
+            onClose();
+            await post(order, { action: "money-to", to });
+          }}
+        >
+          Save
+        </Button>
+      }
+    >
+      <div className="space-y-4">
+        <p className="text-[15px] text-muted">Who has this money now. Only changes Cash held on the Money page: business money, payback, profit and the split stay the same. The change is saved in the order history.</p>
+        <MoneyToPicker value={to} onChange={setTo} />
+      </div>
+    </Sheet>
+  );
+}
+
 function CancelSheet({ order, onClose, post }: { order: OrderRec | null; onClose: () => void; post: Post }) {
   const [reason, setReason] = useState("");
   const [notify, setNotify] = useState(true);

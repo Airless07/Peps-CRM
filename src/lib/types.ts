@@ -187,8 +187,8 @@ export interface OrderRec {
   web: WebOrderRec | null;
   /** Owner purchase at cost: which partner bought. Null/absent = a normal sale. */
   owner?: Partner | null;
-  /** Cash sales: who received the cash. Null/absent = not recorded. */
-  cashTo?: Partner | null;
+  /** In-person sales: who received the money (Ahmad, Mo or the bank), any payment method. Null/absent = not recorded (counts as Bank). */
+  cashTo?: CashHolder | null;
   /** Website orders: who received the payment (Settings > Payments, saved when marked paid). Null/absent = Bank. */
   paidTo?: Partner | null;
   /** Store credit used on this order. Works like a discount. Absent = 0. */
@@ -281,7 +281,8 @@ export interface SavedOrderRec {
   lines: SavedLineRec[];
   /** Owner purchase at cost (prices are the saved costs). */
   owner?: Partner | null;
-  cashTo?: Partner | null;
+  /** Who received the money, when already picked. */
+  cashTo?: CashHolder | null;
   /** Store credit picked. Taken from the balance only when the order is completed. */
   storeCreditCents?: number;
   referredById?: string | null;

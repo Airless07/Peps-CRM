@@ -80,6 +80,9 @@ export const orderLineInput = z.object({
 });
 
 const ownerField = partner.nullable().default(null);
+/** Who received the money of an in-person sale. */
+const moneyHolder = z.enum(["A", "B", "bank"]);
+const holderField = moneyHolder.nullable().default(null);
 
 export const orderInput = z.object({
   id: idStr,
@@ -96,8 +99,8 @@ export const orderInput = z.object({
   lines: z.array(orderLineInput).min(1, "Add at least one item").max(200),
   /** Owner purchase at cost for this partner. */
   owner: ownerField,
-  /** Cash sales: who received the cash. */
-  cashTo: ownerField,
+  /** Who received the money (Ahmad, Mo or the bank). Required for a new sale (checked in recordSale). */
+  cashTo: holderField,
   /** Store credit used. Capped by the balance and the total after discounts. */
   storeCreditCents: posCents.default(0),
   /** Customer who referred this sale. */
@@ -123,7 +126,7 @@ export const savedOrderInput = z.object({
     .min(1, "Add at least one item")
     .max(200),
   owner: ownerField,
-  cashTo: ownerField,
+  cashTo: holderField,
   storeCreditCents: posCents.default(0),
   referredById: idStr.nullable().default(null),
 });

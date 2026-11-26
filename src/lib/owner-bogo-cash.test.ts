@@ -359,20 +359,21 @@ describe("BOGO deals in the Sell cart", () => {
 
 // ---------------------------------------------------------------- Cash
 describe("cash tracking", () => {
-  it("each cash sale counts with who received it; hand-offs move cash, business money stays the same", () => {
+  it("each sale counts with who received the money (any method); hand-offs move cash, business money stays the same", () => {
     let data = appData();
-    data = sell(data, draft([dline("a", "ghk", 1, 5500)], { soldBy: "A", tipCents: 500 }), { id: "s1" }); // cash to Ahmad (the seller): $60
+    data = sell(data, draft([dline("a", "ghk", 1, 5500)], { soldBy: "A", tipCents: 500, cashTo: "A" }), { id: "s1" }); // cash to Ahmad: $60
     data = sell(data, draft([dline("b", "bpc", 1, 4000)], { soldBy: "A", cashTo: "B" }), { id: "s2" }); // Ahmad sold, Mo took the cash: $40
-    data = sell(data, draft([dline("c", "bpc", 1, 4000)], { soldBy: "B", paymentMethod: "Zelle", cashTo: "B" }), { id: "s3" }); // not cash
-    expect(data.orders.map((o) => o.cashTo)).toEqual(["A", "B", null]);
+    data = sell(data, draft([dline("c", "bpc", 1, 4000)], { soldBy: "B", paymentMethod: "Zelle", cashTo: "B" }), { id: "s3" }); // Zelle to Mo: $40, Mo
+    data = sell(data, draft([dline("d", "bpc", 1, 4000)], { soldBy: "B", paymentMethod: "Zelle", cashTo: "bank" }), { id: "s4" }); // to the bank
+    expect(data.orders.map((o) => o.cashTo)).toEqual(["A", "B", "B", "bank"]);
     const ledger = computeLedger(data);
     const pos = cashPosition(data, ledger);
-    expect(pos).toMatchObject({ A: 6000, B: 4000, received: { A: 6000, B: 4000 } });
+    expect(pos).toMatchObject({ A: 6000, B: 8000, received: { A: 6000, B: 8000 } });
     expect(pos.A + pos.B + pos.bank).toBe(ledger.businessCents);
 
     const moved = { ...data, cashHandoffs: [{ id: "h1", date: day(11), from: "B" as const, to: "bank" as const, amountCents: 3000, note: "Deposit", createdAt: day(11) }, { id: "h2", date: day(11), from: "A" as const, to: "B" as const, amountCents: 1000, note: "", createdAt: day(11) }] };
     const after = cashPosition(moved, computeLedger(moved));
-    expect(after).toMatchObject({ A: 5000, B: 2000, bank: pos.bank + 3000 });
+    expect(after).toMatchObject({ A: 5000, B: 6000, bank: pos.bank + 3000 });
     expect(computeLedger(moved).businessCents).toBe(ledger.businessCents);
     expect(after.A + after.B + after.bank).toBe(ledger.businessCents);
   });
@@ -392,8 +393,8 @@ describe("cash tracking", () => {
 
   it("today's summary shows cash received per person", () => {
     let data = appData();
-    data = sell(data, draft([dline("a", "ghk", 1, 5500)], { soldBy: "A" }), { id: "s1" });
-    data = sell(data, draft([dline("b", "bpc", 2, 4000)], { soldBy: "B", paymentMethod: "Zelle" }), { id: "s2" });
+    data = sell(data, draft([dline("a", "ghk", 1, 5500)], { soldBy: "A", cashTo: "A" }), { id: "s1" });
+    data = sell(data, draft([dline("b", "bpc", 2, 4000)], { soldBy: "B", paymentMethod: "Zelle", cashTo: "bank" }), { id: "s2" });
     const t = todaySummary(data, computeLedger(data), new Date(day(10, 20)));
     expect(t).toMatchObject({ count: 2, revenue: 13500, cash: { A: 5500, B: 0 } });
     expect(t.bySeller.A).toMatchObject({ count: 1, revenue: 5500, profit: 4900 });

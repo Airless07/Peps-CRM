@@ -2,7 +2,6 @@
 // A saved order is not an order: it is never part of AppData.orders, so the money and stock
 // math cannot see it. Completing one goes through the same steps as a normal sale (finalizeSale).
 import { resolveDraftCustomer, type Draft, type DraftLine } from "./draft";
-import { isCash } from "./cash";
 import { orderTotals } from "./money";
 import type { CustomerRec, ProductRec, SavedLineRec, SavedOrderRec } from "./types";
 
@@ -166,7 +165,8 @@ export function finalizeSale(
   const now = ctx.now ?? new Date().toISOString();
   const { draft: linked, created } = resolveDraftCustomer(draft, ctx.customers, now);
   const owner = draft.owner ?? null;
-  const cashTo = isCash(draft.paymentMethod) ? draft.cashTo ?? (draft.soldBy === "A" || draft.soldBy === "B" ? draft.soldBy : null) : null;
+  // Money received by: exactly what was picked (the sale cannot be completed without it).
+  const cashTo = draft.cashTo ?? null;
   return {
     final: {
       ...linked,

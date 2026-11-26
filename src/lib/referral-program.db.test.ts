@@ -94,7 +94,7 @@ function sale(over: Record<string, unknown> = {}) {
   const id = (over.id as string) ?? `s-${Math.random().toString(36).slice(2)}`;
   return {
     id, date: new Date("2026-03-01T12:00:00Z"), customer: "Dana Reed", customerId: "dana", paymentMethod: "Cash", note: "", soldBy: "A" as const,
-    discountType: "$" as const, discountValue: 0, tipCents: 0, owner: null, cashTo: null, storeCreditCents: 0, referredById: null as string | null,
+    discountType: "$" as const, discountValue: 0, tipCents: 0, owner: null, cashTo: "A" as const, storeCreditCents: 0, referredById: null as string | null,
     lines: [{ id: `${id}-l`, productId: "ghk", productName: "GHK-Cu 100mg", quantity: 2, unitPriceCents: 5000, unitCostCents: 1000, cutPercent: 10, dealId: "", dealName: "", fullPriceCents: null }],
     ...over,
   };

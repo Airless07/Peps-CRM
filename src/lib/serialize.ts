@@ -73,6 +73,7 @@ export function toSettings(s: SettingsRow): SettingsRec {
 }
 
 const partnerOrNull = (v: string | null | undefined) => (v === "A" || v === "B" ? v : null);
+const holderOrNull = (v: string | null | undefined) => (v === "A" || v === "B" || v === "bank" ? v : null);
 
 type SavedOrderRow = Prisma.SavedOrderGetPayload<object>;
 export function toSavedOrder(o: SavedOrderRow): SavedOrderRec {
@@ -89,7 +90,7 @@ export function toSavedOrder(o: SavedOrderRow): SavedOrderRec {
     tipCents: o.tipCents,
     lines: json<SavedLineRec[]>(o.linesJson, []),
     owner: partnerOrNull(o.owner),
-    cashTo: partnerOrNull(o.cashTo),
+    cashTo: holderOrNull(o.cashTo),
     storeCreditCents: o.storeCreditCents,
     referredById: o.referredById,
   };
@@ -126,7 +127,7 @@ export function toOrder(o: OrderWithLines): OrderRec {
     shippingCents: o.shippingCents,
     adminNote: o.adminNote,
     owner: partnerOrNull(o.owner),
-    cashTo: partnerOrNull(o.cashTo),
+    cashTo: holderOrNull(o.cashTo),
     paidTo: online ? partnerOrNull(o.paidTo) : null,
     storeCreditCents: o.storeCreditCents,
     referredById: o.referredById,

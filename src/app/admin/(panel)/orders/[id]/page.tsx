@@ -13,6 +13,7 @@ import { Badge, Button, Card, Empty, PageSkeleton, Row, SectionTitle, cx } from 
 import { customerName, orderPlaced, shipToLines, statusLabel, STATUS_TONE } from "@/lib/admin/orders-view";
 import { fmtDateTime, fmtMoney } from "@/lib/format";
 import { orderTotals } from "@/lib/money";
+import { moneyHolderOf } from "@/lib/cash";
 import { payMethod } from "@/lib/store/payments";
 import { trackingUrl } from "@/lib/tracking";
 import type { OrderEventRec } from "@/lib/types";
@@ -272,11 +273,11 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
             <Row label="Method">{online && order.status === "awaiting_payment" ? `${payMethod(w?.payChoice ?? "")?.name ?? order.paymentMethod} (chosen)` : order.paymentMethod}</Row>
             {w?.paidAt && <Row label="Paid">{fmtDateTime(w.paidAt)}</Row>}
             <Row label="Sold by">{s.name(order.soldBy)}</Row>
-            {order.cashTo && <Row label="Cash received by">{s.name(order.cashTo)}</Row>}
-            {online && w?.paidAt && order.status !== "canceled" && (
-              <Row label="Money held by">
-                <span data-paid-to>
-                  Paid via {order.paymentMethod} → held by {order.paidTo ? s.name(order.paidTo) : "Bank"}
+            {(!online || (w?.paidAt && order.status !== "canceled")) && (
+              <Row label="Money received by">
+                <span data-paid-to data-money-to={moneyHolderOf(order)}>
+                  {s.name(moneyHolderOf(order))}
+                  {!online && !order.cashTo && <span className="text-muted"> (not recorded)</span>}
                 </span>
               </Row>
             )}

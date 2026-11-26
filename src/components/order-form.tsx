@@ -8,7 +8,6 @@ import { colorHex, fmtMoney, fromLocalInput, toLocalDateTimeInput, uid } from "@
 import { withSize } from "@/lib/size";
 import { discountButtonLabel, isDiscountButtonOn, tapDiscountButton, tapTipButton, tipButtonLabel } from "@/lib/sell-buttons";
 import { dealLineOff, isDealLine, sellDealHints } from "@/lib/bogo";
-import { isCash } from "@/lib/cash";
 import { ownerLine, setOwnerPrice, zeroCostLines } from "@/lib/owner";
 import { heldBy } from "@/lib/saved-orders";
 import { recentCustomers } from "@/lib/sell-tools";
@@ -16,6 +15,7 @@ import type { DiscountType, Partner } from "@/lib/types";
 import { Button, Field, Input, MoneyInput, NumberInput, Row, Segmented, Select, Sheet, Stepper, cx, useConfirm } from "./ui";
 import { useLoaded } from "./store";
 import { CustomerPicker } from "./customer-picker";
+import { MoneyToPicker } from "./money-to";
 import { ReferrerPicker, StoreCreditControl, creditFor } from "./credit-controls";
 
 const chip =
@@ -109,8 +109,6 @@ export function OrderForm({ draft, onChange, mode }: { draft: Draft; onChange: (
   };
   const hints = mode === "cart" ? sellDealHints(draft, { promotions: data.promotions, products: data.products, names }) : [];
   const recent = mode === "cart" && !draft.customer.trim() ? recentCustomers(data, 5) : [];
-  const cash = isCash(draft.paymentMethod);
-  const cashTo: Partner = draft.cashTo ?? (draft.soldBy === "B" ? "B" : "A");
   const dealOff = draft.lines.reduce((x, l) => x + dealLineOff(l), 0);
   const ownerFull = owner ? draft.lines.reduce((x, l) => x + (l.fullPriceCents ?? l.unitPriceCents) * l.quantity, 0) : 0;
 
@@ -292,16 +290,9 @@ export function OrderForm({ draft, onChange, mode }: { draft: Draft; onChange: (
             </div>
           </Field>
         </div>
-        {cash && draft.soldBy !== "W" && (
-          <Field label="Cash received by" hint="Who is holding this cash now. Shows on the Money page under Cash held.">
-            <Segmented<Partner>
-              value={cashTo}
-              onChange={(v) => onChange({ ...draft, cashTo: v })}
-              options={[
-                { value: "A", label: name("A") },
-                { value: "B", label: name("B") },
-              ]}
-            />
+        {draft.soldBy !== "W" && (
+          <Field label="Money received by" hint="Who has this money now (cash in hand, their Zelle, or the business bank). Shows on the Money page under Cash held. Required.">
+            <MoneyToPicker value={draft.cashTo} onChange={(v) => onChange({ ...draft, cashTo: v })} missing={mode === "cart" && draft.lines.length > 0 && !draft.cashTo} />
           </Field>
         )}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

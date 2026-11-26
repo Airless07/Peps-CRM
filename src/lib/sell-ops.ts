@@ -8,7 +8,6 @@ import { prisma } from "./db";
 import { nextOrderNumber } from "./order-ops";
 import type { orderInput, savedOrderInput } from "./schemas";
 import { withLowStockAlert } from "./stock-alerts";
-import { isCash } from "./cash";
 import { assertCreditAvailable, checkReferrer, referralSnapshot, syncOrderCredit } from "./credit-ops";
 import { orderTotals } from "./money";
 
@@ -19,7 +18,7 @@ export type SavedOrderInput = z.output<typeof savedOrderInput>;
 /**
  * The house rules every in-person sale is saved with, whatever the screen sent:
  * - Owner price: every line is charged its cost (revenue = cost, profit $0), with no discount, tip or deal.
- * - Cash: who received it is kept only for cash sales (the seller when not picked).
+ * - Money received by (Ahmad, Mo or Bank) is kept as picked, for every payment method. Never defaulted.
  */
 export function cleanSale<
   T extends Pick<SaleInput, "owner" | "cashTo" | "paymentMethod" | "soldBy" | "discountType" | "discountValue" | "tipCents" | "lines"> & { storeCreditCents?: number; customerId?: string | null },
@@ -33,7 +32,7 @@ export function cleanSale<
     if (out.storeCreditCents !== undefined) out.storeCreditCents = 0;
     out.lines = out.lines.map((l) => ({ ...l, unitPriceCents: l.unitCostCents, dealId: "", dealName: "", fullPriceCents: l.fullPriceCents ?? null }));
   }
-  out.cashTo = isCash(out.paymentMethod) ? out.cashTo ?? (out.soldBy === "A" || out.soldBy === "B" ? out.soldBy : null) : null;
+  out.cashTo = out.cashTo ?? null;
   // Credit belongs to a customer, and is never more than the total after discounts.
   if (out.storeCreditCents !== undefined) out.storeCreditCents = out.customerId ? orderTotals(out).credit : 0;
   return out;
@@ -54,6 +53,8 @@ export async function sellerName(tx: Tx, soldBy: string): Promise<string> {
  */
 export async function recordSale(input: SaleInput, origin: string, fromSavedId?: string | null) {
   const { lines, ...order } = cleanSale(input);
+  // Required on every new sale: there is no default, so Cash held is never guessed.
+  if (!order.cashTo) throw new HttpError(400, "Pick who received the money (Ahmad, Mo or Bank).");
   await withLowStockAlert(
     () =>
       prisma.$transaction(async (tx: Tx) => {

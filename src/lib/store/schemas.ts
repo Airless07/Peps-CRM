@@ -122,6 +122,8 @@ export const orderAction = z.discriminatedUnion("action", [
   z.object({ action: z.literal("unarchive") }),
   z.object({ action: z.literal("contact"), email, phone: text(30).default(""), shipTo: address }),
   z.object({ action: z.literal("note"), note: text(500).min(1) }),
+  // Who received the money (Cash held on the Money page). Logged in the order history.
+  z.object({ action: z.literal("money-to"), to: z.enum(["A", "B", "bank"]) }),
   // Internal note for the team (may be empty to clear it). Never shown to the customer.
   z.object({ action: z.literal("admin-note"), note: text(2000) }),
   // Local pickup / delivery.

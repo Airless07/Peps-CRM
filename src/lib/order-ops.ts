@@ -400,7 +400,7 @@ export async function markPaid(orderId: string, opts: { paymentMethod: string; o
   const ledger = computeLedger(data);
   const now = new Date();
   const email = order.web?.email ?? "";
-  const paidTo = receiverOf(data.store.payments, opts.paymentMethod);
+  const paidTo = receiverOf(data.store);
 
   await prisma.$transaction(async (tx) => {
     let customerId = order.customerId;
@@ -425,7 +425,7 @@ export async function markPaid(orderId: string, opts: { paymentMethod: string; o
     await tx.order.update({
       where: { id: orderId },
       // A local order already marked ready (pay at pickup) goes straight to "ready" once paid.
-      // paidTo: who receives this payment method (Settings > Payments) as it is now. Later Settings changes never touch it.
+      // paidTo: who receives online payments (Settings > Payments) as it is now. Later Settings changes never touch it.
       data: { status: order.readyAt ? "ready" : "paid", date: now, paidAt: now, soldBy: "W", paymentMethod: opts.paymentMethod.trim() || "Unknown", paidTo, customerId, customer: customerName },
     });
     // Paid: the store credit it used comes off the balance now, and the referrer earns their reward.
@@ -918,3 +918,26 @@ export async function attachScreenshot(token: string, file: string, origin: stri
 }
 
 export { json };
+
+/**
+ * Change who received the money of an order (order Actions > "Money received by"). Only Cash held on the
+ * Money page moves: business money, payback, profit and the split never look at it. Logged in the history.
+ * In person: any sale. Website: once it is paid (before that nobody has the money), not when canceled.
+ */
+export async function setMoneyTo(orderId: string, to: "A" | "B" | "bank") {
+  const o = await prisma.order.findUnique({ where: { id: orderId }, select: { source: true, status: true, paidAt: true, cashTo: true, paidTo: true } });
+  if (!o) throw new HttpError(404, "That order was not found. It may have been removed. Reload the page.");
+  const online = o.source === "online";
+  if (online && (!o.paidAt || o.status === "canceled")) throw new HttpError(400, "This order has no money received yet. Mark it paid first.");
+  const s = await prisma.settings.findUnique({ where: { id: 1 }, select: { partnerAName: true, partnerBName: true } });
+  const label = (v: string | null) => (v === "A" ? s?.partnerAName || "Partner A" : v === "B" ? s?.partnerBName || "Partner B" : "Bank");
+  const before = online ? o.paidTo : o.cashTo;
+  const was = online ? label(before) : before ? label(before) : "Not recorded";
+  if ((online ? before ?? "bank" : before) === to) return { changed: false, message: `Already ${label(to)}.` };
+  await prisma.$transaction(async (tx) => {
+    // Website orders keep null for Bank (as when marked paid); in-person sales store the pick itself.
+    await tx.order.update({ where: { id: orderId }, data: online ? { paidTo: to === "bank" ? null : to } : { cashTo: to } });
+    await logEvent(tx, orderId, "note", `Money received by changed: ${was} → ${label(to)}.`, "Cash held only. Business money and the split are unchanged.");
+  });
+  return { changed: true, message: `Money received by: ${label(to)}.` };
+}

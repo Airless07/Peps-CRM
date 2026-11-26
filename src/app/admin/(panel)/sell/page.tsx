@@ -69,7 +69,7 @@ export default function SellPage() {
   }
 
   async function complete() {
-    if (draft.lines.length === 0 || busy) return;
+    if (draft.lines.length === 0 || busy || !draft.cashTo) return;
     if (!(await confirmStock(draft.lines, draft.id))) return;
     setBusy(true);
     setCartOpen(false);
@@ -268,7 +268,7 @@ export default function SellPage() {
             <Button size="lg" className="sm:flex-1" disabled={draft.lines.length === 0 || busy} onClick={saveLater}>
               Save for later
             </Button>
-            <Button variant="primary" size="lg" className="sm:flex-[1.7]" disabled={draft.lines.length === 0 || busy} onClick={complete}>
+            <Button variant="primary" size="lg" className="sm:flex-[1.7]" disabled={draft.lines.length === 0 || busy || !draft.cashTo} title={draft.cashTo ? undefined : "Pick who received the money first"} data-complete-sale onClick={complete}>
               {draft.owner ? "Complete at cost" : "Complete order"} · {fmtMoney(totals.total)}
             </Button>
           </div>
@@ -370,7 +370,7 @@ function TodayCard() {
             </table>
           )}
           <div className="flex flex-wrap gap-2" data-today-cash>
-            <span className="text-xs font-semibold uppercase tracking-wider text-muted">Cash received</span>
+            <span className="text-xs font-semibold uppercase tracking-wider text-muted">Money received</span>
             {(["A", "B"] as const).map((p) => (
               <span key={p} className="rounded-full bg-surface2 px-3 py-1 font-medium tabular-nums">
                 {name(p)} {fmtMoney(t.cash[p])}

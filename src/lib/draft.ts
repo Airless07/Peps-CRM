@@ -1,6 +1,6 @@
 import { customerKey } from "./customers";
 import { uid } from "./format";
-import type { CustomerRec, DiscountType, OrderRec, Partner, Seller } from "./types";
+import type { CashHolder, CustomerRec, DiscountType, OrderRec, Partner, Seller } from "./types";
 import { ORDER_DEFAULTS, UNKNOWN_PAYMENT } from "./types";
 
 export interface DraftLine {
@@ -34,8 +34,8 @@ export interface Draft {
   lines: DraftLine[];
   /** Owner price: every line at cost for this partner. Null/absent = a normal sale. */
   owner?: Partner | null;
-  /** Cash: who received it. Absent = the seller. */
-  cashTo?: Partner | null;
+  /** Who received the money (Ahmad, Mo or the bank). Required to complete a sale: never defaulted. */
+  cashTo?: CashHolder | null;
   /** Store credit to use. Capped by the customer's available credit and the total after discounts. */
   storeCreditCents?: number;
   /** Customer who referred this sale. */

@@ -1,6 +1,6 @@
 // Cash tracking: where business money sits. Pure.
-// Each in-person cash sale is assigned to the partner who received the cash; each paid website order to
-// whoever receives its payment method (e.g. Zelle -> Mo). Refunds lower the same holder (the order total drops). Hand-offs move money
+// Each in-person sale is assigned to whoever received the money (picked on the Sell screen: Ahmad, Mo or the
+// bank, any payment method); each paid website order to whoever online payments went to when it was paid. Refunds lower the same holder (the order total drops). Hand-offs move money
 // between Ahmad, Mo and the bank. Business money never changes here: Bank is simply whatever
 // business money is not held as cash by a partner.
 import { fmtMoney } from "./format";
@@ -11,11 +11,15 @@ export const isCash = (method: string | null | undefined) => (method ?? "").trim
 
 /**
  * Who holds the money from this sale (null = the bank).
- * In person: the partner who received the cash (cash sales only). Website: whoever receives that payment
- * method (Settings > Payments), saved on the order when it was marked paid.
+ * In person: "Money received by" on the sale (cashTo), whatever the payment method (Zelle to Mo counts for Mo).
+ * Not recorded (older sales) or Bank = the bank. Website: who online payments went to (Settings > Payments),
+ * saved on the order when it was marked paid.
  */
-export const cashHolderOf = (o: Pick<OrderRec, "paymentMethod" | "cashTo" | "source"> & { paidTo?: Partner | null }): Partner | null =>
-  o.source === "inperson" ? (isCash(o.paymentMethod) && o.cashTo ? o.cashTo : null) : o.paidTo ?? null;
+export const cashHolderOf = (o: Pick<OrderRec, "cashTo" | "source"> & { paidTo?: Partner | null; paymentMethod?: string }): Partner | null =>
+  o.source === "inperson" ? (o.cashTo === "A" || o.cashTo === "B" ? o.cashTo : null) : o.paidTo ?? null;
+
+/** Who received the money of an order, for display: "A" | "B" | "bank". */
+export const moneyHolderOf = (o: Pick<OrderRec, "cashTo" | "source"> & { paidTo?: Partner | null }): CashHolder => cashHolderOf(o) ?? "bank";
 
 export interface CashPosition {
   /** Cash each partner holds now (received + handed to them - handed away). */

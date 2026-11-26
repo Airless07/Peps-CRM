@@ -1,6 +1,6 @@
 import { body, HttpError, route, type Ctx } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { buyLabel, cancelOrder, checkTracking, logEvent, markDelivered, markHandedOver, markPaid, markReady, markShipped, markSwitchRefundPaid, refundOrder, requestOrigin, switchToLocal, HANDLING_TEXT } from "@/lib/order-ops";
+import { buyLabel, cancelOrder, checkTracking, logEvent, markDelivered, markHandedOver, markPaid, markReady, markShipped, markSwitchRefundPaid, refundOrder, setMoneyTo, requestOrigin, switchToLocal, HANDLING_TEXT } from "@/lib/order-ops";
 import { sendReviewRequestNow } from "@/lib/reviews/ops";
 import { withLowStockAlert } from "@/lib/stock-alerts";
 import { orderAction } from "@/lib/store/schemas";
@@ -48,6 +48,10 @@ export const POST = route(async (req, ctx: Ctx<{ id: string }>) => {
       await prisma.order.update({ where: { id }, data: { email: input.email, phone: input.phone, shipToJson: JSON.stringify(input.shipTo) } });
       await logEvent(prisma, id, "note", "Contact details or shipping address edited.");
       return { ok: true, message: "Saved." };
+    }
+    case "money-to": {
+      const r = await setMoneyTo(id, input.to);
+      return { ok: true, message: r.message };
     }
     case "note":
       await logEvent(prisma, id, "note", input.note);

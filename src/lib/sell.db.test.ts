@@ -122,6 +122,8 @@ const cart = (over: Partial<Draft> = {}): Draft => ({
   discountType: "%",
   discountValue: 10,
   tipCents: 500,
+  // Money received by: picked on the Sell screen (required, never defaulted).
+  cashTo: "B",
   lines: [
     { id: "sl-1", productId: "r10", productName: "Reta 10mg", quantity: 2, unitPriceCents: 7000, unitCostCents: 0, cutPercent: 0 },
     { id: "sl-2", productId: "kpv", productName: "KPV", quantity: 1, unitPriceCents: 3500, unitCostCents: 0, cutPercent: 0 },

@@ -591,7 +591,7 @@ function CashHeld({ onHandoff }: { onHandoff: () => void }) {
         ))}
       </div>
       <p className="mt-2 text-xs text-muted">
-        Cash sales count with whoever received the cash. Bank is the rest of business money ({fmtMoney(pos.total)}). Hand-offs only move money between them, so business money stays the same. If a partner keeps cash as their payout, hand it off from them to Bank.
+        Each sale counts with whoever received the money: in person, the “Money received by” picked on the sale (cash or their Zelle); website orders, who online payments go to (Settings → Payments). Bank is the rest of business money ({fmtMoney(pos.total)}). Hand-offs only move money between them, so business money stays the same. If a partner keeps cash as their payout, hand it off from them to Bank.
       </p>
       {history.length > 0 && (
         <details className="mt-3 rounded-2xl border border-line bg-surface" data-handoff-history>

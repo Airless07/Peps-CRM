@@ -205,7 +205,7 @@ export default function OrdersPage() {
                           <div className="mt-0.5 truncate text-sm text-muted">{items}</div>
                           <div className="mt-0.5 text-xs text-muted">
                             {fmtTime(o.date)} · {name(o.soldBy)} · {o.paymentMethod}
-                            {o.cashTo ? ` (cash with ${name(o.cashTo)})` : ""}
+                            {o.cashTo ? ` (money with ${name(o.cashTo)})` : ""}
                             {o.note ? ` · ${o.note}` : ""}
                           </div>
                         </div>

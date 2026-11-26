@@ -13,7 +13,8 @@ import { draftPayload, draftToOrder, lineCount, type Draft } from "@/lib/draft";
 import { fmtDateTime, fmtMoney, plural } from "@/lib/format";
 import { orderTotals } from "@/lib/money";
 import { finalizeSale, heldBy, priceChanges, savedItemsText, savedProfit, savedSummary, savedToDraft, savedTotals, stockShortfalls, toSavedOrder } from "@/lib/saved-orders";
-import type { SavedOrderRec } from "@/lib/types";
+import type { CashHolder, SavedOrderRec } from "@/lib/types";
+import { MoneyToPicker } from "@/components/money-to";
 
 /** Actions shared by the Sell cart and the saved orders list. */
 export function useSellActions() {
@@ -166,6 +167,8 @@ export function SavedOrdersList({ onOpened }: { onOpened?: () => void }) {
   const { confirmStock, submitSale, deleteSaved } = useSellActions();
   const [completing, setCompleting] = useState<SavedOrderRec | null>(null);
   const [method, setMethod] = useState("");
+  /** Money received by: only what was picked (on the saved order or here). Never defaulted. */
+  const [moneyTo, setMoneyTo] = useState<CashHolder | null>(null);
   const [busy, setBusy] = useState(false);
   if (!s) return null;
   const { data, name } = s;
@@ -190,15 +193,16 @@ export function SavedOrdersList({ onOpened }: { onOpened?: () => void }) {
 
   function askComplete(o: SavedOrderRec) {
     setMethod(methods.includes(o.paymentMethod) ? o.paymentMethod : methods.includes(cart.draft.paymentMethod) ? cart.draft.paymentMethod : "");
+    setMoneyTo(o.cashTo ?? null);
     setCompleting(o);
   }
 
   async function complete() {
     const o = completing;
-    if (!o || !method || busy) return;
+    if (!o || !method || !moneyTo || busy) return;
     if (!(await confirmStock(o.lines, o.id))) return;
     setBusy(true);
-    const ok = await submitSale({ ...savedToDraft(o, method), paymentMethod: method });
+    const ok = await submitSale({ ...savedToDraft(o, method), paymentMethod: method, cashTo: moneyTo });
     setBusy(false);
     if (!ok) return;
     setCompleting(null);
@@ -263,7 +267,7 @@ export function SavedOrdersList({ onOpened }: { onOpened?: () => void }) {
         onClose={() => setCompleting(null)}
         title="Complete saved order"
         footer={
-          <Button variant="primary" size="lg" block disabled={!method || busy} onClick={complete}>
+          <Button variant="primary" size="lg" block disabled={!method || !moneyTo || busy} onClick={complete}>
             Complete order{total ? ` · ${fmtMoney(total.total)}` : ""}
           </Button>
         }
@@ -291,6 +295,10 @@ export function SavedOrdersList({ onOpened }: { onOpened?: () => void }) {
                   </button>
                 ))}
               </div>
+            </div>
+            <div>
+              <span className="mb-2 block text-sm font-medium text-muted">Money received by</span>
+              <MoneyToPicker value={moneyTo} onChange={setMoneyTo} missing={!moneyTo} />
             </div>
             <div className="rounded-2xl bg-surface2/70 px-4 py-3">
               <Row label="Subtotal">{fmtMoney(total.subtotal)}</Row>

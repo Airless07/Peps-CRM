@@ -109,7 +109,7 @@ function sale(over: Record<string, unknown> = {}) {
     discountValue: 0,
     tipCents: 0,
     owner: null,
-    cashTo: null,
+    cashTo: "A" as const,
     storeCreditCents: 0,
     referredById: null as string | null,
     lines: [{ id: `${id}-l`, productId: "ghk", productName: "GHK-Cu 100mg", quantity: 2, unitPriceCents: 5000, unitCostCents: 1000, cutPercent: 10, dealId: "", dealName: "", fullPriceCents: null }],

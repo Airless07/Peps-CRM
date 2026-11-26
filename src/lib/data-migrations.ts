@@ -248,18 +248,45 @@ export async function backfillPaidTo(totalOf: (orderId: string) => number): Prom
   return prisma.$transaction(async (tx) => {
     if (await tx.dataMigration.findUnique({ where: { id: PAID_TO_ID } })) return null;
     const row = await tx.settings.findUnique({ where: { id: 1 }, select: { storeJson: true } });
-    const payments = parseStore(row?.storeJson).payments;
+    const store = parseStore(row?.storeJson);
     const orders = await tx.order.findMany({ where: { source: "online", paidTo: null }, select: { id: true, number: true, status: true, paymentMethod: true }, orderBy: { number: "asc" } });
     const moved: (PaidToMove & { id: string })[] = [];
     for (const o of orders) {
       if (!countsInMoney(o.status as OrderStatus)) continue;
-      const to = receiverOf(payments, o.paymentMethod);
+      const to = receiverOf(store);
       if (!to) continue;
       await tx.order.update({ where: { id: o.id }, data: { paidTo: to } });
       moved.push({ id: o.id, number: o.number, paymentMethod: o.paymentMethod, totalCents: totalOf(o.id), from: "bank", to });
     }
     await tx.dataMigration.create({ data: { id: PAID_TO_ID, detail: JSON.stringify({ moved }) } });
     return moved;
+  });
+}
+
+export const ZELLE_1012_ID = "money-to-1012-mo";
+
+/**
+ * Sale #1012 ($73, in person, paid by Zelle to Mo's Zelle) counted toward Bank: before "Money received by",
+ * Cash held only credited a partner for cash sales. Once, set it to Mo. Only who holds the money moves;
+ * business money, payback, profit and the split are computed from the same records and do not change.
+ * Skipped (and logged) if the order is not what we expect: not #1012, not in person, not Zelle, or already set.
+ */
+export async function moveSale1012ToMo(): Promise<{ moved: boolean; why: string } | null> {
+  return prisma.$transaction(async (tx) => {
+    if (await tx.dataMigration.findUnique({ where: { id: ZELLE_1012_ID } })) return null;
+    const o = await tx.order.findFirst({ where: { number: 1012 }, select: { id: true, source: true, paymentMethod: true, cashTo: true } });
+    let why: string;
+    if (!o) why = "no order #1012";
+    else if (o.source !== "inperson" || o.paymentMethod.trim().toLowerCase() !== "zelle") why = `#1012 is ${o.source} ${o.paymentMethod}, left alone`;
+    else if (o.cashTo) why = `#1012 already has Money received by = ${o.cashTo}, left alone`;
+    else {
+      await tx.order.update({ where: { id: o.id }, data: { cashTo: "B" } });
+      await tx.orderEvent.create({ data: { id: crypto.randomUUID(), orderId: o.id, kind: "note", message: "Money received by changed: Not recorded → Mo.", detail: "Paid by Zelle to Mo's Zelle. Cash held only. Business money and the split are unchanged." } });
+      why = "#1012 Zelle: Bank -> Mo";
+    }
+    const moved = why.endsWith("-> Mo");
+    await tx.dataMigration.create({ data: { id: ZELLE_1012_ID, detail: JSON.stringify({ moved, why }) } });
+    return { moved, why };
   });
 }
 
@@ -281,6 +308,12 @@ export async function runDataMigrations() {
   #${m.number} ${m.paymentMethod} $${(m.totalCents / 100).toFixed(2)}: Bank -> ${names[m.to]}`).join("")}`);
   } catch (e) {
     console.error("[data] paid-to backfill failed:", e instanceof Error ? e.message : e);
+  }
+  try {
+    const z = await moveSale1012ToMo();
+    if (z) console.log(`[data] Money received by: ${z.why}`);
+  } catch (e) {
+    console.error("[data] #1012 money-to fix failed:", e instanceof Error ? e.message : e);
   }
   try {
     const p = await updatePolicies();
