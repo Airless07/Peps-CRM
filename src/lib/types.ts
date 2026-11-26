@@ -10,13 +10,16 @@ export type OrderSource = "inperson" | "online";
 export type OrderStatus = "completed" | "awaiting_payment" | "paid" | "label_purchased" | "shipped" | "ready" | "picked_up" | "delivered" | "canceled";
 export type TipHandling = "profit" | "seller" | "business";
 export type DiscountType = "$" | "%";
-export type AdjustmentReason = "recount" | "breakage" | "freebie" | "correction";
+/** "recount" only exists on older records; new adjustments use the four below. */
+export type AdjustmentReason = "lab_testing" | "breakage" | "freebie" | "correction" | "recount";
 export const ADJUST_REASONS: { value: AdjustmentReason; label: string }[] = [
-  { value: "recount", label: "Recount" },
-  { value: "breakage", label: "Broken vial" },
+  { value: "lab_testing", label: "Lab testing" },
+  { value: "breakage", label: "Breakage" },
   { value: "freebie", label: "Freebie" },
-  { value: "correction", label: "Other correction" },
+  { value: "correction", label: "Correction" },
 ];
+export const adjustReasonLabel = (r: string) => (r === "recount" ? "Recount" : ADJUST_REASONS.find((x) => x.value === r)?.label ?? r);
+export const LABS = ["KMD Analytical", "Janoshik"];
 
 export interface SettingsRec {
   startingBalanceCents: number;
@@ -119,6 +122,14 @@ export interface AdjustmentRec {
   quantity: number;
   reason: AdjustmentReason;
   note: string;
+  /** Lab testing only (optional): lab, sample ID, lot, the matching lab fee, the shipment it was part of. */
+  lab?: string;
+  sampleId?: string;
+  lot?: string;
+  expenseId?: string | null;
+  shipmentId?: string | null;
+  /** Lab testing: cost of the vials sent (their cost per vial at the time). Reported as "Testing cost". */
+  costCents?: number;
   createdAt: string;
 }
 

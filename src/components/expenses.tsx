@@ -7,6 +7,7 @@ import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { FlaskConical, PackagePlus, Paperclip, Pencil, Plus, Trash2, X } from "lucide-react";
 import { RestockOrderRow, restockTotal } from "./restock/shared";
+import { LabShipmentSheet, SentForTesting } from "./inventory/lab-testing";
 import { api, useLoaded } from "./store";
 import { useToast } from "./toast";
 import { MoneyToPicker } from "./money-to";
@@ -30,6 +31,7 @@ export function ExpensesTab() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [editing, setEditing] = useState<ExpenseRec | "new" | null>(null);
+  const [labShipment, setLabShipment] = useState(false);
 
   const list = useMemo(() => {
     const all = s?.data.expenses ?? [];
@@ -191,6 +193,29 @@ export function ExpensesTab() {
       <p className="mt-2 text-xs text-muted">
         Restock orders are listed here too; their cost goes into each vial’s cost (Inventory), not into Expenses on the Overview. Each expense lowers business money on its date, like a restock. Below $0 the store is in payback mode: every sale goes to the business, nothing to split, until it is back to $0. It also comes out of the cash held by whoever paid (Bank, or a partner who paid out of pocket).
       </p>
+
+      {(cat === "all" || cat === "lab_testing") && (
+        <>
+          <SectionTitle
+            right={
+              <Button size="sm" className="h-10" onClick={() => setLabShipment(true)} data-send-samples>
+                <FlaskConical size={16} /> Send samples to lab
+              </Button>
+            }
+          >
+            Sent for testing
+          </SectionTitle>
+          <SentForTesting
+            inRange={(iso) => {
+              const [a, b] = from && to && from > to ? [to, from] : [from, to];
+              return (!a || dayKey(iso) >= a) && (!b || dayKey(iso) <= b);
+            }}
+            periodLabel={filtered ? "this selection" : "all time"}
+          />
+          <p className="mt-2 text-xs text-muted">Vials sent to labs. Their cost is not money spent (they were paid for at restock); it shows as Testing cost in Performance, next to the lab fees above.</p>
+          <LabShipmentSheet open={labShipment} onClose={() => setLabShipment(false)} />
+        </>
+      )}
 
       {history.length > 0 && (
         <details className="mt-3 rounded-2xl border border-line bg-surface" data-expense-history>

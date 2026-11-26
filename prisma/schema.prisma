@@ -159,9 +159,19 @@ model StockAdjustment {
   product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
   /// Positive or negative
   quantity  Int
-  /// "breakage" | "freebie" | "correction"
+  /// "lab_testing" | "breakage" | "freebie" | "correction" (older: "recount")
   reason    String   @default("correction")
   note      String   @default("")
+  /// Lab testing: the lab, the sample ID and the lot sent (optional)
+  lab        String  @default("")
+  sampleId   String  @default("")
+  lot        String  @default("")
+  /// Lab testing: the matching lab fee in Money > Expenses (optional)
+  expenseId  String?
+  /// Lab testing: one "Send samples to lab" shipment groups its rows
+  shipmentId String?
+  /// Lab testing: cost of the vials sent (cost per vial at the time x vials). 0 for other reasons.
+  costCents  Int     @default(0)
   createdAt DateTime @default(now())
 
   @@index([productId])

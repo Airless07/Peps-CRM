@@ -43,7 +43,7 @@ export const purchaseCreate = z.object({
 });
 export const purchaseUpdate = purchaseCreate.omit({ id: true }).partial();
 
-export const adjustmentCreate = z.object({
+const adjustmentFields = z.object({
   id: idStr,
   date: dateStr,
   productId: idStr,
@@ -53,10 +53,29 @@ export const adjustmentCreate = z.object({
     .min(-1_000_000)
     .max(1_000_000)
     .refine((n) => n !== 0, "Quantity can't be 0"),
-  reason: z.enum(["recount", "breakage", "freebie", "correction"], { message: "Pick a reason." }),
+  reason: z.enum(["lab_testing", "breakage", "freebie", "correction", "recount"], { message: "Pick a reason." }),
   note: text().default(""),
+  lab: text(80).default(""),
+  sampleId: text(60).default(""),
+  lot: text(60).default(""),
+  expenseId: idStr.nullable().default(null),
 });
-export const adjustmentUpdate = adjustmentCreate.omit({ id: true }).partial();
+export const adjustmentCreate = adjustmentFields.refine((a) => a.reason !== "lab_testing" || a.quantity < 0, { message: "Lab testing removes vials from stock.", path: ["quantity"] });
+export const adjustmentUpdate = adjustmentFields.omit({ id: true }).partial();
+
+/** "Send samples to lab": lab and lot once, then product + vials rows. */
+export const labShipmentInput = z.object({
+  id: idStr,
+  date: dateStr,
+  lab: text(80).default(""),
+  lot: text(60).default(""),
+  expenseId: idStr.nullable().default(null),
+  note: text().default(""),
+  rows: z
+    .array(z.object({ productId: idStr, quantity: z.number().int().min(1, "Each row needs at least 1 vial").max(100_000), sampleId: text(60).default("") }))
+    .min(1, "Add at least one product")
+    .max(100),
+});
 
 export const payoutCreate = z.object({
   id: idStr,

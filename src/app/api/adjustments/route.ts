@@ -1,11 +1,11 @@
 import { body, route } from "@/lib/api";
-import { prisma } from "@/lib/db";
+import { createAdjustment } from "@/lib/lab-testing";
 import { requestOrigin } from "@/lib/order-ops";
 import { adjustmentCreate } from "@/lib/schemas";
 import { withLowStockAlert } from "@/lib/stock-alerts";
 
-/** Log a stock adjustment (breakage, freebie, correction). Alerts when it takes a size down to its low stock level. */
+/** Adjust stock (lab testing, breakage, freebie, correction). Never touches money. Alerts at the low stock level. */
 export const POST = route(async (req) => {
   const data = await body(req, adjustmentCreate);
-  return withLowStockAlert(() => prisma.stockAdjustment.create({ data }), requestOrigin(req));
+  return withLowStockAlert(() => createAdjustment(data), requestOrigin(req));
 });

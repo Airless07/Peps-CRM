@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowDown, ArrowUp, ArrowUpDown, Boxes, Combine, FolderTree, Globe, GripVertical, PackagePlus, Pencil, Plus, SlidersVertical, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Boxes, Combine, FlaskConical, FolderTree, Globe, GripVertical, PackagePlus, Pencil, Plus, SlidersVertical, Trash2 } from "lucide-react";
 import { List, ListRow } from "@/components/list";
 import { moved } from "@/components/inventory/media";
 import { ProductSheet } from "@/components/inventory/product-sheet";
@@ -14,7 +14,8 @@ import { Badge, Button, Empty, Field, Input, PageHeader, PageSkeleton, SectionTi
 import { colorHex, fmtDate, fmtMoney, uid } from "@/lib/format";
 import { sizeInName, websiteInfo } from "@/lib/store/product-info";
 import type { AdjustmentRec, ListingRec, ProductRec } from "@/lib/types";
-import { ADJUST_REASONS, TESTING_LABEL } from "@/lib/types";
+import { TESTING_LABEL, adjustReasonLabel } from "@/lib/types";
+import { LabShipmentSheet, SentForTesting } from "@/components/inventory/lab-testing";
 
 export default function InventoryPage() {
   const s = useLoaded();
@@ -25,7 +26,8 @@ export default function InventoryPage() {
   const [groups, setGroups] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [webFilter, setWebFilter] = useState<"all" | "on" | "off">("all");
-  const [historyTab, setHistoryTab] = useState<"restocks" | "adjustments">("restocks");
+  const [historyTab, setHistoryTab] = useState<"restocks" | "adjustments" | "testing">("restocks");
+  const [labShipment, setLabShipment] = useState(false);
   const [drag, setDrag] = useState<number | null>(null);
   const [over, setOver] = useState<number | null>(null);
 
@@ -267,18 +269,29 @@ export default function InventoryPage() {
             </>
           )}
 
-          <SectionTitle>History</SectionTitle>
+          <SectionTitle
+            right={
+              <Button size="sm" className="h-10" onClick={() => setLabShipment(true)} data-send-samples>
+                <FlaskConical size={16} /> Send samples to lab
+              </Button>
+            }
+          >
+            History
+          </SectionTitle>
           <Segmented
-            className="mb-3 max-w-xs"
+            className="mb-3 max-w-md"
             size="sm"
             value={historyTab}
             onChange={setHistoryTab}
             options={[
               { value: "restocks", label: "Restocks" },
               { value: "adjustments", label: "Adjustments" },
+              { value: "testing", label: "Sent for testing" },
             ]}
           />
-          {historyTab === "restocks" ? (
+          {historyTab === "testing" ? (
+            <SentForTesting />
+          ) : historyTab === "restocks" ? (
             data.purchases.length === 0 ? (
               <Empty title="No restocks yet" body="Tap “New restock order” to add a supplier order." />
             ) : (
@@ -314,7 +327,7 @@ export default function InventoryPage() {
               </>
             )
           ) : data.adjustments.length === 0 ? (
-            <Empty title="No adjustments yet" body="Use Adjust for breakage, freebies or count corrections." />
+            <Empty title="No adjustments yet" body="Use Adjust stock for lab testing, breakage, freebies or corrections." />
           ) : (
             <List>
               {[...data.adjustments]
@@ -324,7 +337,7 @@ export default function InventoryPage() {
                     key={a.id}
                     onClick={() => setAdjust({ ...a })}
                     title={productName(a.productId)}
-                    sub={`${fmtDate(a.date)} · ${ADJUST_REASONS.find((r) => r.value === a.reason)?.label ?? a.reason}${a.note ? ` · ${a.note}` : ""}`}
+                    sub={`${fmtDate(a.date)} · ${adjustReasonLabel(a.reason)}${a.lab ? ` · ${a.lab}` : ""}${a.sampleId ? ` · ${a.sampleId}` : ""}${a.note ? ` · ${a.note}` : ""}`}
                     right={<span className={cx("font-medium tabular-nums", a.quantity < 0 ? "text-neg" : "text-pos")}>{a.quantity > 0 ? `+${a.quantity}` : a.quantity}</span>}
                   />
                 ))}
@@ -335,6 +348,7 @@ export default function InventoryPage() {
 
       <ProductSheet listingId={editing} onClose={() => setEditing(null)} />
       <AdjustSheet value={adjust} onClose={() => setAdjust(null)} />
+      <LabShipmentSheet open={labShipment} onClose={() => setLabShipment(false)} />
       <CombineSheet open={combine} onClose={() => setCombine(false)} onDone={(id) => setEditing(id)} />
       <GroupsSheet open={groups} onClose={() => setGroups(false)} />
     </div>
