@@ -26,7 +26,7 @@ export default function MoneyPage() {
   const [to, setTo] = useState(dayKey(new Date()));
   const [splitOpen, setSplitOpen] = useState(false);
   const [handoffOpen, setHandoffOpen] = useState(false);
-  const [tab, setTab] = useState<"overview" | "expenses">("overview");
+  const [tab, setTab] = useState<"overview" | "expenses">(() => (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("tab") === "expenses" ? "expenses" : "overview"));
 
   const range = useMemo((): [string, string] | null => {
     const today = dayKey(new Date());

@@ -53,7 +53,7 @@ export const adjustmentCreate = z.object({
     .min(-1_000_000)
     .max(1_000_000)
     .refine((n) => n !== 0, "Quantity can't be 0"),
-  reason: z.enum(["breakage", "freebie", "correction"]),
+  reason: z.enum(["recount", "breakage", "freebie", "correction"], { message: "Pick a reason." }),
   note: text().default(""),
 });
 export const adjustmentUpdate = adjustmentCreate.omit({ id: true }).partial();
@@ -161,6 +161,29 @@ export const expenseInput = z.object({
   fileName: text(120).default(""),
   mime: z.enum(["", "application/pdf", "image/webp"]).default(""),
 });
+// Restock orders. "Paid by" has NO default. Lines: vials and what the supplier charged (0 when free).
+export const restockInput = z.object({
+  name: text(120).min(1, "Give the order a name"),
+  date: dateStr,
+  supplier: text(120).default(""),
+  lot: text(60).default(""),
+  notes: text(2000).default(""),
+  paidBy: z.enum(["A", "B", "bank"], { message: "Pick who paid (Ahmad, Mo or Bank)." }),
+  shippingCents: z.number().int().min(0).max(100_000_000).default(0),
+  shippingDiscountCents: z.number().int().min(0).max(100_000_000).default(0),
+  discountCents: z.number().int().min(0).max(100_000_000).default(0),
+  feeMode: z.enum(["amount", "percent"]).default("amount"),
+  feeValue: z.number().int().min(0).max(100_000_000).default(0),
+  file: z.string().regex(/^([a-f0-9]{16}.(webp|pdf))?$/, "Upload the file again.").default(""),
+  fileName: text(120).default(""),
+  mime: z.enum(["", "application/pdf", "image/webp"]).default(""),
+  lines: z
+    .array(z.object({ productId: idStr, quantity: z.number().int().min(1, "Every line needs at least 1 vial").max(1_000_000), lineCents: z.number().int().min(0).max(1_000_000_000), free: z.boolean().default(false) }))
+    .min(1, "Add at least one product")
+    .max(200),
+});
+export const restockCreate = restockInput.extend({ id: idStr });
+
 export const expenseCreate = expenseInput.extend({ id: idStr });
 
 const sellButtonList = <T extends z.ZodType>(item: T, what: string) =>

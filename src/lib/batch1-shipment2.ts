@@ -52,19 +52,8 @@ export const ORDER = [
 const RT20_MINUS_ONE = "ee21dff3-b8c8-4e9e-a773-8003dbe24ded";
 const FEE_EXPENSE = "9daaee72-2dc3-4d07-a073-8f0ad933505e";
 
-/**
- * Spread `paid` over the lines in proportion to each line (largest remainder, integer cents): the shares
- * add up to exactly `paid`. A $0 line gets $0.
- */
-export function spread(lines: number[], paid: number): number[] {
-  const sum = lines.reduce((a, b) => a + b, 0);
-  if (sum <= 0) return lines.map(() => 0);
-  const raw = lines.map((l) => (l * paid) / sum);
-  const out = raw.map(Math.floor);
-  const order = raw.map((r, i) => [r - out[i], i] as const).sort((a, b) => b[0] - a[0] || a[1] - b[1]);
-  for (let k = 0, left = paid - out.reduce((a, b) => a + b, 0); k < left; k++) out[order[k][1]]++;
-  return out;
-}
+export { spread } from "./restock";
+import { spread } from "./restock";
 
 export interface Ship2Result {
   applied: boolean;

@@ -15,6 +15,8 @@ import type {
   CustomerRec,
   ExpenseEventRec,
   ExpenseRec,
+  RestockEventRec,
+  RestockOrderRec,
   GroupRec,
   LabelRec,
   ListingRec,
@@ -196,6 +198,9 @@ export function normalizeBackup(raw: Loose & { orders: Loose[] }, makeId: () => 
     // Expenses and their history: missing in older backups.
     expenses: arr<ExpenseRec>(data.expenses).filter((x) => x && typeof x.id === "string" && typeof x.amountCents === "number"),
     expenseEvents: arr<ExpenseEventRec>(data.expenseEvents).filter((e) => e && typeof e.id === "string"),
+    // Restock orders and their history: missing in older backups.
+    restockOrders: arr<RestockOrderRec>(data.restockOrders).filter((r) => r && typeof r.id === "string"),
+    restockEvents: arr<RestockEventRec>(data.restockEvents).filter((e) => e && typeof e.id === "string"),
     // Store credit history: missing in older backups. Only entries of customers in the file.
     creditEntries: arr<CreditEntryRec>(data.creditEntries).filter((e) => e && typeof e.id === "string" && typeof e.amountCents === "number" && customers.some((c) => c.id === e.customerId)),
     store,

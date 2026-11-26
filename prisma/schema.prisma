@@ -143,6 +143,10 @@ model Purchase {
   fromInvestment Boolean  @default(false)
   /// Who paid: "A" | "B" | "bank". NULL = not recorded (older restocks), counted as the bank.
   paidBy         String?
+  /// The restock order this line belongs to (NULL = an older one-by-one restock).
+  restockOrderId String?
+  /// What the supplier charged for the line, before shipping, discounts and fees (NULL on older restocks).
+  listCents      Int?
   createdAt      DateTime @default(now())
 
   @@index([productId])
@@ -633,6 +637,45 @@ model ExpenseEvent {
   detail    String   @default("")
 
   @@index([expenseId])
+}
+
+/// A restock order: one supplier order with its lines (Purchase rows with restockOrderId), extra costs and
+/// discounts spread over the paid lines, and who paid. Money and stock come from the lines, like any restock.
+model RestockOrder {
+  id                    String   @id
+  name                  String
+  date                  DateTime
+  supplier              String   @default("")
+  lot                   String   @default("")
+  notes                 String   @default("")
+  /// "A" | "B" | "bank"
+  paidBy                String
+  shippingCents         Int      @default(0)
+  shippingDiscountCents Int      @default(0)
+  discountCents         Int      @default(0)
+  /// "amount" (feeValue in cents) | "percent" (feeValue in basis points: 500 = 5%)
+  feeMode               String   @default("amount")
+  feeValue              Int      @default(0)
+  /// Private invoice upload ("" = none)
+  file                  String   @default("")
+  fileName              String   @default("")
+  mime                  String   @default("")
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @default(now())
+}
+
+/// History of every restock order change (kept after the order is deleted).
+model RestockEvent {
+  id        String   @id
+  restockId String
+  at        DateTime @default(now())
+  /// created | edited | deleted
+  action    String
+  message   String
+  /// JSON snapshot (order + lines) after the change (before, for a delete)
+  detail    String   @default("")
+
+  @@index([restockId])
 }
 
 model Split {

@@ -1,105 +1,12 @@
 "use client";
 
-// Restock and stock adjustment sheets (unchanged behavior from the original Inventory screen).
+// Adjust stock: corrections only (recount, broken vial, freebie). Never touches money. Restocks are restock
+// orders (Inventory > New restock order).
 import { useEffect, useState } from "react";
 import { api, useLoaded } from "@/components/store";
-import { MoneyToPicker } from "@/components/money-to";
-import { Button, Field, Input, MoneyInput, NumberInput, Segmented, Select, Sheet, Toggle, useConfirm } from "@/components/ui";
-import { fmtMoney, fromLocalInput, toLocalDateInput, uid } from "@/lib/format";
-import type { AdjustmentReason, AdjustmentRec, PurchaseRec } from "@/lib/types";
-
-// ---------------------------------------------------------------- Restock sheet
-export function RestockSheet({ value, onClose }: { value: PurchaseRec | null; onClose: () => void }) {
-  const s = useLoaded();
-  const confirm = useConfirm();
-  const [p, setP] = useState<PurchaseRec | null>(value);
-  useEffect(() => setP(value), [value]);
-  if (!s) return null;
-  const isNew = !value?.id;
-  const perUnit = p && p.quantity > 0 ? Math.round(p.totalCostCents / p.quantity) : 0;
-
-  async function save() {
-    if (!p || p.quantity < 1) return;
-    const rec = { ...p, id: p.id || uid(), createdAt: p.createdAt || new Date().toISOString() };
-    const body = { date: rec.date, productId: rec.productId, quantity: rec.quantity, totalCostCents: rec.totalCostCents, note: rec.note, fromInvestment: rec.fromInvestment, paidBy: rec.paidBy ?? null };
-    onClose();
-    await s!.mutate(
-      (d) => ({ ...d, purchases: isNew ? [rec, ...d.purchases] : d.purchases.map((x) => (x.id === rec.id ? rec : x)) }),
-      () => (isNew ? api("/api/purchases", "POST", { id: rec.id, ...body }) : api(`/api/purchases/${rec.id}`, "PATCH", body)),
-    );
-  }
-  async function remove() {
-    if (!p || !(await confirm({ title: "Delete this restock?", body: "Stock and business money are recalculated.", confirmText: "Delete", danger: true }))) return;
-    onClose();
-    await s!.mutate((d) => ({ ...d, purchases: d.purchases.filter((x) => x.id !== p.id) }), () => api(`/api/purchases/${p.id}`, "DELETE"));
-  }
-
-  return (
-    <Sheet
-      open={!!value}
-      onClose={onClose}
-      title={isNew ? "Restock" : "Edit restock"}
-      footer={
-        <div className="flex gap-2">
-          {!isNew && (
-            <Button variant="ghost" className="text-neg" onClick={remove}>
-              Delete
-            </Button>
-          )}
-          <Button block onClick={onClose}>
-            Cancel
-          </Button>
-          <Button block variant="primary" onClick={save} disabled={!p || p.quantity < 1 || (isNew && !p.fromInvestment && !p.paidBy)}>
-            Save
-          </Button>
-        </div>
-      }
-    >
-      {p && (
-        <div className="space-y-4">
-          <Field label="Product">
-            <Select value={p.productId} onChange={(e) => setP({ ...p, productId: e.target.value })}>
-              {s.data.products.map((x) => (
-                <option key={x.id} value={x.id}>
-                  {x.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Quantity">
-              <NumberInput label="quantity" value={p.quantity} min={1} onChange={(n) => setP({ ...p, quantity: n ?? 0 })} />
-            </Field>
-            <Field label="Total cost">
-              <MoneyInput label="total cost" value={p.totalCostCents} step={100} min={0} onChange={(c) => setP({ ...p, totalCostCents: c ?? 0 })} />
-            </Field>
-          </div>
-          <div className="flex items-center justify-between rounded-xl bg-surface2/70 px-4 py-3">
-            <span className="text-sm text-muted">Cost per unit</span>
-            <span className="text-lg font-semibold tabular-nums">{fmtMoney(perUnit)}</span>
-          </div>
-          <Field label="Date">
-            <Input type="date" value={toLocalDateInput(p.date)} onChange={(e) => e.target.value && setP({ ...p, date: fromLocalInput(e.target.value) })} />
-          </Field>
-          <Field label="Note (optional)">
-            <Input value={p.note} onChange={(e) => setP({ ...p, note: e.target.value })} placeholder="Supplier, batch…" />
-          </Field>
-          {!p.fromInvestment && (
-            <Field label="Paid by" hint="Who paid the supplier. A partner who paid out of pocket: it comes out of their cash held.">
-              <MoneyToPicker value={p.paidBy ?? null} onChange={(v) => setP({ ...p, paidBy: v })} missing={isNew && !p.paidBy} missingText="Pick who paid." />
-            </Field>
-          )}
-          <Toggle
-            checked={p.fromInvestment}
-            onChange={(v) => setP({ ...p, fromInvestment: v })}
-            label="Paid from starting investment"
-            hint="Adds stock and sets cost, but doesn’t subtract from business money (the starting balance already covers it)."
-          />
-        </div>
-      )}
-    </Sheet>
-  );
-}
+import { Button, Field, Input, NumberInput, Segmented, Select, Sheet, useConfirm } from "@/components/ui";
+import { fromLocalInput, toLocalDateInput, uid } from "@/lib/format";
+import { ADJUST_REASONS, type AdjustmentReason, type AdjustmentRec } from "@/lib/types";
 
 // ---------------------------------------------------------------- Adjustment sheet
 export function AdjustSheet({ value, onClose }: { value: AdjustmentRec | null; onClose: () => void }) {
@@ -114,7 +21,7 @@ export function AdjustSheet({ value, onClose }: { value: AdjustmentRec | null; o
   const stockNow = a ? (s.ledger.stock.get(a.productId)?.stock ?? 0) - (value?.id && value.productId === a.productId ? value.quantity : 0) : 0;
 
   async function save() {
-    if (!a || a.quantity === 0) return;
+    if (!a || a.quantity === 0 || !a.reason) return;
     const rec = { ...a, id: a.id || uid(), createdAt: a.createdAt || new Date().toISOString() };
     const body = { date: rec.date, productId: rec.productId, quantity: rec.quantity, reason: rec.reason, note: rec.note };
     onClose();
@@ -133,7 +40,7 @@ export function AdjustSheet({ value, onClose }: { value: AdjustmentRec | null; o
     <Sheet
       open={!!value}
       onClose={onClose}
-      title={isNew ? "Stock adjustment" : "Edit adjustment"}
+      title={isNew ? "Adjust stock" : "Edit adjustment"}
       footer={
         <div className="flex gap-2">
           {!isNew && (
@@ -144,7 +51,7 @@ export function AdjustSheet({ value, onClose }: { value: AdjustmentRec | null; o
           <Button block onClick={onClose}>
             Cancel
           </Button>
-          <Button block variant="primary" onClick={save} disabled={!a || a.quantity === 0}>
+          <Button block variant="primary" onClick={save} disabled={!a || a.quantity === 0 || !a.reason} title={a && !a.reason ? "Pick a reason first" : undefined}>
             Save
           </Button>
         </div>
@@ -184,16 +91,15 @@ export function AdjustSheet({ value, onClose }: { value: AdjustmentRec | null; o
             </span>
           </div>
           <Field label="Reason">
-            <Segmented<AdjustmentReason>
-              value={a.reason}
-              onChange={(r) => setA({ ...a, reason: r })}
-              options={[
-                { value: "breakage", label: "Breakage" },
-                { value: "freebie", label: "Freebie" },
-                { value: "correction", label: "Correction" },
-              ]}
+            <Segmented<AdjustmentReason | "">
+              value={a.reason ?? ""}
+              onChange={(r) => r && setA({ ...a, reason: r })}
+              className={!a.reason ? "ring-2 ring-neg/60" : undefined}
+              options={ADJUST_REASONS}
             />
+            {!a.reason && <p className="mt-1.5 text-sm font-medium text-neg">Pick a reason.</p>}
           </Field>
+          <p className="text-xs text-muted">Corrections only: stock changes, money never does. To add stock you bought, use New restock order.</p>
           <Field label="Date">
             <Input type="date" value={toLocalDateInput(a.date)} onChange={(e) => e.target.value && setA({ ...a, date: fromLocalInput(e.target.value) })} />
           </Field>

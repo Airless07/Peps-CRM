@@ -5,19 +5,20 @@ import { ArrowDown, ArrowUp, ArrowUpDown, Boxes, Combine, FolderTree, Globe, Gri
 import { List, ListRow } from "@/components/list";
 import { moved } from "@/components/inventory/media";
 import { ProductSheet } from "@/components/inventory/product-sheet";
-import { AdjustSheet, RestockSheet } from "@/components/inventory/stock-sheets";
+import { AdjustSheet } from "@/components/inventory/stock-sheets";
+import { RestockOrderRow, productLabel } from "@/components/restock/shared";
+import Link from "next/link";
 import { api, useLoaded } from "@/components/store";
 import { useToast } from "@/components/toast";
 import { Badge, Button, Empty, Field, Input, PageHeader, PageSkeleton, SectionTitle, Segmented, Sheet, cx, useConfirm } from "@/components/ui";
 import { colorHex, fmtDate, fmtMoney, uid } from "@/lib/format";
 import { sizeInName, websiteInfo } from "@/lib/store/product-info";
-import type { AdjustmentRec, ListingRec, ProductRec, PurchaseRec } from "@/lib/types";
-import { TESTING_LABEL } from "@/lib/types";
+import type { AdjustmentRec, ListingRec, ProductRec } from "@/lib/types";
+import { ADJUST_REASONS, TESTING_LABEL } from "@/lib/types";
 
 export default function InventoryPage() {
   const s = useLoaded();
   const [editing, setEditing] = useState<string | "new" | null>(null);
-  const [restock, setRestock] = useState<PurchaseRec | null>(null);
   const [adjust, setAdjust] = useState<AdjustmentRec | null>(null);
   const [reorder, setReorder] = useState(false);
   const [combine, setCombine] = useState(false);
@@ -52,10 +53,16 @@ export default function InventoryPage() {
   const shown = reorder || webFilter === "all" ? active : active.filter((r) => r.l.showOnWebsite === (webFilter === "on"));
   const onWebsite = active.filter((r) => r.l.showOnWebsite).length;
   const archived = rows.filter((r) => r.archived);
-  const productName = (id: string) => data.products.find((p) => p.id === id)?.name ?? "Unknown";
+  const productName = (id: string) => {
+    const p = data.products.find((x) => x.id === id);
+    return p ? productLabel(p) : "Unknown";
+  };
 
-  const startRestock = (productId: string) => setRestock({ id: "", date: new Date().toISOString(), productId, quantity: 1, totalCostCents: 0, note: "", fromInvestment: false, createdAt: "" });
-  const startAdjust = (productId: string) => setAdjust({ id: "", date: new Date().toISOString(), productId, quantity: -1, reason: "breakage", note: "", createdAt: "" });
+  // A new adjustment has no reason picked: it must be chosen.
+  const startAdjust = (productId: string) => setAdjust({ id: "", date: new Date().toISOString(), productId, quantity: -1, reason: "" as AdjustmentRec["reason"], note: "", createdAt: "" });
+  const restockOrders = data.restockOrders ?? [];
+  // Restocks from before restock orders: one line each, shown as they were (read only).
+  const earlier = data.purchases.filter((p) => !p.restockOrderId).sort((a, b) => b.date.localeCompare(a.date));
 
   function saveOrder(next: typeof active) {
     const ids = [...next.map((r) => r.l.id), ...archived.map((r) => r.l.id)];
@@ -90,12 +97,9 @@ export default function InventoryPage() {
           <Stat label="Margin" value={margin === null ? "—" : `${margin.toFixed(0)}%`} tone={margin !== null && margin < 0 ? "neg" : undefined} />
         </div>
         {!reorder && (
-          <div className="mt-3 flex gap-2">
-            <Button size="sm" variant="soft" className="h-10 flex-1" onClick={() => startRestock(p.id)}>
-              <PackagePlus size={16} /> Restock
-            </Button>
-            <Button size="sm" className="h-10 flex-1" onClick={() => startAdjust(p.id)}>
-              <SlidersVertical size={16} /> Adjust
+          <div className="mt-3 flex justify-end">
+            <Button size="sm" className="h-10" onClick={() => startAdjust(p.id)} data-adjust-stock>
+              <SlidersVertical size={16} /> Adjust stock
             </Button>
           </div>
         )}
@@ -170,9 +174,14 @@ export default function InventoryPage() {
         title="Inventory"
         sub="Every product, for the Sell screen and the website."
         actions={
-          <Button variant="primary" onClick={() => setEditing("new")}>
-            <Plus size={18} /> Product
-          </Button>
+          <div className="flex gap-2">
+            <Link href="/admin/inventory/restock" className="inline-flex h-11 items-center gap-2 rounded-xl bg-accent px-4 text-sm font-semibold text-white hover:opacity-90" data-new-restock>
+              <PackagePlus size={18} /> New restock order
+            </Link>
+            <Button onClick={() => setEditing("new")}>
+              <Plus size={18} /> Product
+            </Button>
+          </div>
         }
       />
 
@@ -271,15 +280,26 @@ export default function InventoryPage() {
           />
           {historyTab === "restocks" ? (
             data.purchases.length === 0 ? (
-              <Empty title="No restocks yet" body="Tap Restock on a product to log a purchase." />
+              <Empty title="No restocks yet" body="Tap “New restock order” to add a supplier order." />
             ) : (
+              <>
+                {restockOrders.length > 0 && (
+                  <div className="divide-y divide-line rounded-2xl border border-line bg-surface" data-restock-history>
+                    {[...restockOrders]
+                      .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt))
+                      .map((r) => (
+                        <RestockOrderRow key={r.id} r={r} />
+                      ))}
+                  </div>
+                )}
+                {earlier.length > 0 && (
+                  <div className="mb-2 mt-4 text-xs font-semibold uppercase tracking-wider text-muted">Earlier restocks (before restock orders)</div>
+                )}
               <List>
-                {[...data.purchases]
-                  .sort((a, b) => b.date.localeCompare(a.date))
+                {earlier
                   .map((p) => (
                     <ListRow
                       key={p.id}
-                      onClick={() => setRestock({ ...p })}
                       title={`${productName(p.productId)} · +${p.quantity}`}
                       sub={`${fmtDate(p.date)} · ${fmtMoney(Math.round(p.totalCostCents / p.quantity))}/unit${p.note ? ` · ${p.note}` : ""}`}
                       right={
@@ -291,6 +311,7 @@ export default function InventoryPage() {
                     />
                   ))}
               </List>
+              </>
             )
           ) : data.adjustments.length === 0 ? (
             <Empty title="No adjustments yet" body="Use Adjust for breakage, freebies or count corrections." />
@@ -303,7 +324,7 @@ export default function InventoryPage() {
                     key={a.id}
                     onClick={() => setAdjust({ ...a })}
                     title={productName(a.productId)}
-                    sub={`${fmtDate(a.date)} · ${a.reason}${a.note ? ` · ${a.note}` : ""}`}
+                    sub={`${fmtDate(a.date)} · ${ADJUST_REASONS.find((r) => r.value === a.reason)?.label ?? a.reason}${a.note ? ` · ${a.note}` : ""}`}
                     right={<span className={cx("font-medium tabular-nums", a.quantity < 0 ? "text-neg" : "text-pos")}>{a.quantity > 0 ? `+${a.quantity}` : a.quantity}</span>}
                   />
                 ))}
@@ -313,7 +334,6 @@ export default function InventoryPage() {
       )}
 
       <ProductSheet listingId={editing} onClose={() => setEditing(null)} />
-      <RestockSheet value={restock} onClose={() => setRestock(null)} />
       <AdjustSheet value={adjust} onClose={() => setAdjust(null)} />
       <CombineSheet open={combine} onClose={() => setCombine(false)} onDone={(id) => setEditing(id)} />
       <GroupsSheet open={groups} onClose={() => setGroups(false)} />

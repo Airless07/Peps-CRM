@@ -61,8 +61,8 @@ export function Card({ className, ...p }: React.HTMLAttributes<HTMLDivElement>) 
 
 export function PageHeader({ title, sub, actions }: { title: string; sub?: React.ReactNode; actions?: React.ReactNode }) {
   return (
-    <div className="mb-5 flex items-end justify-between gap-3">
-      <div className="min-w-0">
+    <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+      <div className="min-w-0 flex-1 basis-48">
         <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
         {sub && <div className="mt-0.5 text-sm text-muted">{sub}</div>}
       </div>

@@ -5,10 +5,11 @@ import { readUpload } from "@/lib/uploads";
 
 export const dynamic = "force-dynamic";
 
-/** An expense attachment. Private: only a signed-in admin, and only a file saved on an expense. */
+/** An expense or restock order attachment. Private: only a signed-in admin, and only a file saved on an expense. */
 export const GET = route(async (_req, ctx: Ctx<{ name: string }>) => {
   const { name } = await ctx.params;
-  const x = await prisma.expense.findFirst({ where: { file: name }, select: { fileName: true } });
+  // Only a file saved on an expense or a restock order.
+  const x = (await prisma.expense.findFirst({ where: { file: name }, select: { fileName: true } })) ?? (await prisma.restockOrder.findFirst({ where: { file: name }, select: { fileName: true } }));
   const f = x ? await readUpload(name, "private") : null;
   if (!f) throw new HttpError(404, "That attachment is gone.");
   const safe = (x?.fileName || name).replace(/[^\w. -]/g, "_");

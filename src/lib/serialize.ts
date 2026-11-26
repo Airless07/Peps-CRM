@@ -9,6 +9,8 @@ import type {
   CashHandoffRec,
   ExpenseEventRec,
   ExpenseRec,
+  RestockEventRec,
+  RestockOrderRec,
   CoaRec,
   CreditEntryRec,
   CustomerRec,
@@ -327,10 +329,20 @@ export const toExpenseEvent = (e: Prisma.ExpenseEventGetPayload<object>): Expens
   message: e.message,
 });
 
+export const toRestockOrder = (r: Prisma.RestockOrderGetPayload<object>): RestockOrderRec => ({
+  ...r,
+  paidBy: holder(r.paidBy),
+  feeMode: r.feeMode === "percent" ? "percent" : "amount",
+  date: iso(r.date),
+  createdAt: iso(r.createdAt),
+  updatedAt: iso(r.updatedAt),
+});
+export const toRestockEvent = ({ detail: _d, ...e }: Prisma.RestockEventGetPayload<object>): RestockEventRec => ({ ...e, action: e.action as RestockEventRec["action"], at: iso(e.at) });
+
 export async function loadAll(): Promise<AppData> {
   // Every customer has a referral code (older rows get theirs here, once).
   await assignMissingReferralCodes().catch((e) => console.error("[referral codes]", e));
-  const [settings, products, customers, purchases, adjustments, orders, splits, payouts, labels, listings, groups, coas, promotions, reviews, messages, savedOrders, handoffs, credits, expenses, expenseEvents] =
+  const [settings, products, customers, purchases, adjustments, orders, splits, payouts, labels, listings, groups, coas, promotions, reviews, messages, savedOrders, handoffs, credits, expenses, expenseEvents, restockOrders, restockEvents] =
     await Promise.all([
       getSettingsRow(),
       prisma.product.findMany({ orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] }),
@@ -352,6 +364,8 @@ export async function loadAll(): Promise<AppData> {
       prisma.creditEntry.findMany({ orderBy: [{ date: "desc" }, { createdAt: "desc" }] }),
       prisma.expense.findMany({ orderBy: [{ date: "desc" }, { createdAt: "desc" }] }),
       prisma.expenseEvent.findMany({ orderBy: { at: "desc" }, take: 500 }),
+      prisma.restockOrder.findMany({ orderBy: [{ date: "desc" }, { createdAt: "desc" }] }),
+      prisma.restockEvent.findMany({ orderBy: { at: "desc" }, take: 500 }),
     ]);
   const allOrders = orders.map(toOrder);
   const backfill = await prisma.dataMigration.findUnique({ where: { id: "sizes-from-names" } }).catch(() => null);
@@ -397,6 +411,8 @@ export async function loadAll(): Promise<AppData> {
     creditEntries: credits.map(toCreditEntry),
     expenses: expenses.map(toExpense),
     expenseEvents: expenseEvents.map(toExpenseEvent),
+    restockOrders: restockOrders.map(toRestockOrder),
+    restockEvents: restockEvents.map(toRestockEvent),
     store: parseStore(settings.storeJson),
     content: parseContent(settings.contentJson),
     sizeBackfill: backfill ? { ranAt: iso(backfill.ranAt), items: json<{ productId: string; product: string; size: string }[]>(backfill.detail, []) } : null,

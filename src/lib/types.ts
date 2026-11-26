@@ -10,7 +10,13 @@ export type OrderSource = "inperson" | "online";
 export type OrderStatus = "completed" | "awaiting_payment" | "paid" | "label_purchased" | "shipped" | "ready" | "picked_up" | "delivered" | "canceled";
 export type TipHandling = "profit" | "seller" | "business";
 export type DiscountType = "$" | "%";
-export type AdjustmentReason = "breakage" | "freebie" | "correction";
+export type AdjustmentReason = "recount" | "breakage" | "freebie" | "correction";
+export const ADJUST_REASONS: { value: AdjustmentReason; label: string }[] = [
+  { value: "recount", label: "Recount" },
+  { value: "breakage", label: "Broken vial" },
+  { value: "freebie", label: "Freebie" },
+  { value: "correction", label: "Other correction" },
+];
 
 export interface SettingsRec {
   startingBalanceCents: number;
@@ -69,7 +75,41 @@ export interface PurchaseRec {
   fromInvestment: boolean;
   /** Who paid it: a partner out of pocket, or the bank. Null/missing = not recorded (counted as the bank). */
   paidBy?: CashHolder | null;
+  /** The restock order this line belongs to (null = an older one-by-one restock). */
+  restockOrderId?: string | null;
+  /** What the supplier charged for the line before extras (null on older restocks). */
+  listCents?: number | null;
   createdAt: string;
+}
+
+/** A restock order. Its lines are the purchases with restockOrderId = id. */
+export interface RestockOrderRec {
+  id: string;
+  name: string;
+  date: string;
+  supplier: string;
+  lot: string;
+  notes: string;
+  paidBy: CashHolder;
+  shippingCents: number;
+  shippingDiscountCents: number;
+  discountCents: number;
+  feeMode: "amount" | "percent";
+  /** Cents ("amount") or basis points ("percent", 500 = 5%). */
+  feeValue: number;
+  file: string;
+  fileName: string;
+  mime: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RestockEventRec {
+  id: string;
+  restockId: string;
+  at: string;
+  action: "created" | "edited" | "deleted";
+  message: string;
 }
 
 export interface AdjustmentRec {
@@ -628,6 +668,10 @@ export interface AppData {
   expenses?: ExpenseRec[];
   /** Every expense change, newest first (kept after an expense is deleted). */
   expenseEvents?: ExpenseEventRec[];
+  /** Restock orders (their lines are purchases). */
+  restockOrders?: RestockOrderRec[];
+  /** Every restock order change, newest first (kept after an order is deleted). */
+  restockEvents?: RestockEventRec[];
   store: StoreSettings;
   content: SiteContent;
   /** The one-time "sizes from product names" fill-in: when it ran and what it filled. Null before it ran. */
@@ -667,6 +711,8 @@ export const emptyStoreData = () => ({
   creditEntries: [] as CreditEntryRec[],
   expenses: [] as ExpenseRec[],
   expenseEvents: [] as ExpenseEventRec[],
+  restockOrders: [] as RestockOrderRec[],
+  restockEvents: [] as RestockEventRec[],
   store: structuredClone(DEFAULT_STORE),
   content: structuredClone(DEFAULT_CONTENT),
 });

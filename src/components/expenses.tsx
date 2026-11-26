@@ -4,7 +4,9 @@
 // An expense lowers business money on its date (like a restock, so it can start payback mode) and comes
 // out of the cash held by whoever paid. Every add, edit and delete is logged in the change history.
 import { useMemo, useRef, useState } from "react";
-import { FlaskConical, Paperclip, Pencil, Plus, Trash2, X } from "lucide-react";
+import Link from "next/link";
+import { FlaskConical, PackagePlus, Paperclip, Pencil, Plus, Trash2, X } from "lucide-react";
+import { RestockOrderRow, restockTotal } from "./restock/shared";
 import { api, useLoaded } from "./store";
 import { useToast } from "./toast";
 import { MoneyToPicker } from "./money-to";
@@ -24,7 +26,7 @@ export function ExpensesTab() {
   const s = useLoaded();
   const confirm = useConfirm();
   const toast = useToast();
-  const [cat, setCat] = useState<ExpenseCategory | "all">("all");
+  const [cat, setCat] = useState<ExpenseCategory | "all" | "restock">("all");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [editing, setEditing] = useState<ExpenseRec | "new" | null>(null);
@@ -36,6 +38,12 @@ export function ExpensesTab() {
       .filter((x) => (cat === "all" || x.category === cat) && (!a || dayKey(x.date) >= a) && (!b || dayKey(x.date) <= b))
       .sort((x, y) => (x.date < y.date ? 1 : x.date > y.date ? -1 : x.createdAt < y.createdAt ? 1 : -1));
   }, [s, cat, from, to]);
+  // Restock orders show here as one entry each ("Restock: name"), with the same date filter.
+  const restocks = useMemo(() => {
+    const [a, b] = from && to && from > to ? [to, from] : [from, to];
+    if (cat !== "all" && cat !== "restock") return [];
+    return (s?.data.restockOrders ?? []).filter((r) => (!a || dayKey(r.date) >= a) && (!b || dayKey(r.date) <= b)).sort((x, y) => y.date.localeCompare(x.date));
+  }, [s, cat, from, to]);
 
   if (!s) return null;
   const { data, ledger, name, mutate } = s;
@@ -44,8 +52,10 @@ export function ExpensesTab() {
     const p = products.get(id);
     return p ? productLabel(p) : "Deleted product";
   };
-  const total = list.reduce((x, e) => x + e.amountCents, 0);
-  const testing = list.filter((e) => e.category === "lab_testing").reduce((x, e) => x + e.amountCents, 0);
+  const shownExpenses = cat === "restock" ? [] : list;
+  const restockSum = restocks.reduce((x, r) => x + restockTotal(data, r.id), 0);
+  const total = shownExpenses.reduce((x, e) => x + e.amountCents, 0) + restockSum;
+  const testing = shownExpenses.filter((e) => e.category === "lab_testing").reduce((x, e) => x + e.amountCents, 0);
   const history = data.expenseEvents ?? [];
   const filtered = cat !== "all" || !!from || !!to;
 
@@ -65,9 +75,14 @@ export function ExpensesTab() {
     <div data-expenses>
       <SectionTitle
         right={
-          <Button size="sm" variant="primary" className="h-10" onClick={() => setEditing("new")} data-add-expense>
-            <Plus size={16} /> Add expense
-          </Button>
+          <div className="flex flex-wrap justify-end gap-2">
+            <Link href="/admin/inventory/restock?from=expenses" className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-surface2 px-3 text-sm font-medium hover:bg-line" data-new-restock>
+              <PackagePlus size={16} /> New restock order
+            </Link>
+            <Button size="sm" variant="primary" className="h-10" onClick={() => setEditing("new")} data-add-expense>
+              <Plus size={16} /> Add expense
+            </Button>
+          </div>
         }
       >
         Expenses
@@ -75,8 +90,9 @@ export function ExpensesTab() {
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Field label="Category" className="col-span-2 sm:col-span-2">
-          <Select value={cat} onChange={(e) => setCat(e.target.value as ExpenseCategory | "all")} aria-label="Filter by category" data-expense-filter-category>
+          <Select value={cat} onChange={(e) => setCat(e.target.value as ExpenseCategory | "all" | "restock")} aria-label="Filter by category" data-expense-filter-category>
             <option value="all">All categories</option>
+            <option value="restock">Restock orders</option>
             {EXPENSE_CATEGORIES.map((c) => (
               <option key={c.value} value={c.value}>
                 {c.label}
@@ -102,7 +118,8 @@ export function ExpensesTab() {
           <div className="text-xs text-muted">{filtered ? "Total for selection" : "Total, all time"}</div>
           <div className="mt-0.5 text-lg font-semibold tabular-nums">{fmtMoney(total)}</div>
           <div className="text-[11px] text-muted">
-            {list.length} {list.length === 1 ? "expense" : "expenses"}
+            {shownExpenses.length} {shownExpenses.length === 1 ? "expense" : "expenses"}
+            {restocks.length ? ` + ${restocks.length} ${restocks.length === 1 ? "restock" : "restocks"} (${fmtMoney(restockSum)})` : ""}
           </div>
         </Card>
         <Card className="p-4">
@@ -117,13 +134,22 @@ export function ExpensesTab() {
         </Card>
       </div>
 
-      {list.length === 0 ? (
+      {restocks.length > 0 && (
+        <Card className="mt-3 divide-y divide-line overflow-hidden" data-expense-restocks>
+          {restocks.map((r) => (
+            <RestockOrderRow key={r.id} r={r} from="expenses" />
+          ))}
+        </Card>
+      )}
+      {shownExpenses.length === 0 ? (
+        restocks.length > 0 ? null : (
         <div className="mt-3">
           <Empty icon={<FlaskConical size={28} />} title={filtered ? "No expenses match" : "No expenses yet"} />
         </div>
+        )
       ) : (
         <Card className="mt-3 divide-y divide-line" data-expense-list>
-          {list.map((x) => (
+          {shownExpenses.map((x) => (
             <div key={x.id} className="flex items-start gap-3 px-4 py-3 text-sm" data-expense-row={x.id}>
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
@@ -163,7 +189,7 @@ export function ExpensesTab() {
         </Card>
       )}
       <p className="mt-2 text-xs text-muted">
-        Each expense lowers business money on its date, like a restock. Below $0 the store is in payback mode: every sale goes to the business, nothing to split, until it is back to $0. It also comes out of the cash held by whoever paid (Bank, or a partner who paid out of pocket).
+        Restock orders are listed here too; their cost goes into each vial’s cost (Inventory), not into Expenses on the Overview. Each expense lowers business money on its date, like a restock. Below $0 the store is in payback mode: every sale goes to the business, nothing to split, until it is back to $0. It also comes out of the cash held by whoever paid (Bank, or a partner who paid out of pocket).
       </p>
 
       {history.length > 0 && (

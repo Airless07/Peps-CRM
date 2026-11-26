@@ -31,6 +31,8 @@ export async function wipe(tx: Tx) {
   await tx.cashHandoff.deleteMany();
   await tx.expense.deleteMany();
   await tx.expenseEvent.deleteMany();
+  await tx.restockOrder.deleteMany();
+  await tx.restockEvent.deleteMany();
 }
 
 const d = (s: string) => new Date(s);
@@ -133,7 +135,13 @@ export async function restore(input: AppData | Parameters<typeof normalizeBackup
         })),
       });
       await tx.purchase.createMany({
-        data: data.purchases.map((p) => ({ ...p, paidBy: p.paidBy ?? null, date: d(p.date), createdAt: d(p.createdAt) })),
+        data: data.purchases.map((p) => ({ ...p, paidBy: p.paidBy ?? null, restockOrderId: p.restockOrderId ?? null, listCents: p.listCents ?? null, date: d(p.date), createdAt: d(p.createdAt) })),
+      });
+      await tx.restockOrder.createMany({
+        data: (data.restockOrders ?? []).map((r) => ({ ...r, date: d(r.date), createdAt: d(r.createdAt), updatedAt: d(r.updatedAt ?? r.createdAt) })),
+      });
+      await tx.restockEvent.createMany({
+        data: (data.restockEvents ?? []).map((e) => ({ id: e.id, restockId: e.restockId, action: e.action, message: e.message, at: d(e.at) })),
       });
       await tx.stockAdjustment.createMany({
         data: data.adjustments.map((a) => ({ ...a, date: d(a.date), createdAt: d(a.createdAt) })),
