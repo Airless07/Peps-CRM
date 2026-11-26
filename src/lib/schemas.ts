@@ -220,6 +220,7 @@ export const sellButtonsInput = z
 export const settingsUpdate = z
   .object({
     startingBalanceCents: cents,
+    startingPaidBy: z.enum(["A", "B", "bank"]).nullable(),
     startDate: dateStr,
     businessCutPercent: percent,
     partnerAName: text(40).min(1),

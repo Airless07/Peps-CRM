@@ -633,7 +633,20 @@ function CashHeld({ onHandoff }: { onHandoff: () => void }) {
         {HOLDERS.map((h) => (
           <Card key={h} className="p-4" data-cash-holder={h}>
             <div className="text-sm text-muted">{label(h)}</div>
-            <div className={cx("mt-0.5 text-xl font-semibold tabular-nums", pos[h] < 0 && "text-neg")}>{fmtMoney(pos[h])}</div>
+            {h !== "bank" && pos[h] < 0 ? (
+              <>
+                <div className="mt-0.5 text-xl font-semibold tabular-nums text-neg" data-out-of-pocket>
+                  <span className="block text-xs font-medium">Out of pocket:</span> {fmtMoney(-pos[h])}
+                </div>
+                <p className="mt-1 text-[11px] leading-snug text-muted">Paid more for the business than they&apos;re holding, owed back as the business earns.</p>
+              </>
+            ) : h !== "bank" ? (
+              <div className="mt-0.5 text-xl font-semibold tabular-nums" data-holding>
+                <span className="block text-xs font-medium text-muted">Holding:</span> {fmtMoney(pos[h])}
+              </div>
+            ) : (
+              <div className={cx("mt-0.5 text-xl font-semibold tabular-nums", pos[h] < 0 && "text-neg")}>{fmtMoney(pos[h])}</div>
+            )}
           </Card>
         ))}
       </div>

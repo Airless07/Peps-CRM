@@ -23,6 +23,8 @@ export const LABS = ["KMD Analytical", "Janoshik"];
 
 export interface SettingsRec {
   startingBalanceCents: number;
+  /** Who paid the starting balance (the first restock). Null/missing = the bank. Cash held only. */
+  startingPaidBy?: CashHolder | null;
   startDate: string;
   businessCutPercent: number;
   partnerAName: string;

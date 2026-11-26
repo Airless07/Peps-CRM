@@ -11,6 +11,8 @@ datasource db {
 model Settings {
   id                   Int      @id @default(1)
   startingBalanceCents Int      @default(-130000)
+  /// Who paid the starting balance (the first restock): "A" | "B" | "bank". NULL = not recorded (the bank).
+  startingPaidBy       String?
   startDate            DateTime @default(now())
   businessCutPercent   Float    @default(10)
   partnerAName         String   @default("Ahmad")

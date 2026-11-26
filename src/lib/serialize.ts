@@ -63,6 +63,7 @@ export type SettingsRow = Awaited<ReturnType<typeof getSettingsRow>>;
 export function toSettings(s: SettingsRow): SettingsRec {
   return {
     startingBalanceCents: s.startingBalanceCents,
+    startingPaidBy: s.startingPaidBy === "A" || s.startingPaidBy === "B" || s.startingPaidBy === "bank" ? s.startingPaidBy : null,
     startDate: iso(s.startDate),
     businessCutPercent: s.businessCutPercent,
     partnerAName: s.partnerAName,

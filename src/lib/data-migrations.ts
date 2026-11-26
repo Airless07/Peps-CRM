@@ -323,6 +323,13 @@ export async function runDataMigrations() {
     console.error("[data] Batch #1 (shipment 2) fix failed:", e instanceof Error ? e.message : e);
   }
   try {
+    const { applyAnswers20261126 } = await import("./answers-2026-11-26");
+    const a = await applyAnswers20261126();
+    if (a) console.log(`[data] Restock answers: ${a.join("; ")}`);
+  } catch (e) {
+    console.error("[data] restock answers failed:", e instanceof Error ? e.message : e);
+  }
+  try {
     const p = await updatePolicies();
     if (p) console.log(`[data] Policies updated: ${p.replaced.join(", ") || "none"}${p.kept.length ? `; edited by you, left alone: ${p.kept.join(", ")}` : ""}${p.contactEmail ? "; contact email set" : ""}`);
   } catch (e) {

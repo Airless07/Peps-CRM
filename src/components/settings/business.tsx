@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowDown, ArrowUp, Download, LogOut, Plus, Upload, X } from "lucide-react";
 import { api, useLoaded } from "@/components/store";
 import { useToast } from "@/components/toast";
-import { Button, Card, Field, Input, MoneyInput, NumberInput, PageSkeleton, SectionTitle, Segmented, useConfirm } from "@/components/ui";
+import { Button, Card, Field, Input, MoneyInput, NumberInput, PageSkeleton, SectionTitle, Segmented, Select, useConfirm } from "@/components/ui";
 import { SellButtonsEditor } from "@/components/settings/sell-buttons-editor";
 import { AdminSecurity } from "@/components/settings/admin-security";
 import { fromLocalInput, toLocalDateInput } from "@/lib/format";
@@ -117,6 +117,13 @@ export function BusinessSettings() {
         <div className="grid grid-cols-2 gap-3">
           <Field label="Starting balance" hint="Negative = money still owed back">
             <MoneyInput allowNegative value={form.startingBalanceCents} onChange={(c) => set("startingBalanceCents", c ?? 0)} />
+          </Field>
+          <Field label="Starting balance paid by" hint="Cash held only">
+            <Select value={form.startingPaidBy ?? "bank"} onChange={(e) => set("startingPaidBy", e.target.value as SettingsRec["startingPaidBy"])} aria-label="Starting balance paid by">
+              <option value="bank">Bank</option>
+              <option value="A">{form.partnerAName}</option>
+              <option value="B">{form.partnerBName}</option>
+            </Select>
           </Field>
           <Field label="Start date">
             <Input type="date" value={toLocalDateInput(form.startDate)} onChange={(e) => e.target.value && set("startDate", fromLocalInput(e.target.value + "T00:00"))} />
