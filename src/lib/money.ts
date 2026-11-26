@@ -193,6 +193,11 @@ export interface Ledger {
   labelCosts: number;
   /** All expenses (lab testing, supplies...), already subtracted from businessCents. */
   expenseCosts: number;
+  /**
+   * Partner shares that were waiting to be split when a cost (restock, expense, label, payout) pushed business
+   * money below $0. No split during payback: they went back to the business. Already inside businessCents.
+   */
+  returnedToPayback: number;
   inPayback: boolean;
   /** Cents left to reach $0 (0 when not in payback). */
   leftToBreakEven: number;
@@ -225,6 +230,29 @@ export function computeLedger(data: AppData): Ledger {
     return st;
   };
   for (const p of data.products) stockOf(p.id);
+
+  // Orders already in a split (as of the event being processed): their shares are paid out, never taken back.
+  const splitDone = new Set<string>();
+  let returnedToPayback = 0;
+  /** A cost left business money below $0: every share not split yet goes back to the business (payback). */
+  const costHit = () => {
+    if (bal >= 0) return;
+    for (const [id, r] of orders) {
+      if (splitDone.has(id) || (r.a === 0 && r.b === 0)) continue;
+      returnedToPayback += r.a + r.b;
+      r.business += r.a + r.b;
+      r.a = 0;
+      r.b = 0;
+      r.tipBusiness = r.tip;
+      r.tipA = 0;
+      r.tipB = 0;
+      for (const lr of r.lines) {
+        lr.business = lr.revenue;
+        lr.a = 0;
+        lr.b = 0;
+      }
+    }
+  };
 
   const track = (date: string) => {
     if (bal < 0) low = Math.min(low, bal);
@@ -263,7 +291,10 @@ export function computeLedger(data: AppData): Ledger {
         st.stock += p.quantity;
         st.purchasedQty += p.quantity;
         st.purchasedCost += p.totalCostCents;
-        if (!p.fromInvestment) bal -= p.totalCostCents;
+        if (!p.fromInvestment) {
+          bal -= p.totalCostCents;
+          costHit();
+        }
         track(p.date);
       },
     });
@@ -296,6 +327,7 @@ export function computeLedger(data: AppData): Ledger {
       tie: sp.createdAt + sp.id,
       apply: () => {
         bal -= sp.partnerACents + sp.partnerBCents;
+        for (const it of sp.items) if (it.orderId) splitDone.add(it.orderId);
         track(sp.date);
       },
     });
@@ -308,6 +340,7 @@ export function computeLedger(data: AppData): Ledger {
       tie: p.createdAt + p.id,
       apply: () => {
         bal -= p.amountCents;
+        costHit();
         track(p.date);
       },
     });
@@ -323,6 +356,7 @@ export function computeLedger(data: AppData): Ledger {
       tie: l.createdAt + l.id,
       apply: () => {
         bal -= l.costCents;
+        costHit();
         labelCosts += l.costCents;
         track(l.date);
       },
@@ -340,6 +374,7 @@ export function computeLedger(data: AppData): Ledger {
       tie: x.createdAt + x.id,
       apply: () => {
         bal -= x.amountCents;
+        costHit();
         expenseCosts += x.amountCents;
         track(x.date);
       },
@@ -490,6 +525,7 @@ export function computeLedger(data: AppData): Ledger {
     shippingCollected,
     labelCosts,
     expenseCosts,
+    returnedToPayback,
     inPayback: bal < 0,
     leftToBreakEven: bal < 0 ? -bal : 0,
     paybackLow: bal < 0 ? Math.min(low, bal) : 0,

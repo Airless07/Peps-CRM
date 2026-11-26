@@ -226,11 +226,41 @@ describe("restocks", () => {
     const l = computeLedger(
       data({ settings: settings({ startingBalanceCents: 0 }), orders: [s1, s2, s3], purchases: [p] }),
     );
-    expect(l.orders.get(s1.id)!.a).toBe(1350); // normal
+    // s1's share was waiting to be split when the restock pushed the business below $0: no split during
+    // payback, so it goes back to the business.
+    expect(l.orders.get(s1.id)!.a).toBe(0);
+    expect(l.orders.get(s1.id)!.business).toBe(5000);
+    expect(l.returnedToPayback).toBe(2700);
     expect(l.orders.get(s2.id)!.a).toBe(0); // payback: balance was -$50
     expect(l.orders.get(s2.id)!.business).toBe(5000);
     expect(l.orders.get(s3.id)!.a).toBe(1350); // back to normal
+    expect(l.pendingA).toBe(1350);
+    expect(l.pendingB).toBe(1350);
     expect(l.businessCents).toBe(5000);
+  });
+
+  it("pending split goes back to payback when a cost pushes business money below $0, but a split already done stays", () => {
+    const s1 = order(day(2), [{ price: 5000, cost: 2000 }]);
+    let d = data({ settings: settings({ startingBalanceCents: 0 }), orders: [s1] });
+    const sp = confirmSplit(d, day(3)); // s1 split before the restock: paid out, never taken back
+    const s2 = order(day(4), [{ price: 5000, cost: 2000 }]);
+    const p = purchase(day(5), 10, 10000);
+    d = { ...d, orders: [s1, s2], splits: [sp], purchases: [p] };
+    const l = computeLedger(d);
+    expect(l.orders.get(s1.id)!.a).toBe(1350);
+    expect(l.orders.get(s2.id)!.a).toBe(0);
+    expect(l.pendingA + l.pendingB).toBe(0);
+    expect(l.inPayback).toBe(true);
+    expect(l.businessCents).toBe(5000 - 2700 + 5000 - 10000);
+    expect(planSplit(d, l).partnerACents).toBe(0);
+  });
+
+  it("a cost that leaves business money at $0 or above does not touch pending", () => {
+    const s1 = order(day(2), [{ price: 5000, cost: 2000 }]);
+    const l = computeLedger(data({ settings: settings({ startingBalanceCents: 0 }), orders: [s1], purchases: [purchase(day(3), 1, 5000)] }));
+    expect(l.businessCents).toBe(0);
+    expect(l.pendingA).toBe(1350);
+    expect(l.returnedToPayback).toBe(0);
   });
 
   it("a purchase paid from starting investment adds stock and cost but not business money", () => {

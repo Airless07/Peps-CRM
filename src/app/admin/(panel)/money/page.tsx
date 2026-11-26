@@ -202,7 +202,10 @@ export default function MoneyPage() {
               <div className="h-2 overflow-hidden rounded-full bg-surface2">
                 <div className="h-full rounded-full bg-accent transition-all duration-500" style={{ width: `${progress * 100}%` }} />
               </div>
-              <p className="mt-2 text-xs text-muted">Payback mode: all sales go to the business until it reaches $0.</p>
+              <p className="mt-2 text-xs text-muted">
+                Payback mode: all sales go to the business until it reaches $0.
+                {ledger.returnedToPayback > 0 && ` ${fmtMoney(ledger.returnedToPayback)} that was waiting to be split went back to paying the business back (no split during payback).`}
+              </p>
             </div>
           ) : (
             <p className="mt-2 text-sm text-muted">Includes {fmtMoney(pending)} waiting to be split.</p>
