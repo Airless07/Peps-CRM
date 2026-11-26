@@ -316,6 +316,13 @@ export async function runDataMigrations() {
     console.error("[data] #1012 money-to fix failed:", e instanceof Error ? e.message : e);
   }
   try {
+    const { fixBatch1Shipment2 } = await import("./batch1-shipment2");
+    const b = await fixBatch1Shipment2();
+    if (b) console.log(`[data] Batch #1 (shipment 2): ${b.why}`);
+  } catch (e) {
+    console.error("[data] Batch #1 (shipment 2) fix failed:", e instanceof Error ? e.message : e);
+  }
+  try {
     const p = await updatePolicies();
     if (p) console.log(`[data] Policies updated: ${p.replaced.join(", ") || "none"}${p.kept.length ? `; edited by you, left alone: ${p.kept.join(", ")}` : ""}${p.contactEmail ? "; contact email set" : ""}`);
   } catch (e) {

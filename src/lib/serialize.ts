@@ -359,7 +359,7 @@ export async function loadAll(): Promise<AppData> {
     settings: toSettings(settings),
     products: products.map((p): ProductRec => ({ ...p, testingStatus: p.testingStatus as ProductRec["testingStatus"], createdAt: iso(p.createdAt) })),
     customers: customers.map(toCustomer),
-    purchases: purchases.map((p): PurchaseRec => ({ ...p, date: iso(p.date), createdAt: iso(p.createdAt) })),
+    purchases: purchases.map((p): PurchaseRec => ({ ...p, paidBy: holderOrNull(p.paidBy), date: iso(p.date), createdAt: iso(p.createdAt) })),
     adjustments: adjustments.map(
       (a): AdjustmentRec => ({
         ...a,

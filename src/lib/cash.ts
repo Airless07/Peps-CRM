@@ -33,7 +33,7 @@ export interface CashPosition {
   total: number;
 }
 
-export function cashPosition(data: Pick<AppData, "orders" | "cashHandoffs" | "expenses">, ledger: Pick<Ledger, "businessCents" | "orders">): CashPosition {
+export function cashPosition(data: Pick<AppData, "orders"> & Partial<Pick<AppData, "cashHandoffs" | "expenses" | "purchases">>, ledger: Pick<Ledger, "businessCents" | "orders">): CashPosition {
   const received: Record<Partner, number> = { A: 0, B: 0 };
   for (const o of data.orders) {
     const who = cashHolderOf(o);
@@ -47,6 +47,9 @@ export function cashPosition(data: Pick<AppData, "orders" | "cashHandoffs" | "ex
   }
   // An expense comes out of whoever paid it. Paid by the bank: business money drops, so Bank (the rest) drops.
   for (const x of data.expenses ?? []) if (x.amountCents > 0 && x.paidBy !== "bank") held[x.paidBy] -= x.amountCents;
+  // Same for a restock a partner paid out of pocket. Not recorded or Bank: it comes out of the bank, as before.
+  // Paid from the starting investment: never touches business money, so it never touches cash held either.
+  for (const p of data.purchases ?? []) if (!p.fromInvestment && p.totalCostCents > 0 && (p.paidBy === "A" || p.paidBy === "B")) held[p.paidBy] -= p.totalCostCents;
   return { A: held.A, B: held.B, bank: ledger.businessCents - held.A - held.B, received, total: ledger.businessCents };
 }
 

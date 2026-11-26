@@ -133,7 +133,7 @@ export async function restore(input: AppData | Parameters<typeof normalizeBackup
         })),
       });
       await tx.purchase.createMany({
-        data: data.purchases.map((p) => ({ ...p, date: d(p.date), createdAt: d(p.createdAt) })),
+        data: data.purchases.map((p) => ({ ...p, paidBy: p.paidBy ?? null, date: d(p.date), createdAt: d(p.createdAt) })),
       });
       await tx.stockAdjustment.createMany({
         data: data.adjustments.map((a) => ({ ...a, date: d(a.date), createdAt: d(a.createdAt) })),

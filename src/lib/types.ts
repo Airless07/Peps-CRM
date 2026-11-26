@@ -67,6 +67,8 @@ export interface PurchaseRec {
   totalCostCents: number;
   note: string;
   fromInvestment: boolean;
+  /** Who paid it: a partner out of pocket, or the bank. Null/missing = not recorded (counted as the bank). */
+  paidBy?: CashHolder | null;
   createdAt: string;
 }
 

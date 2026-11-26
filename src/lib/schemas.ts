@@ -38,6 +38,8 @@ export const purchaseCreate = z.object({
   totalCostCents: posCents,
   note: text().default(""),
   fromInvestment: z.boolean().default(false),
+  /** Who paid (Ahmad, Mo or Bank). Left out = not recorded (the bank). */
+  paidBy: z.enum(["A", "B", "bank"]).nullable().optional(),
 });
 export const purchaseUpdate = purchaseCreate.omit({ id: true }).partial();
 

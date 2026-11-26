@@ -141,6 +141,8 @@ model Purchase {
   note           String   @default("")
   /// If true: adds stock and sets cost but does NOT subtract from business money.
   fromInvestment Boolean  @default(false)
+  /// Who paid: "A" | "B" | "bank". NULL = not recorded (older restocks), counted as the bank.
+  paidBy         String?
   createdAt      DateTime @default(now())
 
   @@index([productId])

@@ -3,6 +3,7 @@
 // Restock and stock adjustment sheets (unchanged behavior from the original Inventory screen).
 import { useEffect, useState } from "react";
 import { api, useLoaded } from "@/components/store";
+import { MoneyToPicker } from "@/components/money-to";
 import { Button, Field, Input, MoneyInput, NumberInput, Segmented, Select, Sheet, Toggle, useConfirm } from "@/components/ui";
 import { fmtMoney, fromLocalInput, toLocalDateInput, uid } from "@/lib/format";
 import type { AdjustmentReason, AdjustmentRec, PurchaseRec } from "@/lib/types";
@@ -20,7 +21,7 @@ export function RestockSheet({ value, onClose }: { value: PurchaseRec | null; on
   async function save() {
     if (!p || p.quantity < 1) return;
     const rec = { ...p, id: p.id || uid(), createdAt: p.createdAt || new Date().toISOString() };
-    const body = { date: rec.date, productId: rec.productId, quantity: rec.quantity, totalCostCents: rec.totalCostCents, note: rec.note, fromInvestment: rec.fromInvestment };
+    const body = { date: rec.date, productId: rec.productId, quantity: rec.quantity, totalCostCents: rec.totalCostCents, note: rec.note, fromInvestment: rec.fromInvestment, paidBy: rec.paidBy ?? null };
     onClose();
     await s!.mutate(
       (d) => ({ ...d, purchases: isNew ? [rec, ...d.purchases] : d.purchases.map((x) => (x.id === rec.id ? rec : x)) }),
@@ -48,7 +49,7 @@ export function RestockSheet({ value, onClose }: { value: PurchaseRec | null; on
           <Button block onClick={onClose}>
             Cancel
           </Button>
-          <Button block variant="primary" onClick={save} disabled={!p || p.quantity < 1}>
+          <Button block variant="primary" onClick={save} disabled={!p || p.quantity < 1 || (isNew && !p.fromInvestment && !p.paidBy)}>
             Save
           </Button>
         </div>
@@ -83,6 +84,11 @@ export function RestockSheet({ value, onClose }: { value: PurchaseRec | null; on
           <Field label="Note (optional)">
             <Input value={p.note} onChange={(e) => setP({ ...p, note: e.target.value })} placeholder="Supplier, batch…" />
           </Field>
+          {!p.fromInvestment && (
+            <Field label="Paid by" hint="Who paid the supplier. A partner who paid out of pocket: it comes out of their cash held.">
+              <MoneyToPicker value={p.paidBy ?? null} onChange={(v) => setP({ ...p, paidBy: v })} missing={isNew && !p.paidBy} missingText="Pick who paid." />
+            </Field>
+          )}
           <Toggle
             checked={p.fromInvestment}
             onChange={(v) => setP({ ...p, fromInvestment: v })}
